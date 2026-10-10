@@ -83,13 +83,19 @@ class Member:
         self.s.close()
 
 
-def result(frame, me, score=(3, 2), frames=(1, 0), winner=0, game="SNOOKER", best=(57, 12), brk=([57, 31], [])):
+SHOT = {"att": 14, "made": 9, "long_att": 4, "long_made": 2, "safeties": 5, "safe_ok": 3, "banks": 0,
+        "breaks": 1, "breaks_ok": 0, "breaks_dry": 1, "breaks_foul": 0, "bnr": 0, "runouts": 0,
+        "visits": 3, "vis_pts": 88, "b50": 1, "b100": 0, "obj": 0, "cue": 0, "random": 1, "series": 0}
+
+
+def result(frame, me, score=(3, 2), frames=(1, 0), winner=0, game="SNOOKER", best=(57, 12), brk=([57, 31], []), shot=None):
     return "RESULT " + json.dumps({
         "v": 1, "t": "frame", "ver": "7.3", "game": game, "variant": "", "kind": 4, "mode": 4,
         "best_of": 3, "frame": frame, "me": me, "names": ["A", "B"], "score": list(score),
         "frames": list(frames), "winner": winner, "match_winner": -1, "secs": 300, "bnr": -1,
         "golden": 0, "clear": 0,
-        "sides": [{"shots": 20, "pot_shots": 9, "potted": 9, "fouls": 1, "time": 120.0, "best": best[0], "breaks": brk[0]},
+        "sides": [{"shots": 20, "pot_shots": 9, "potted": 9, "fouls": 1, "time": 120.0, "best": best[0], "breaks": brk[0],
+                   "shot": dict(SHOT, **(shot or {}))},
                   {"shots": 18, "pot_shots": 3, "potted": 3, "fouls": 2, "time": 100.0, "best": best[1], "breaks": brk[1]}]})
 
 
@@ -151,6 +157,9 @@ def main():
         # frames past a best of 3
         guest.say(result(3, 1, frames=(5, 0))); r = guest.replies()
         check("frames past the match's length are refused", "RESULT BAD" in r, str(r))
+        # stroke figures that cannot be: more pots made than attempted
+        guest.say(result(3, 1, shot={"made": 20})); r = guest.replies()
+        check("more pots made than attempted is refused", "RESULT BAD" in r, str(r))
         # not JSON at all
         guest.say("RESULT {not json"); r = guest.replies()
         check("a result that is not JSON is refused", "RESULT BAD" in r, str(r))
@@ -163,6 +172,7 @@ def main():
         disp = lines(store, "results_disputed.jsonl")
         unconf = lines(store, "results_unconfirmed.jsonl")
         check("results.jsonl holds the one agreed frame", len(kept) == 1 and kept[0]["result"]["frame"] == 1, str(len(kept)))
+        check("...with each side's stroke figures", kept and kept[0]["result"]["sides"][0].get("shot", {}).get("att") == 14)
         check("the kept result carries both proved accounts and is verified",
               kept and kept[0]["verified"] and {kept[0]["a"]["uid"], kept[0]["b"]["uid"]} == {"111", "222"}, str(kept[0].get("verified") if kept else None))
         check("the disputed frame is kept apart", len(disp) == 1 and not disp[0]["agreed"], str(len(disp)))

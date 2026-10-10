@@ -781,7 +781,13 @@ class Relay:
     # clearance, its build).
     RES_SHARED = ("t", "game", "variant", "kind", "mode", "best_of", "frame",
                   "score", "frames", "winner", "match_winner", "bnr", "golden")
-    RES_SIDE = ("shots", "pot_shots", "potted", "fouls", "best", "breaks")
+    RES_SIDE = ("shots", "pot_shots", "potted", "fouls", "best", "breaks", "shot")
+    # every stroke read (CueVR 7.3): pot attempts and pots made, long pots,
+    # safeties and their success, bank pots, breaks, runs, visits, pyramid's
+    # own -- the same on both ends, which read the same strokes
+    SHOT_KEYS = ("att", "made", "long_att", "long_made", "safeties", "safe_ok", "banks", "breaks",
+                 "breaks_ok", "breaks_dry", "breaks_foul", "bnr", "runouts", "visits", "vis_pts",
+                 "b50", "b100", "obj", "cue", "random", "series")
 
     def result_check(self, r):
         """the checks a result must pass to be kept at all"""
@@ -811,6 +817,17 @@ class Relay:
                 return False
             if snooker and (sd["best"] > 155 or any(x > 155 for x in b)):
                 return False
+            sh = sd.get("shot")
+            if sh is not None:
+                if not (isinstance(sh, dict) and set(sh) <= set(self.SHOT_KEYS) and
+                        all(num(v, 0, 1000000) and int(v) == v for v in sh.values())):
+                    return False
+                g = lambda k: sh.get(k, 0)
+                if (g("made") > g("att") or g("long_made") > g("long_att") or g("long_att") > g("att") or
+                        g("safe_ok") > g("safeties") or g("breaks_ok") + g("breaks_dry") + g("breaks_foul") > g("breaks") or
+                        g("b100") > g("b50") or g("b50") > g("visits") or g("att") + g("safeties") > sd["shots"] or
+                        (snooker and g("vis_pts") > 155 * max(1, g("visits")))):
+                    return False
         return True
 
     def result_key(self, r):
