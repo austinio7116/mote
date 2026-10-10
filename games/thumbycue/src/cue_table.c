@@ -131,11 +131,7 @@ void cue_table_init(CueTable *t, CueGameKind kind) {
     /* PAUL IS ON THIS LIST because it is played with the snooker set — fifteen
      * reds and six colours — and this flag is about the TABLE and its balls,
      * not about the rules. Its scoring is nothing like snooker's. */
-    t->is_snooker = (kind == CUE_GAME_SNK10 || kind == CUE_GAME_SNK15 ||
-                     kind == CUE_GAME_SNK6  || kind == CUE_GAME_SNK3 ||
-                     kind == CUE_GAME_BILLIARDS ||
-                     kind == CUE_GAME_PAUL ||
-                     kind == CUE_GAME_SINUCA || kind == CUE_GAME_SINUCA6);
+    t->is_snooker = CUE_GAME_IS_SNOOKER_BED(kind);
 
     /* THE ROUNDED JAW'S SHAPE, for every table, before any of them speak.
      * See CueTable::jaw_p0 for what the four points are. A STARTING POINT, in

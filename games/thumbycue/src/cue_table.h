@@ -225,6 +225,13 @@ typedef enum {
 /* FIVE-PIN IS ONE OF THEM for everything carom shares -- the table, the three
  * balls, the two cue balls exchanged at index 0, no pockets -- and is asked
  * for by name wherever it differs: the rack, the referee, the planner. */
+/* THE SNOOKER SET'S TABLES: reds and six colours (billiards plays with its red
+ * and yellow). cue_table_init's is_snooker, here so the CueVR ball sets can ask
+ * which kind of set a game takes without a second copy of the list. */
+#define CUE_GAME_IS_SNOOKER_BED(k) \
+    ((k) == CUE_GAME_SNK10 || (k) == CUE_GAME_SNK15 || (k) == CUE_GAME_SNK6 || \
+     (k) == CUE_GAME_SNK3 || (k) == CUE_GAME_BILLIARDS || (k) == CUE_GAME_PAUL || \
+     (k) == CUE_GAME_SINUCA || (k) == CUE_GAME_SINUCA6)
 #define CUE_GAME_IS_CAROM(k) \
     (((k) >= CUE_GAME_CAROM_STRAIGHT && (k) <= CUE_GAME_CAROM_1C) || (k) == CUE_GAME_FIVEPIN)
 /* THE LOWEST BALL IS ALWAYS THE ONE ON. True of 9-ball and 10-ball, and of
