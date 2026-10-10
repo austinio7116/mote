@@ -134,6 +134,11 @@ typedef struct {
      * rerack can hand the cue ball over behind the head string -- bih_head,
      * for that one stroke (cue_rules_in_hand_anywhere's region 2) */
     int bih_head;
+    /* ...and the rest of WPA 14.1 (7.3): str_hand -- this stroke is from hand
+     * behind the head string (set with ball_in_hand, cleared by the resolve),
+     * for 3.11; str_brk -- a breaking foul, the decision pending: take the
+     * table, or the breaker breaks again (7.3(b), 7.10) */
+    int str_hand, str_brk;
 
     /* ---- G2: RUSSIAN PYRAMID -------------------------------------------- *
      *
@@ -904,7 +909,7 @@ static inline int cue_rules_in_hand_anywhere(const CueRules *r) {
     if (r->mode == CUE_GAME_BILLIARDS) return 0;
     /* STRAIGHT POOL, after a rerack that put the cue ball in the way (WPA 7.8):
      * behind the head string, for that stroke */
-    if (r->mode == CUE_GAME_STRAIGHT && r->bih_head) return 2;
+    if (r->mode == CUE_GAME_STRAIGHT) return 2;    /* WPA 7.9 / 3.1: always above the head string */
     /* ROTATION: behind the head string, which is the classic game's penalty and
      * a real one — you may not shoot at anything in front of the line, so a
      * pack sitting at the foot end has to be reached the long way. The FILIPINO

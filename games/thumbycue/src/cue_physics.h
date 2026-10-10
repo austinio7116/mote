@@ -498,6 +498,7 @@ typedef struct {
     int first_hit;
     int first_hit_idx;
     float first_hit_x;   /* where along the table the first ball struck stood (Combined Pyramid's kitchen rule) */
+    float cue_x_pre;     /* the cue ball's furthest x up the table before that first contact (straight pool 3.11) */
 
     /* ---- WHAT THE ATTEMPT LOOKED LIKE, for the referee ------------------- *
      *
@@ -1053,6 +1054,7 @@ void cue_phys_shot_begin(CueWorld *w);
 typedef struct {
     int     first_hit, first_hit_idx;
     float   first_hit_x;
+    float   cue_x_pre;
     float   att_min[CUE_MAX_BALLS];
     float   att_path;
     int     att_prev_ok;

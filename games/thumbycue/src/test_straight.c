@@ -154,6 +154,78 @@ int main(void) {
     ok(r.score[0] == -2,                 "...and costs two, not one");
     ok(r.last_foul_pts == 2,             "...and the referee can say so");
 
+    /* ---- the breaking foul's choice (7.3(b), 7.10, 7.11) --------------- */
+    ok(r.decision == CUE_DEC_PENDING && r.str_brk && r.dec_offender == 0,
+                                         "a breaking foul asks the opponent to choose");
+    ok(r.cfoul[0] == 0,                  "...and is not one of three in a row (7.11)");
+    { CueRules k = r;
+      cue_rules_apply_decision(&k, CUE_DEC_PLAY);
+      ok(k.turn == 1 && !k.ball_in_hand && !k.str_brk && k.rerack == 0 && !k.break_shot,
+                                         "taking the table: the opponent plays it as it lies");
+      k = r;
+      cue_rules_apply_decision(&k, CUE_DEC_REBREAK_OFF);
+      ok(k.turn == 0 && k.rerack == 2 && k.break_shot && k.ball_in_hand && k.str_hand,
+                                         "or the breaker breaks again, a new rack, from hand"); }
+    /* a scratch on the break: taking the table is from hand behind the string */
+    cue_rules_init(&r, &t, 0);
+    n = cue_table_rack(&t, b);
+    cue_rules_resolve(&r, b, n, &w, 1, 1 /* scratch */, 1, NULL, 0);
+    cue_rules_apply_decision(&r, CUE_DEC_PLAY);
+    ok(r.turn == 1 && r.ball_in_hand && cue_rules_in_hand_anywhere(&r) == 2,
+                                         "a scratch on the break: in hand behind the head string");
+    /* three breaking fouls in a row are not three fouls */
+    cue_rules_init(&r, &t, 0);
+    for (int k = 0; k < 3; k++) {
+        n = cue_table_rack(&t, b);
+        cue_rules_resolve(&r, b, n, &w, 1, 0, 0, NULL, 0);
+        cue_rules_apply_decision(&r, CUE_DEC_REBREAK_OFF);
+    }
+    ok(r.score[0] == -6 && r.cfoul[0] == 0, "three breaking fouls: two each, no fifteen");
+
+    /* an uncalled ball down on the break does not excuse the rails */
+    cue_rules_init(&r, &t, 0);
+    n = cue_table_rack(&t, b);
+    pot(b, n, 4, 5);
+    { int p[1] = { 4 };
+      cue_rules_resolve(&r, b, n, &w, 1, 0, 1, p, 1); }
+    ok(r.last_foul && r.last_foul_pts == 2 && ball(b, n, 4)->on,
+                                         "an uncalled pot on a short break: a breaking foul, the ball spotted");
+    /* a called ball down on the break: it scores, the run goes on */
+    cue_rules_init(&r, &t, 0);
+    n = cue_table_rack(&t, b);
+    cue_rules_call_shot(&r, 4, 5);
+    pot(b, n, 4, 5);
+    { int p[1] = { 4 };
+      cue_rules_resolve(&r, b, n, &w, 1, 0, 1, p, 1); }
+    ok(!r.last_foul && r.score[0] == 1 && r.turn == 0, "a called ball made on the break scores and plays on");
+
+    /* ---- in hand behind the head string (7.9, 3.1, 3.11) ---------------- */
+    cue_rules_init(&r, &t, 0);
+    n = cue_table_rack(&t, b);
+    r.break_shot = 0; r.str_hand = 0;
+    cue_rules_resolve(&r, b, n, &w, 3, 1 /* scratch */, 1, NULL, 0);
+    ok(r.ball_in_hand && r.str_hand && cue_rules_in_hand_anywhere(&r) == 2,
+                                         "a scratch: in hand behind the head string, not anywhere");
+    /* the next stroke, from there: a ball behind the string first is a foul... */
+    { static CueWorld v; CueRules k = r; v = w;
+      cue_phys_shot_begin(&v);
+      v.first_hit_x = t.baulk_x - 0.1f; v.cue_x_pre = t.baulk_x - 0.3f;
+      cue_rules_resolve(&k, b, n, &v, 3, 0, 1, NULL, 0);
+      ok(k.last_foul && k.turn == 0 && k.ball_in_hand && k.str_hand,
+                                         "3.11: a ball behind the string first is a foul, the cue ball in hand for the other");
+      /* ...unless the cue ball crossed the string first */
+      k = r; v.cue_x_pre = t.baulk_x + 0.2f;
+      cue_rules_resolve(&k, b, n, &v, 3, 0, 1, NULL, 0);
+      ok(!k.last_foul,                   "...but not if the cue ball crossed the string first");
+      /* a ball centred on the string is playable (1.6, 2.13) */
+      k = r; v.first_hit_x = t.baulk_x; v.cue_x_pre = t.baulk_x - 0.3f;
+      cue_rules_resolve(&k, b, n, &v, 3, 0, 1, NULL, 0);
+      ok(!k.last_foul,                   "a ball on the string is playable");
+      /* not in hand: a ball behind the string is fair game */
+      k = r; k.str_hand = 0; v.first_hit_x = t.baulk_x - 0.1f;
+      cue_rules_resolve(&k, b, n, &v, 3, 0, 1, NULL, 0);
+      ok(!k.last_foul,                   "...and with the cue ball not in hand, anything goes"); }
+
     /* ---- three consecutive fouls -------------------------------------- */
     cue_rules_init(&r, &t, 0);
     n = cue_table_rack(&t, b);
@@ -264,9 +336,9 @@ int main(void) {
     { int p[2] = { 14, 15 };
       cue_rules_resolve(&r, b, n, &w, 14, 0, 1, p, 2); }
     ok(on_table(b, n) == 0,              "the table is cleared");
-    ok(r.rerack == 2,                    "...so all fifteen are asked for");
-    ok(r.break_shot == 1,                "...and the striker breaks them");
-    ok(r.ball_in_hand == 1,              "...from in hand, as at the start");
+    ok(r.rerack == 4,                    "...so all fifteen are asked for (7.8(a))");
+    ok(r.break_shot == 0,                "...and play goes on, no fresh break");
+    ok(r.turn == 0 && r.score[0] == 2,   "...the striker still at the table, both balls scored");
 
     /* ---- reaching the target ------------------------------------------ */
     cue_rules_init(&r, &t, 0);

@@ -56,7 +56,8 @@ void cue_rules_init(CueRules *r, const CueTable *t, int cpu) {
               t->kind != CUE_GAME_PAUL && t->kind != CUE_GAME_SINUCA;
     r->mode = t->kind;
     r->R = t->R;
-    r->pyr_house_x = t->baulk_x;     /* Combined Pyramid's kitchen (21.2) */
+    r->pyr_house_x = t->baulk_x;     /* Combined Pyramid's kitchen (21.2); straight pool's head string */
+    r->str_hand = (t->kind == CUE_GAME_STRAIGHT);   /* the opening break, from hand above the head string (7.3) */
     r->cpu = cpu;
     r->turn = 0; r->winner = -1; r->open = 1; r->break_shot = 1;
     r->shots_remaining = 1; r->two_shot = 0; r->free_shot = 0;
@@ -5706,7 +5707,9 @@ static void resolve_straight(CueRules *r, CueBall *b, int n, const CueWorld *w,
                              int first_hit,
                              int scratch, int cushion, const int *potted, int np) {
     const int was_break = r->break_shot;
+    const int from_hand = r->str_hand; /* this stroke from hand above the head string (3.11) */
     r->bih_head = 0;                   /* a 7.8 hand-over is for the stroke just played */
+    r->str_hand = 0; r->str_brk = 0;
     /* The call belongs to this stroke and no other, whatever becomes of it. */
     const int called_id  = r->nominated;
     const int called_pkt = r->called_pocket;
@@ -5749,12 +5752,23 @@ static void resolve_straight(CueRules *r, CueBall *b, int n, const CueWorld *w,
      * standard foul costs, and 7.10 says that where both happen on one stroke
      * it counts as the breaking foul alone, so the two do not stack. 7.11 keeps
      * it out of the three-consecutive-fouls count. */
-    if (was_break && np == 0 && (brk_rails(w, n) < 2 || !brk_cue_rail(w)))
+    /* "If no CALLED ball is pocketed": an uncalled ball down on the break does
+     * not excuse the rails (it went down with np > 0 and escaped the check). */
+    if (was_break && !made_call && (brk_rails(w, n) < 2 || !brk_cue_rail(w)))
         { foul = 1; why = "BREAK"; }
     if (scratch)                        { foul = 1; why = "SCRATCH"; }
     else if (first_hit < 0)             { foul = 1; why = was_break ? "BREAK" : "NO BALL"; }
     else if (np == 0 && !cushion)       { foul = 1; why = was_break ? "BREAK" : "NO RAIL"; }
     if (r->n_off && !foul)              { foul = 1; why = "OFF THE TABLE"; }
+    /* 3.11: from hand above the head string, the first ball struck must be on
+     * or in front of the string -- unless the cue ball crossed the string
+     * before it touched anything (off a cushion, and back). On the string is
+     * its centre on the line (2.13), to a millimetre. The incoming player has
+     * the cue ball in hand above the string for it (7.9, 3.11). */
+    int hand_next = scratch;
+    if (!foul && from_hand && first_hit >= 0 && w &&
+        !(w->first_hit_x >= r->pyr_house_x - 0.001f || w->cue_x_pre > r->pyr_house_x))
+        { foul = 1; why = "BEHIND THE LINE"; hand_next = 1; }
     /* ANY foul on the break costs two rather than one (7.3(b), 7.10) — which
      * includes the break's own rule above, so nothing extra is charged for it
      * and the two do not stack. */
@@ -5784,8 +5798,21 @@ static void resolve_straight(CueRules *r, CueBall *b, int n, const CueWorld *w,
 
     if (foul) {
         r->score[r->turn] -= break_foul ? 2 : 1;
-        r->cfoul[r->turn]++;
         r->last_foul_pts = break_foul ? 2 : 1;
+        /* THE BREAKING FOUL (7.3(b), 7.10): two off, and the opponent chooses --
+         * take the table as it lies, or make the breaker break again. Not one
+         * of the three in a row (7.11). The turn sits on the offender while it
+         * is asked, as every decision's does. */
+        if (break_foul) {
+            r->str_brk = 1;
+            r->decision = CUE_DEC_PENDING;
+            r->dec_offender = r->turn; r->dec_scratch = hand_next ? 1 : 0;
+            r->dec_penalty = 0; r->dec_can_restore = 0; r->dec_free_ball = 0;
+            r->brk = 0;
+            snprintf(r->msg, sizeof r->msg, "BREAKING FOUL -2");
+            return;
+        }
+        r->cfoul[r->turn]++;
         if (r->cfoul[r->turn] >= 3) {
             /* THREE IN A ROW: fifteen more off the score and the whole table
              * comes back, with the offender breaking it. The heaviest penalty in
@@ -5795,12 +5822,13 @@ static void resolve_straight(CueRules *r, CueBall *b, int n, const CueWorld *w,
             r->cfoul[r->turn] = 0;
             r->rerack = 2; r->racks++;
             r->break_shot = 1;
-            r->ball_in_hand = 1;
+            r->ball_in_hand = 1; r->str_hand = 1;
             snprintf(r->msg, sizeof r->msg, "3 FOULS -15");
             return;                       /* offender breaks the new rack */
         }
         r->turn = 1 - r->turn;
-        r->ball_in_hand = scratch ? 1 : 0;
+        r->ball_in_hand = hand_next ? 1 : 0;
+        r->str_hand = r->ball_in_hand;    /* above the head string (7.9: 3.1, 3.11) */
         snprintf(r->msg, sizeof r->msg, "FOUL: %s -%d", why, break_foul ? 2 : 1);
     } else {
         r->cfoul[r->turn] = 0;
@@ -5989,6 +6017,23 @@ int cue_rules_apply_decision(CueRules *r, int decision) {
     /* COMBINED PYRAMID AFTER AN ILLEGAL BREAK (12.2): play on, make the
      * breaker play on, or re-rack -- the host racks it (rerack 3) -- and break,
      * or make the breaker break again; from hand in the kitchen */
+    /* STRAIGHT POOL AFTER A BREAKING FOUL (7.3(b)): take the table as it lies
+     * -- from hand above the head string if the cue ball went down -- or make
+     * the breaker break again, a fresh rack (rerack 2), until the break is
+     * legal or the table is taken */
+    if (r->str_brk) {
+        r->str_brk = 0;
+        if (decision == CUE_DEC_REBREAK_OFF) {
+            r->turn = off;
+            r->rerack = 2; r->break_shot = 1; r->ball_in_hand = 1; r->str_hand = 1;
+            snprintf(r->msg, sizeof r->msg, "BREAK AGAIN");
+        } else {
+            r->turn = opp;
+            r->ball_in_hand = r->dec_scratch ? 1 : 0; r->str_hand = r->ball_in_hand;
+        }
+        r->free_ball = 0;
+        return r->turn;
+    }
     if (r->pyr_brk) {
         r->pyr_brk = 0;
         if (decision == CUE_DEC_REBREAK || decision == CUE_DEC_REBREAK_OFF) {

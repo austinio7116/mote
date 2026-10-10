@@ -328,6 +328,7 @@ void cue_phys_shot_begin(CueWorld *w) {
     if (!w) return;
     w->first_hit = -1;
     w->first_hit_idx = -1;
+    w->cue_x_pre = -1.0e9f;
     for (int k = 0; k < CUE_MAX_BALLS; k++) w->att_min[k] = 1.0e9f;
     w->att_path = 0.0f;
     w->att_prev_ok = 0;
@@ -365,6 +366,7 @@ void cue_phys_shot_begin(CueWorld *w) {
         A first_hit       = B first_hit;                                      \
         A first_hit_idx   = B first_hit_idx;                                  \
         A first_hit_x     = B first_hit_x;                                    \
+        A cue_x_pre       = B cue_x_pre;                                      \
         A att_path        = B att_path;                                       \
         A att_prev_ok     = B att_prev_ok;                                    \
         A jump_over       = B jump_over;                                      \
@@ -3456,6 +3458,10 @@ float cue_phys_bridge_impact(void) { return s_bridge_v; }
 
 CUE_HOT int cue_phys_step(CueWorld *w, CueBall *balls, int n, float dt, uint32_t *events) {
     if (events) *events = 0;
+    /* HOW FAR UP THE TABLE THE CUE BALL GOT BEFORE IT TOUCHED ANYTHING:
+     * straight pool's 3.11, a shot from behind the head string that must cross
+     * it before meeting a ball behind it (cue_x_pre) */
+    if (w->first_hit < 0 && n > 0 && balls[0].on && balls[0].pos.x > w->cue_x_pre) w->cue_x_pre = balls[0].pos.x;
     /* The attempt log — see cue_physics.h. Sampled at the step rather than the
      * substep: at 2 kHz the cue ball moves under 4 mm a step at break pace, and
      * the referee is judging in ball widths. */

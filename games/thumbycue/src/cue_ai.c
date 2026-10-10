@@ -7233,6 +7233,12 @@ int cue_ai_decide(const CueWorld *w, const CueTable *t, const CueRules *r,
     CueAIShot pot = cue_ai_plan(w, t, &mine, balls, n, p, rng);
     int hasPot = (!pot.safe && pot.valid);
 
+    /* STRAIGHT POOL AFTER A BREAKING FOUL (WPA 7.3(b)): take the table when
+     * there is a good pot on it; otherwise make the breaker break again --
+     * a failed break is usually a pack nobody wants to play into */
+    if (r->str_brk)
+        return (hasPot && pot.score > 60.0f) ? CUE_DEC_PLAY : CUE_DEC_REBREAK_OFF;
+
     int fbHasPot = 0; float fbS = 0.0f;
     if (fb_avail) {
         CueRules fbr = mine; fbr.free_ball = 1;   /* any ball is on, for the look */
