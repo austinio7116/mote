@@ -1319,6 +1319,10 @@ int cue_table_rack_six(const CueTable *t, CueBall *balls);
  * ball and the cue ball — exactly where it lies. Returns how many were placed
  * (14 in the normal case). Does nothing to a table where nothing is potted. */
 int cue_table_rack_14(const CueTable *t, CueBall *balls, int n);
+/* ...as WPA 7.8 has it when the break ball or the cue ball is in the way of
+ * the rack (and all fifteen when all15). Returns 1 when the cue ball is to be
+ * in hand behind the head string. */
+int cue_table_rack_14_wpa(const CueTable *t, CueBall *balls, int n, int all15);
 
 /* Clamp a desired placement to the legal ball-in-hand region (the D for
  * snooker/UK8, behind the head string for US pool). */

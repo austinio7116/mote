@@ -7085,7 +7085,10 @@ int cue_table_rack_six(const CueTable *t, CueBall *balls) {
  * specified spots (WPA 4.14). Here they simply stay, which can leave a ball
  * touching the back of the rack. Rare, legal-looking, and worth fixing when the
  * rest of 14.1 has been played enough to say how often it comes up. */
-int cue_table_rack_14(const CueTable *t, CueBall *b, int n) {
+static int rack14_core(const CueTable *t, CueBall *b, int n, int apex);
+int cue_table_rack_14(const CueTable *t, CueBall *b, int n) { return rack14_core(t, b, n, 0); }
+/* ...the slots from s0 (0: the apex too, when all fifteen go back) */
+static int rack14_core(const CueTable *t, CueBall *b, int n, int apex) {
     if (!t || !b || n <= 0) return 0;
     const float R = t->R;
     const float footx = cue_table_axis(t) * 0.5f;
@@ -7108,9 +7111,11 @@ int cue_table_rack_14(const CueTable *t, CueBall *b, int n) {
      * slots are skipped and the overflow goes up the long string behind the
      * rack, the same place a spotted ball goes. */
     int free_slot[15]; int nfree = 0;
-    for (int s = 1; s < 15; s++) {                   /* slot 0 is the empty apex */
+    for (int s = apex ? 0 : 1; s < 15; s++) {        /* slot 0 is the empty apex, unless all fifteen */
         int taken = 0;
-        for (int i = 1; i < n && !taken; i++) {
+        /* ...AND THE CUE BALL TAKES ONE TOO: it was left out, and a ball was
+         * placed on a white standing in the rack area (7.3) */
+        for (int i = 0; i < n && !taken; i++) {
             if (!b[i].on) continue;
             float dx = b[i].pos.x - slot[s].x, dz = b[i].pos.z - slot[s].z;
             if (dx*dx + dz*dz < (2.0f*R)*(2.0f*R) * 0.98f) taken = 1;
@@ -7119,7 +7124,7 @@ int cue_table_rack_14(const CueTable *t, CueBall *b, int n) {
     }
 
     int placed = 0, overflow = 0;
-    for (int i = 1; i < n && placed < 14; i++) {
+    for (int i = 1; i < n && placed < (apex ? 15 : 14); i++) {
         if (b[i].on) continue;                       /* still up — the break ball */
         if (b[i].id < 1 || b[i].id > 15) continue;   /* object balls only */
         Vec3 p;
@@ -7132,7 +7137,7 @@ int cue_table_rack_14(const CueTable *t, CueBall *b, int n) {
                 overflow++;
                 p = v3(slot[14].x + (float)overflow * 2.05f * R, R, 0.0f);
                 int clash = 0;
-                for (int j = 1; j < n && !clash; j++) {
+                for (int j = 0; j < n && !clash; j++) {
                     if (!b[j].on) continue;
                     float dx = b[j].pos.x - p.x, dz = b[j].pos.z - p.z;
                     if (dx*dx + dz*dz < (2.0f*R)*(2.0f*R) * 0.98f) clash = 1;
@@ -7150,6 +7155,91 @@ int cue_table_rack_14(const CueTable *t, CueBall *b, int n) {
         placed++;
     }
     return placed;
+}
+
+/* THE 14.1 RERACK AS THE RULES HAVE IT (WPA 7.8, 7.3): a ball INTERFERES when
+ * it is inside or touching the outline of the rack -- here, within two radii
+ * of the triangle the fifteen balls' centres make (the outline lies a radius
+ * outside it, and a ball touches it a radius further).
+ *   (a) all fifteen to go back (the fifteenth went down with the fourteenth):
+ *       the whole rack, the cue ball where it is -- unless it is in the way,
+ *       when it is in hand behind the head string, as (b)
+ *   (b) both in the way: all fifteen, the cue ball in hand behind the head string
+ *   (c) the break ball alone: it goes on the head spot, or the centre spot if
+ *       the cue ball is on the head spot
+ *   (d) the cue ball alone: in hand behind the head string if the break ball is
+ *       on or in front of the string; else on the head spot, or the centre spot
+ *       if that is taken
+ * Returns 1 when the cue ball is to be in hand behind the head string (the
+ * caller hands it over), else 0. */
+static float seg_d2(float px, float pz, float ax, float az, float bx, float bz) {
+    const float vx = bx - ax, vz = bz - az, wx = px - ax, wz = pz - az;
+    float u = (vx * wx + vz * wz) / (vx * vx + vz * vz);
+    u = u < 0.0f ? 0.0f : u > 1.0f ? 1.0f : u;
+    const float dx = px - (ax + vx * u), dz = pz - (az + vz * u);
+    return dx * dx + dz * dz;
+}
+static int rack14_in_way(const CueTable *t, const CueBall *q) {
+    if (!q || !q->on) return 0;
+    const float R = t->R, footx = cue_table_axis(t) * 0.5f, dx = R * 1.7320508f;
+    const float ax = footx, az = 0.0f, bx = footx + 4.0f * dx, bz = -4.0f * R, cx = bx, cz = 4.0f * R;
+    const float px = q->pos.x, pz = q->pos.z;
+    /* inside the triangle: on the same side of all three edges */
+    const float e1 = (bx - ax) * (pz - az) - (bz - az) * (px - ax);
+    const float e2 = (cx - bx) * (pz - bz) - (cz - bz) * (px - bx);
+    const float e3 = (ax - cx) * (pz - cz) - (az - cz) * (px - cx);
+    if ((e1 >= 0 && e2 >= 0 && e3 >= 0) || (e1 <= 0 && e2 <= 0 && e3 <= 0)) return 1;
+    float d2 = seg_d2(px, pz, ax, az, bx, bz);
+    const float d2b = seg_d2(px, pz, bx, bz, cx, cz), d2c = seg_d2(px, pz, cx, cz, ax, az);
+    if (d2b < d2) d2 = d2b;
+    if (d2c < d2) d2 = d2c;
+    return d2 < (2.0f * R) * (2.0f * R);
+}
+static int spot_clear(const CueBall *b, int n, int skip, float x, float z, float R) {
+    for (int j = 0; j < n; j++) {
+        if (j == skip || !b[j].on) continue;
+        const float dx = b[j].pos.x - x, dz = b[j].pos.z - z;
+        if (dx * dx + dz * dz < (2.0f * R) * (2.0f * R) * 0.98f) return 0;
+    }
+    return 1;
+}
+static void put_at(CueBall *q, float x, float z, float R) {
+    q->pos = v3(x, R, z); q->vel = v3(0, 0, 0); q->w = v3(0, 0, 0);
+    q->drop = 0.0f; q->pocket = 0; q->on = 1;
+}
+int cue_table_rack_14_wpa(const CueTable *t, CueBall *b, int n, int all15) {
+    if (!t || !b || n <= 0) return 0;
+    const float R = t->R, head = t->baulk_x;
+    int bb = -1;                                       /* the break ball: the object ball still up */
+    for (int i = 1; i < n; i++) if (b[i].on && b[i].id >= 1 && b[i].id <= 15) { bb = i; break; }
+    if (all15) bb = -1;
+    const int cue_in = rack14_in_way(t, &b[0]);
+    const int obj_in = bb >= 0 && rack14_in_way(t, &b[bb]);
+    int hand = 0;
+    if (all15 || (cue_in && obj_in)) {                 /* (a), (b): all fifteen */
+        if (bb >= 0) b[bb].on = 0;
+        if (cue_in) { b[0].on = 0; hand = 1; }         /* out of the way while the rack goes down */
+        rack14_core(t, b, n, 1);
+        if (hand) b[0].on = 1;
+        return hand;
+    }
+    if (obj_in) {                                      /* (c) */
+        if (spot_clear(b, n, bb, head, 0.0f, R)) put_at(&b[bb], head, 0.0f, R);
+        else put_at(&b[bb], 0.0f, 0.0f, R);
+        rack14_core(t, b, n, 0);
+        return 0;
+    }
+    if (cue_in) {                                      /* (d) */
+        b[0].on = 0;                                   /* the rack first, the white after */
+        rack14_core(t, b, n, 0);
+        b[0].on = 1;
+        if (b[bb].pos.x > head - R) return 1;          /* the break ball on or in front of the string */
+        if (spot_clear(b, n, 0, head, 0.0f, R)) put_at(&b[0], head, 0.0f, R);
+        else put_at(&b[0], 0.0f, 0.0f, R);
+        return 0;
+    }
+    rack14_core(t, b, n, 0);
+    return 0;
 }
 
 /* THE PYRAMID: fifteen balls in a triangle with the apex on the foot spot,

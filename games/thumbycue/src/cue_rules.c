@@ -5706,6 +5706,7 @@ static void resolve_straight(CueRules *r, CueBall *b, int n, const CueWorld *w,
                              int first_hit,
                              int scratch, int cushion, const int *potted, int np) {
     const int was_break = r->break_shot;
+    r->bih_head = 0;                   /* a 7.8 hand-over is for the stroke just played */
     /* The call belongs to this stroke and no other, whatever becomes of it. */
     const int called_id  = r->nominated;
     const int called_pkt = r->called_pocket;
@@ -5821,14 +5822,12 @@ static void resolve_straight(CueRules *r, CueBall *b, int n, const CueWorld *w,
      * the spotting above, so a ball that came back off a foul is counted. */
     int left = straight_left(b, n);
     if (left <= 1 && !r->frame_over) {
-        r->rerack = (left == 1) ? 1 : 2;
+        /* WPA 7.8(a): the fifteenth down with the fourteenth puts all fifteen
+         * back and the run goes on -- not a fresh opening break from hand, which
+         * is what this did. The rerack (cue_table_rack_14_wpa) says whether the
+         * cue ball was in the way and is in hand behind the head string. */
+        r->rerack = (left == 1) ? 1 : 4;
         r->racks++;
-        /* Clearing the table outright is a fresh start, not a continuation:
-         * all fifteen go back and the striker breaks them, from in hand behind
-         * the head string, exactly as at the beginning of the frame. With one
-         * ball left there is a break ball on the table and none of that applies
-         * — the run simply carries on. */
-        if (left == 0) { r->break_shot = 1; r->ball_in_hand = 1; }
     }
 
     /* THE TARGET, asked of both players rather than of whoever is at the table:

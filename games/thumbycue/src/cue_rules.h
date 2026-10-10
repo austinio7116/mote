@@ -129,6 +129,11 @@ typedef struct {
      * apex empty, 2 = rack all fifteen (the table was cleared outright, or a
      * third consecutive foul). */
     int rerack;
+    /* STRAIGHT POOL, WPA 7.8 (CueVR 7.3): rerack 4 is all fifteen back with
+     * play going on (the fifteenth went down with the fourteenth), and the
+     * rerack can hand the cue ball over behind the head string -- bih_head,
+     * for that one stroke (cue_rules_in_hand_anywhere's region 2) */
+    int bih_head;
 
     /* ---- G2: RUSSIAN PYRAMID -------------------------------------------- *
      *
@@ -897,6 +902,9 @@ static inline int cue_rules_in_hand_anywhere(const CueRules *r) {
      * "snooker is always the D" never got asked, and every in-off handed the
      * striker the whole cloth. Reported from play. */
     if (r->mode == CUE_GAME_BILLIARDS) return 0;
+    /* STRAIGHT POOL, after a rerack that put the cue ball in the way (WPA 7.8):
+     * behind the head string, for that stroke */
+    if (r->mode == CUE_GAME_STRAIGHT && r->bih_head) return 2;
     /* ROTATION: behind the head string, which is the classic game's penalty and
      * a real one — you may not shoot at anything in front of the line, so a
      * pack sitting at the foot end has to be reached the long way. The FILIPINO
