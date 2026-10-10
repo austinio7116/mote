@@ -4638,11 +4638,20 @@ static void resolve_bank(CueRules *r, CueBall *b, int n, const CueWorld *w,
 /* ---- G10: KILLER ---------------------------------------------------------
  *
  * One shot each, strictly alternating. Pot any object ball and you are safe;
- * fail to pot — or foul — and one of your three lives goes. A scratch is a
+ * fail to pot — or foul — and one of your three lives goes. Pot the black and
+ * you earn a life as well (7.3, as the pubs play it). A scratch is a
  * life AND ball in hand to the incoming player. The opening break is exempt:
  * nobody loses a life for a dry break, which is the pub's own custom. The
  * rack goes back on when the table runs dry with both players standing.
  */
+/* the black (the 8) potted, not driven off the table */
+static int killer_black(const CueBall *b, int n, const int *potted, int np) {
+    for (int k = 0; k < np; k++) {
+        if (potted[k] != 8) continue;
+        for (int i = 0; i < n; i++) if (b[i].id == 8) return b[i].pocket != CUE_OFF_TABLE;
+    }
+    return 0;
+}
 static void resolve_killer(CueRules *r, CueBall *b, int n, int first_hit,
                            int scratch, const int *potted, int np)
 {
@@ -4672,7 +4681,9 @@ static void resolve_killer(CueRules *r, CueBall *b, int n, int first_hit,
         snprintf(r->msg, sizeof r->msg, foul ? "FOUL: %s - A LIFE" : "%sA LIFE",
                  foul ? why : "");
     } else if (made) {
-        snprintf(r->msg, sizeof r->msg, "SAFE");
+        /* THE BLACK EARNS A LIFE (7.3; Mark), as the pubs play it */
+        if (killer_black(b, n, potted, np)) { r->score[me]++; snprintf(r->msg, sizeof r->msg, "THE BLACK - A LIFE"); }
+        else snprintf(r->msg, sizeof r->msg, "SAFE");
     } else {
         r->msg[0] = 0;                       /* a dry break: no harm done */
     }
@@ -4749,7 +4760,6 @@ static int kl_gone(CueRules *r, int player) {
 static void resolve_killer_n(CueRules *r, CueBall *b, int n, int first_hit,
                              int scratch, const int *potted, int np)
 {
-    (void)potted;
     const int me = r->kl_order[r->kl_pos];
     const int was_break = r->break_shot;
     r->break_shot = 0;
@@ -4778,7 +4788,10 @@ static void resolve_killer_n(CueRules *r, CueBall *b, int n, int first_hit,
                      foul ? why : "");
         }
     } else if (made) {
-        snprintf(r->msg, sizeof r->msg, "SAFE");
+        if (killer_black(b, n, potted, np)) {       /* the black earns a life (7.3) */
+            if (r->kl_lives[me] < 255) r->kl_lives[me]++;
+            snprintf(r->msg, sizeof r->msg, "THE BLACK - A LIFE");
+        } else snprintf(r->msg, sizeof r->msg, "SAFE");
     } else {
         r->msg[0] = 0;
     }

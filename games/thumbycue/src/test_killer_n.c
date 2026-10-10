@@ -175,7 +175,8 @@ static int random_frame(CueRules *r, int n, uint32_t seed, int *bad, int *outs, 
         const int made = !first_is_foul(first, scratch) && np > 0;
         (void)was_break;
         if (after < 0) (*bad)++;
-        if (made && after != before) (*bad)++;
+        /* made: lives as they were -- one more when the pot was the black (7.3) */
+        if (made && after != before + (np && pot[0] == 8 ? 1 : 0)) (*bad)++;
         if (after < before - 1) (*bad)++;
         if (after == 0 && before > 0) outs[(*nouts)++] = who;
         /* the next shooter is always standing, and is not the one who just
@@ -206,12 +207,13 @@ int main(void) {
 
     /* ---- 1. two players, byte for byte what they were ---- */
     {   /* recorded from the rules before N-player killer: mote 6dd2a9c1, built with
-         * -DKILLER_RECORD_ONLY and run with KILLER_RECORD=1 */
+         * -DKILLER_RECORD_ONLY and run with KILLER_RECORD=1; recorded again for 7.3,
+         * when the black began to earn a life (Mark) -- the one change meant to move them */
         static const struct { CueGameKind k; uint32_t seed; uint64_t want; int frames; } G[] = {
-            { CUE_GAME_KILLER_UK, 1u,        0xced90973e4159d49ull, 728 },
-            { CUE_GAME_KILLER_US, 12345u,    0x99fcc6f68e648993ull, 745 },
-            { CUE_GAME_KILLER_CN, 987654u,   0x6120f0b5f157e357ull, 743 },
-            { CUE_GAME_KILLER_UK, 55555u,    0x4de5aa8981acbb42ull, 734 },
+            { CUE_GAME_KILLER_UK, 1u,        0xa0f85b9ac9d3b77eull, 689 },
+            { CUE_GAME_KILLER_US, 12345u,    0x3946a03e537f1d45ull, 695 },
+            { CUE_GAME_KILLER_CN, 987654u,   0xec585fedbdd5d420ull, 696 },
+            { CUE_GAME_KILLER_UK, 55555u,    0xba1000c8eb39cfcbull, 689 },
         };
         const int record = getenv("KILLER_RECORD") != NULL;
         for (unsigned i = 0; i < sizeof G / sizeof G[0]; i++) {
