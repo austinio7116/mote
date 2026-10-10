@@ -27,6 +27,7 @@ def main():
     # this month: Cat a 98 at 10-red, an unverified frame that must not count
     rows.append(frame(time.strftime("%Y-%m-01 10:00:00", time.gmtime()), "Cat", "Dan", 0, 5, best=(98, 0)))
     rows.append(frame(time.strftime("%Y-%m-01 11:00:00", time.gmtime()), "Eve", "Dan", 0, 4, best=(155, 0), verified=False))
+    rows.append(frame("2026-09-21 21:00:00", "Ann & Bob", "Cat & Dan", 0, 1))   # doubles: counts nowhere
     with open(os.path.join(store, "results.jsonl"), "w") as f:
         for r in rows: f.write(json.dumps(r) + "\n")
     p = subprocess.Popen([sys.executable, os.path.join(HERE, "mote_relay.py"), "--port", str(PORT), "--store", store],
@@ -59,6 +60,7 @@ def main():
     check(not any("Eve" in l for l in lines), "an unverified result counts nowhere")
     check("MONTH 5 2026-09 147 Bob" in lines and "MONTH 0 2026-09 20 Ann" in lines, "September's winners")
     check(not any(l.startswith("MONTH 6 ") for l in lines), "this month is not a trophy yet")
+    check(not any(" & " in l for l in lines), "a doubles frame counts nowhere")
     check(lines and lines[-1] == "END", "the answer ends with END")
     print(f"{ok} ok, {bad} bad"); sys.exit(1 if bad else 0)
 

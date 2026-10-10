@@ -880,6 +880,12 @@ class Relay:
                     if not d.get("verified") or r.get("t") != "frame":
                         continue
                     names, sides = r.get("names") or [], r.get("sides") or []
+                    # SINGLES ONLY: a doubles or team frame names a side "A & B"
+                    # (the game's own records are singles records too) -- seen
+                    # live on the first deploy, "Joethe147 & Red_Dead_Steve" on
+                    # the frames board as one player
+                    if any(" & " in str(n) for n in names):
+                        continue
                     month = str(d.get("time", ""))[:7]
                     for side in (0, 1):
                         if side >= len(names) or side >= len(sides) or not names[side]:
