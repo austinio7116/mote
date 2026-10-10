@@ -1,0 +1,36 @@
+# mote-stats: a private read-only view of CueVR online play (mote_stats.py),
+# beside the relay and separate from it -- it reads the relay's results and asks
+# its public LIST, writes nothing, and the relay never restarts for it.
+#
+#   /opt/mote-relay/mote_stats.py
+#   /etc/mote-stats/{token,cert.pem,key.pem}   root 600, handed in as credentials
+[Unit]
+Description=mote-stats (read-only CueVR online view, HTTPS 8443)
+After=network-online.target mote-relay.service
+Wants=network-online.target
+
+[Service]
+ExecStart=/usr/bin/python3 /opt/mote-relay/mote_stats.py --store /data --port 8443 --relay 127.0.0.1:443 \
+    --token-file ${CREDENTIALS_DIRECTORY}/token --cert ${CREDENTIALS_DIRECTORY}/cert.pem --key ${CREDENTIALS_DIRECTORY}/key.pem
+LoadCredential=token:/etc/mote-stats/token
+LoadCredential=cert.pem:/etc/mote-stats/cert.pem
+LoadCredential=key.pem:/etc/mote-stats/key.pem
+DynamicUser=yes
+# the relay's results, read-only, and nothing else of its
+BindReadOnlyPaths=/var/lib/private/mote-relay:/data
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+NoNewPrivileges=yes
+CapabilityBoundingSet=
+RestrictAddressFamilies=AF_INET AF_INET6
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+MemoryMax=200M
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
