@@ -787,7 +787,8 @@ class Relay:
     # own -- the same on both ends, which read the same strokes
     SHOT_KEYS = ("att", "made", "long_att", "long_made", "safeties", "safe_ok", "banks", "breaks",
                  "breaks_ok", "breaks_dry", "breaks_foul", "bnr", "runouts", "visits", "vis_pts",
-                 "b50", "b100", "obj", "cue", "random", "series")
+                 "b20", "b30", "b50", "b100", "obj", "cue", "random", "series",
+                 "strokes", "scoring", "innings", "top", "cannons", "pots", "inoffs", "points")
 
     def result_check(self, r):
         """the checks a result must pass to be kept at all"""
@@ -825,7 +826,8 @@ class Relay:
                 g = lambda k: sh.get(k, 0)
                 if (g("made") > g("att") or g("long_made") > g("long_att") or g("long_att") > g("att") or
                         g("safe_ok") > g("safeties") or g("breaks_ok") + g("breaks_dry") + g("breaks_foul") > g("breaks") or
-                        g("b100") > g("b50") or g("b50") > g("visits") or g("att") + g("safeties") > sd["shots"] or
+                        g("b100") > g("b50") or g("b50") > g("b30") or g("b30") > g("b20") or g("b20") > g("visits") or
+                        g("att") + g("safeties") > sd["shots"] or g("scoring") > g("strokes") or
                         (snooker and g("vis_pts") > 155 * max(1, g("visits")))):
                     return False
         return True

@@ -85,7 +85,7 @@ class Member:
 
 SHOT = {"att": 14, "made": 9, "long_att": 4, "long_made": 2, "safeties": 5, "safe_ok": 3, "banks": 0,
         "breaks": 1, "breaks_ok": 0, "breaks_dry": 1, "breaks_foul": 0, "bnr": 0, "runouts": 0,
-        "visits": 3, "vis_pts": 88, "b50": 1, "b100": 0, "obj": 0, "cue": 0, "random": 1, "series": 0}
+        "visits": 3, "vis_pts": 88, "b20": 2, "b30": 1, "b50": 1, "b100": 0, "obj": 0, "cue": 0, "random": 1, "series": 0}
 
 
 def result(frame, me, score=(3, 2), frames=(1, 0), winner=0, game="SNOOKER", best=(57, 12), brk=([57, 31], []), shot=None):
