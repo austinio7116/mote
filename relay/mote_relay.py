@@ -127,6 +127,18 @@ Wire protocol (client <-> relay), one text handshake line then raw bytes:
     A token is good only while its member is in the room; a watcher's voice
     is never passed on (it listens). The relay never looks inside a voice
     packet and never keeps one.
+    RESULTS (CueVR 7.3): "RESULT <json>" to the relay, at the end of each
+    frame of a room's match (and a second, "t":"match", at its end), from
+    every player in it. A result counts only when the two sides' players send
+    the same facts for the same frame -- score, frames, winner, breaks, shots,
+    pots, fouls -- so one player cannot make up a result against another: it
+    is kept in <store>/results.jsonl with both senders, each salted address
+    hash, the room's code and how long the room had been open. Two that
+    disagree go to results_disputed.jsonl; one never confirmed (the other
+    left) goes to results_unconfirmed.jsonl when the room closes. A result
+    that fails the checks (sizes, a snooker break past 155, frames past the
+    match) is answered "RESULT BAD" and kept nowhere; too many from one
+    address in an hour, "RESULT BUSY". No --store, "RESULT OFF".
     REPORTING SOMEONE (VRC.Content.3): "REPORT <K> <REASON> <REPORTED>|<REPORTER>"
     to the relay is kept, one line, in <store>/reports.tsv -- the time, the
     game and room, the reason, both display names, both places, and a salted
@@ -154,6 +166,7 @@ import argparse
 import asyncio
 import hashlib
 import hmac
+import json
 import os
 import socket
 import time
@@ -267,6 +280,7 @@ class RoomN:
         self.created = time.monotonic()
         self.done = asyncio.Event()
         self.vdropped = 0          # voice packets not queued to a backed-up member
+        self.results = {}          # (t, frame) -> results held for the other side's word (7.3)
 
     def free_place(self):
         for k in range(self.maxn):
@@ -638,6 +652,7 @@ class Relay:
         self.vtokens = {}          # voice token (8 bytes) -> (room, member)
         self.udp = None            # the voice's datagram transport, once bound
         self.report_rate = {}      # ip -> [times]
+        self.result_rate = {}      # ip -> [times] (RESULT, 7.3)
 
     # ---- VOICE ------------------------------------------------------------
     def voice_ctrl(self, room, m, cmd, raw):
@@ -718,6 +733,113 @@ class Relay:
     def addr_hash(self, peer):
         ip = peer[0] if isinstance(peer, tuple) else str(peer)
         return hmac.new(self.report_salt(), ip.encode(), hashlib.sha256).hexdigest()[:16]
+
+    # ---- RESULTS (CueVR 7.3) --------------------------------------------
+    # The facts both ends must agree on: everything about the frame, nothing
+    # one end alone measures (its own clock, which side is "me", its own
+    # clearance, its build).
+    RES_SHARED = ("t", "game", "variant", "kind", "mode", "best_of", "frame",
+                  "score", "frames", "winner", "match_winner", "bnr", "golden")
+    RES_SIDE = ("shots", "pot_shots", "potted", "fouls", "best", "breaks")
+
+    def result_check(self, r):
+        """the checks a result must pass to be kept at all"""
+        if not isinstance(r, dict) or r.get("v") != 1 or r.get("t") not in ("frame", "match"):
+            return False
+        def num(x, lo=-100000, hi=100000):
+            return isinstance(x, (int, float)) and not isinstance(x, bool) and lo <= x <= hi
+        for k in ("kind", "mode", "best_of", "frame", "winner", "match_winner", "bnr", "golden", "me"):
+            if not num(r.get(k), -1, 1000):
+                return False
+        for k in ("score", "frames"):
+            v = r.get(k)
+            if not (isinstance(v, list) and len(v) == 2 and all(num(x) for x in v)):
+                return False
+        bo = r["best_of"]
+        if bo < 1 or any(f < 0 or f > (bo + 1) // 2 for f in r["frames"]) or r["frame"] > bo:
+            return False
+        sides = r.get("sides")
+        if not (isinstance(sides, list) and len(sides) == 2):
+            return False
+        snooker = "SNOOKER" in str(r.get("game", "")).upper()
+        for sd in sides:
+            if not isinstance(sd, dict) or not all(num(sd.get(k), 0) for k in ("shots", "pot_shots", "potted", "fouls", "best")):
+                return False
+            b = sd.get("breaks")
+            if not (isinstance(b, list) and len(b) <= 64 and all(num(x, 0) for x in b)):
+                return False
+            if snooker and (sd["best"] > 155 or any(x > 155 for x in b)):
+                return False
+        return True
+
+    def result_key(self, r):
+        shared = {k: r.get(k) for k in self.RES_SHARED}
+        shared["sides"] = [{k: sd.get(k) for k in self.RES_SIDE} for sd in r["sides"]]
+        return json.dumps(shared, sort_keys=True)
+
+    def result_write(self, name, line):
+        try:
+            os.makedirs(self.args.store, exist_ok=True)
+            with open(os.path.join(self.args.store, name), "a", encoding="ascii", errors="replace") as f:
+                f.write(json.dumps(line, sort_keys=True) + "\n")
+            return True
+        except OSError as e:
+            log(f"results: {name} could not be written ({type(e).__name__})")
+            return False
+
+    def result(self, room, m, raw):
+        """RESULT <json>: one end's account of a frame (or the match). Kept as
+        a result when the other side's player says the same (see RESULTS)."""
+        if self.store is None:
+            return "RESULT OFF"
+        os.makedirs(self.args.store, exist_ok=True)      # before the salt is made in it
+        ip = m.peer[0] if isinstance(m.peer, tuple) else str(m.peer)
+        now = time.monotonic()
+        q = [t for t in self.result_rate.get(ip, []) if now - t < 3600]
+        if len(q) >= 600:
+            self.result_rate[ip] = q
+            return "RESULT BUSY"
+        q.append(now); self.result_rate[ip] = q
+        body = raw[7:] if raw.startswith("RESULT ") else ""
+        if len(body) > 4000 or any(not (32 <= ord(c) < 127) for c in body):
+            return "RESULT BAD"
+        try:
+            r = json.loads(body)
+        except ValueError:
+            return "RESULT BAD"
+        if not self.result_check(r) or len(room.players()) < 2 or m.k >= room.WATCH_BASE:
+            return "RESULT BAD"
+        side = r["me"]
+        entry = {"k": m.k, "side": side, "addr": self.addr_hash(m.peer), "r": r}
+        key = (r["t"], r["frame"])
+        pend = room.results.setdefault(key, [])
+        for o in pend:
+            if o["side"] != side and o["k"] != m.k:
+                pend.remove(o)
+                same = self.result_key(o["r"]) == self.result_key(r)
+                line = {"time": time.strftime("%Y-%m-%d %H:%M:%S"), "gid": room.gid, "room": room.code,
+                        "room_secs": round(now - room.created), "players": len(room.players()),
+                        "agreed": same, "a": o, "b": entry}
+                if same:
+                    line["result"] = {k: r.get(k) for k in self.RES_SHARED}
+                    line["result"]["names"] = r.get("names")
+                    line["result"]["sides"] = [{k: sd.get(k) for k in self.RES_SIDE} for sd in r["sides"]]
+                self.result_write("results.jsonl" if same else "results_disputed.jsonl", line)
+                log(f"nroom {room.gid}/{room.code}: {r['t']} {r['frame']} {'agreed' if same else 'DISPUTED'}")
+                return "RESULT KEPT" if same else "RESULT DISPUTED"
+        if len(pend) < 8:
+            pend.append(entry)
+        return "RESULT HELD"
+
+    def results_flush(self, room):
+        """a room closing: whatever was never confirmed, kept apart as such"""
+        for key, pend in list(getattr(room, "results", {}).items()):
+            for o in pend:
+                self.result_write("results_unconfirmed.jsonl",
+                                  {"time": time.strftime("%Y-%m-%d %H:%M:%S"), "gid": room.gid, "room": room.code,
+                                   "room_secs": round(time.monotonic() - room.created), "a": o})
+        if getattr(room, "results", None):
+            room.results.clear()
 
     def report(self, room, m, raw):
         """REPORT <K> <REASON> <REPORTED NAME>|<REPORTER NAME>: one line in
@@ -932,6 +1054,14 @@ class Relay:
                         self.voice_ctrl(room, m, cmd, raw)
                     elif cmd.startswith("REPORT "):
                         room.control_quiet(self.report(room, m, raw), m.k)
+                    elif cmd.startswith("RESULT ") and not getattr(room, "club", False):
+                        # A RESULT NEVER COSTS ITS SENDER THE ROOM, whatever goes wrong keeping it
+                        try:
+                            ans = self.result(room, m, raw)
+                        except Exception as e:
+                            log(f"nroom {room.gid}/{room.code}: a result could not be kept ({type(e).__name__}: {e})")
+                            ans = "RESULT OFF"
+                        room.control_quiet(ans, m.k)
                     continue
                 if to == RoomN.VOICE:
                     # voice down the TCP, from a member whose UDP does not get out
@@ -970,6 +1100,7 @@ class Relay:
         await asyncio.gather(m.task, return_exceptions=True)
         if room.done.is_set() and self.nrooms.get(key) is room:
             self.nrooms.pop(key, None)
+            self.results_flush(room)
             log(f"nroom {key}: closed")
 
     async def club_member(self, key, club, k, reader, writer, peer):
