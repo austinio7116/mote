@@ -815,9 +815,16 @@ static int make_actions(void) {
             { S.a_aim,     path("/user/hand/right/input/aim/pose") },  \
             { S.a_haptic,  path("/user/hand/left/output/haptic") },    \
             { S.a_haptic,  path("/user/hand/right/output/haptic") }
+        /* FORCE, NOT VALUE (2026-10-11, from the OpenXR registry's own profile
+         * for the pen: cluster_middle_logitech/force). `value` is not one of
+         * its components, and every tier but the last carried it, so every
+         * tier but "poses only" was rejected: the pen was tracked and not one
+         * of its buttons was bound (VR111: "the untested stylus button mapping
+         * introduced in v5.2 is still not functioning"). The rest of the paths
+         * here are the registry's spellings. */
         #define PEN_PAD \
-            { S.a_trigger, path("/user/hand/left/input/cluster_middle_logitech/value") }, \
-            { S.a_trigger, path("/user/hand/right/input/cluster_middle_logitech/value") }
+            { S.a_trigger, path("/user/hand/left/input/cluster_middle_logitech/force") }, \
+            { S.a_trigger, path("/user/hand/right/input/cluster_middle_logitech/force") }
         #define PEN_CLICKS \
             { S.a_lower,   path("/user/hand/left/input/cluster_front_logitech/click") },  \
             { S.a_lower,   path("/user/hand/right/input/cluster_front_logitech/click") }, \
