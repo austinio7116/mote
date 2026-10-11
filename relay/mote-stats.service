@@ -11,7 +11,7 @@ After=network-online.target mote-relay.service
 Wants=network-online.target
 
 [Service]
-ExecStart=/usr/bin/python3 /opt/mote-relay/mote_stats.py --store /data --port 8443 --relay 127.0.0.1:443 --state /var/lib/mote-stats \
+ExecStart=/usr/bin/python3 /opt/mote-relay/mote_stats.py --store /data --port 8443 --relay 127.0.0.1:443 --state /var/lib/mote-stats --backups /backups \
     --token-file ${CREDENTIALS_DIRECTORY}/token --cert ${CREDENTIALS_DIRECTORY}/cert.pem --key ${CREDENTIALS_DIRECTORY}/key.pem
 LoadCredential=token:/etc/mote-stats/token
 LoadCredential=cert.pem:/etc/mote-stats/cert.pem
@@ -21,6 +21,8 @@ DynamicUser=yes
 SupplementaryGroups=systemd-journal
 # the relay's results, read-only, and nothing else of its
 BindReadOnlyPaths=/var/lib/private/mote-relay:/data
+# the daily snapshots' names and sizes (each file itself is root only)
+BindReadOnlyPaths=-/var/backups/mote-relay:/backups
 # its own history (a sample a minute), its own folder -- never the relay's
 StateDirectory=mote-stats
 ProtectSystem=strict

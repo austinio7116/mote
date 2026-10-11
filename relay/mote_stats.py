@@ -257,8 +257,9 @@ def main():
     ap.add_argument("--relay", default="127.0.0.1:443")
     ap.add_argument("--state", default="", help="keep a sample a minute here (history)")
     ap.add_argument("--journal-file", default="", help="read the relay's log from this file, not journalctl (tests)")
+    ap.add_argument("--backups", default="", help="the daily snapshots' folder, listed on the Server page")
     A = ap.parse_args()
-    MODEL = Model(A.store, A.relay, GID, A.journal_file)
+    MODEL = Model(A.store, A.relay, GID, A.journal_file, A.backups)
     with open(A.token_file, "rb") as f:
         TOKEN = f.read().strip()
     if len(TOKEN) < 24:

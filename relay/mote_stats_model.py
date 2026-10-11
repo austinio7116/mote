@@ -69,8 +69,8 @@ def _report(line, side):
 
 
 class Model:
-    def __init__(self, store, relay, gid, journal_file=""):
-        self.store, self.relay, self.gid, self.journal_file = store, relay, gid, journal_file
+    def __init__(self, store, relay, gid, journal_file="", backups=""):
+        self.store, self.relay, self.gid, self.journal_file, self.backups = store, relay, gid, journal_file, backups
         self._key = None
         self._model = None
         self._hon = (0.0, None)
@@ -562,6 +562,15 @@ class Model:
                     files.append({"name": n, "size": st.st_size, "mtime": st.st_mtime, "lines": lines_n})
         except OSError:
             pass
+        snaps = []
+        if self.backups:
+            try:
+                for n in sorted(os.listdir(self.backups), reverse=True):
+                    if n.startswith("mote-relay-") and n.endswith(".tar.gz"):
+                        st = os.stat(os.path.join(self.backups, n))
+                        snaps.append({"name": n, "size": st.st_size, "mtime": st.st_mtime})
+            except OSError:
+                pass
         code = []
         here = os.path.dirname(os.path.abspath(__file__))
         for n in ("mote_relay.py", "mote_stats.py", "mote_stats_model.py", "mote_stats.html"):
@@ -575,6 +584,6 @@ class Model:
                "days": sorted(days.values(), key=lambda d: d["day"], reverse=True), "leaves": sorted(leaves.items(), key=lambda kv: -kv[1]),
                "proofs": proofs, "honours_proofs": hon, "restarts": restarts[-20:][::-1],
                "relay_up_since": restarts[-1][:19].replace("T", " ") if restarts else "",
-               "recent": recent[-80:][::-1], "sys": sysinfo, "files": files, "backups": backups, "code": code}
+               "recent": recent[-80:][::-1], "sys": sysinfo, "files": files, "backups": backups, "snapshots": snaps, "code": code}
         self._srv = (time.time(), val)
         return val
