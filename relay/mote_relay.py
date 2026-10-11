@@ -932,6 +932,96 @@ class Relay:
             log(f"results: {name} could not be written ({type(e).__name__})")
             return False
 
+    # ---- A FRAME UNDER WAY, AND WALKING OUT OF IT (7.4.x) ----------------
+    # Mark, 2026-10-11: "have the games report their starting ... then if
+    # someone leaves we know it was a valid game". Each seated player's game
+    # sends STARTED {json} once the frame's first stroke is played; a frame both
+    # have sent is under way. A seated player who leaves it before its result
+    # has FORFEITED it: the other's report, if it comes within FORFEIT_WAIT, is
+    # kept with their own figures, marked "forfeit"; if none comes the relay
+    # writes the forfeit itself, with no figures. A frame left before anybody
+    # struck has no STARTED and counts for nothing (Mark: once a stroke is
+    # played). Games before 7.4.x send no STARTED: nothing changes for them.
+    FORFEIT_WAIT = 90.0
+
+    def started(self, room, m, raw):
+        if self.store is None:
+            return "STARTED OFF"
+        try:
+            r = json.loads(raw[8:])
+        except ValueError:
+            return "STARTED BAD"
+        names = r.get("names") if isinstance(r, dict) else None
+        num = lambda x, lo, hi: isinstance(x, int) and not isinstance(x, bool) and lo <= x <= hi
+        if (not isinstance(r, dict) or r.get("v") != 1 or r.get("t") != "start" or not num(r.get("frame"), 1, 1000)
+                or not num(r.get("kind"), 0, 1000) or not num(r.get("me"), 0, 1) or not num(r.get("best_of"), 1, 1000)
+                or not (isinstance(names, list) and len(names) == 2 and all(isinstance(n, str) and 0 < len(n) <= 64 for n in names))
+                or m.k >= room.WATCH_BASE or len(room.players()) < 2):
+            return "STARTED BAD"
+        key = (r["frame"], tuple(names), r["kind"])
+        st = getattr(room, "start", None)
+        if not st or st["key"] != key:
+            st = room.start = {"key": key, "frame": r["frame"], "names": list(names), "kind": r["kind"],
+                               "game": str(r.get("game", ""))[:64], "best_of": r["best_of"], "sides": {}}
+        st["sides"][r["me"]] = {"k": m.k, "uid": m.uid, "at": time.monotonic()}
+        if len(st["sides"]) == 2:
+            log(f"nroom {room.gid}/{room.code}: frame {r['frame']} under way")
+        return "STARTED OK"
+
+    def forfeit_leave(self, room, m):
+        st = getattr(room, "start", None)
+        if self.store is None or not st or len(st["sides"]) < 2 or m.k >= room.WATCH_BASE:
+            return
+        ls = next((sd for sd, v in st["sides"].items() if v["k"] == m.k), None)
+        if ls is None:
+            return
+        room.start = None
+        f = {"st": st, "leaver": ls, "winner": 1 - ls, "at": time.monotonic(), "kept": set()}
+        room.forfeit = f
+        log(f"nroom {room.gid}/{room.code}: {st['names'][ls]} left frame {st['frame']} under way: a forfeit")
+        # ...AND AN ACCOUNT ALREADY WAITING: the one who stayed reported first
+        # and the other went without (Kidbrush52 v Joethe147, 2026-10-11 00:33)
+        wk = st["sides"][f["winner"]]["k"]
+        for t in ("frame", "match"):
+            pend = getattr(room, "results", {}).get((t, st["frame"]), [])
+            for o in list(pend):
+                if o["side"] == f["winner"] and o["k"] == wk and t not in f["kept"]:
+                    pend.remove(o)
+                    f["kept"].add(t)
+                    self.result_write("results.jsonl", self.forfeit_line(room, f, o["r"], {k: v for k, v in o.items() if k != "at"}))
+                    log(f"nroom {room.gid}/{room.code}: {t} {st['frame']} kept, the other having left")
+        asyncio.get_event_loop().call_later(getattr(self.args, "forfeit_wait", self.FORFEIT_WAIT), self.forfeit_settle, room, f)
+
+    def forfeit_line(self, room, f, r, entry):
+        st = f["st"]
+        uw, ul = st["sides"][f["winner"]].get("uid"), st["sides"][f["leaver"]].get("uid")
+        line = {"time": time.strftime("%Y-%m-%d %H:%M:%S"), "gid": room.gid, "room": room.code,
+                "room_secs": round(time.monotonic() - room.created), "players": len(room.players()),
+                # a forfeit when the one who stayed is the winner; a frame the
+                # one who stayed says they LOST is their honest account, kept
+                "agreed": False, "forfeit": r.get("winner") == f["winner"], "left": st["names"][f["leaver"]], "a": entry,
+                "verified": bool(uw) and bool(ul) and uw != ul}
+        line["result"] = {k: r.get(k) for k in self.RES_SHARED}
+        line["result"]["names"] = r.get("names")
+        line["result"]["sides"] = [{k: sd.get(k) for k in self.RES_SIDE} for sd in r["sides"]]
+        return line
+
+    def forfeit_settle(self, room, f):
+        if getattr(room, "forfeit", None) is f:
+            room.forfeit = None
+        if "frame" in f["kept"]:
+            return
+        st = f["st"]
+        zero = {"shots": 0, "pot_shots": 0, "potted": 0, "fouls": 0, "best": 0, "breaks": []}
+        for t in ("frame", "match"):
+            r = {"t": t, "game": st["game"], "kind": st["kind"], "best_of": st["best_of"], "frame": st["frame"],
+                 "names": st["names"], "winner": f["winner"], "match_winner": f["winner"],
+                 "sides": [dict(zero), dict(zero)]}
+            line = self.forfeit_line(room, f, r, None)
+            line["figures"] = False
+            self.result_write("results.jsonl", line)
+        log(f"nroom {room.gid}/{room.code}: frame {st['frame']} forfeited by {st['names'][f['leaver']]}, kept without figures")
+
     def result(self, room, m, raw):
         """RESULT <json>: one end's account of a frame (or the match). Kept as
         a result when the other side's player says the same (see RESULTS)."""
@@ -969,6 +1059,14 @@ class Relay:
                                "room_secs": round(now - room.created), "a": {k: v for k, v in o.items() if k != "at"},
                                "stale": True})
         entry_out = {k: v for k, v in entry.items() if k != "at"}
+        # THE OTHER LEFT A FRAME UNDER WAY: this end's account is the result
+        f = getattr(room, "forfeit", None)
+        if (f and r["frame"] == f["st"]["frame"] and side == f["winner"] and m.k == f["st"]["sides"][f["winner"]]["k"]
+                and r["t"] not in f["kept"]):
+            f["kept"].add(r["t"])
+            self.result_write("results.jsonl", self.forfeit_line(room, f, r, entry_out))
+            log(f"nroom {room.gid}/{room.code}: {r['t']} {r['frame']} kept, the other having left")
+            return "RESULT KEPT"
         for o in pend:
             if o["side"] != side and o["k"] != m.k:
                 pend.remove(o)
@@ -983,6 +1081,9 @@ class Relay:
                     line["result"]["names"] = r.get("names")
                     line["result"]["sides"] = [{k: sd.get(k) for k in self.RES_SIDE} for sd in r["sides"]]
                 self.result_write("results.jsonl" if same else "results_disputed.jsonl", line)
+                st = getattr(room, "start", None)
+                if st and st["frame"] == r["frame"]:
+                    room.start = None              # the frame is over: nobody leaving now forfeits it
                 log(f"nroom {room.gid}/{room.code}: {r['t']} {r['frame']} {'agreed' if same else 'DISPUTED'}")
                 return "RESULT KEPT" if same else "RESULT DISPUTED"
         if len(pend) < 8:
@@ -1255,6 +1356,13 @@ class Relay:
                             if not m.gone:
                                 room.control_quiet(ans, m.k)
                         asyncio.ensure_future(check())
+                    elif cmd.startswith("STARTED ") and not getattr(room, "club", False):
+                        try:
+                            ans = self.started(room, m, raw)
+                        except Exception as e:
+                            log(f"nroom {room.gid}/{room.code}: a start could not be held ({type(e).__name__}: {e})")
+                            ans = "STARTED OFF"
+                        room.control_quiet(ans, m.k)
                     elif cmd.startswith("RESULT ") and not getattr(room, "club", False):
                         # A RESULT NEVER COSTS ITS SENDER THE ROOM, whatever goes wrong keeping it
                         try:
@@ -1277,6 +1385,10 @@ class Relay:
         except (OSError, ConnectionError) as e:
             why = f"net {type(e).__name__}"
         room.drop(m, why)
+        try:
+            self.forfeit_leave(room, m)
+        except Exception as e:
+            log(f"nroom {room.gid}/{room.code}: a forfeit could not be held ({type(e).__name__}: {e})")
 
     async def nroom_member(self, key, room, k, reader, writer, peer):
         m = Member(k, reader, writer, peer)
@@ -1667,6 +1779,7 @@ async def main():
     ap.add_argument("--meta-secret-file", default="", help="file holding the Meta app secret: players' account proofs are checked and results kept against the account (7.3)")
     ap.add_argument("--meta-app-id", default="1036582382349280", help="the Meta app the proofs are for (CueVR)")
     ap.add_argument("--meta-verify-url", default="https://graph.oculus.com/user_nonce_validate", help="where proofs are checked (a test points it at a fake)")
+    ap.add_argument("--forfeit-wait", type=float, default=90.0, help="seconds a forfeit waits for the remaining player's report before the relay records it without figures (7.4.x)")
     ap.add_argument("--latest-game", action="append", default=[], help="a current game id ('CUEn', 0x4355456E): older ids of its family are told to update (7.3); also <store>/latest_games")
     ap.add_argument("--store-cap", type=int, default=200000, help="most share codes kept")
     ap.add_argument("--puts-per-hour", type=int, default=60, help="share codes one address may make an hour")
