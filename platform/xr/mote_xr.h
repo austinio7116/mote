@@ -62,6 +62,11 @@ typedef struct {
     MoteVrV3   v;           /* linear velocity, metres per second */
     MoteVrV3   w;           /* angular velocity, radians per second */
     int        v_ok;
+    /* THE CAMERAS CAN SEE IT (POSITION_TRACKED). A sample is kept while the
+     * position is VALID, which stays true while the runtime is only inferring
+     * a controller the cameras have lost (a cue's back hand behind the body);
+     * this says which it was. 1 seen, 0 inferred. */
+    int        p_tracked;
     /* THE TWO TOGETHER ARE WHAT A CUE TIP NEEDS. A tip is a rigid offset from
      * the controller, so its velocity is v + w x r -- the hand's own motion
      * plus whatever the rotation adds a metre and a half down the stick. Both

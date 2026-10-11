@@ -1402,6 +1402,7 @@ static void *ring_run(void *arg) {
                 sl->t_ns = (int64_t)t;
                 memcpy(&sl->pose.q, &loc.pose.orientation, sizeof sl->pose.q);
                 memcpy(&sl->pose.p, &loc.pose.position,    sizeof sl->pose.p);
+                sl->p_tracked = (loc.locationFlags & XR_SPACE_LOCATION_POSITION_TRACKED_BIT) ? 1 : 0;
                 sl->v_ok = ((vel.velocityFlags & XR_SPACE_VELOCITY_LINEAR_VALID_BIT) &&
                             (vel.velocityFlags & XR_SPACE_VELOCITY_ANGULAR_VALID_BIT)) ? 1 : 0;
                 if (sl->v_ok) {
