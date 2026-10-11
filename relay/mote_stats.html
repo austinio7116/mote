@@ -219,6 +219,13 @@ function vHonours(){
   h += `<h2>${mon} so far</h2><div class="card small dim">This month's leaders: their plates are engraved when the month closes (00:00 UTC on the 1st).</div>`;
   for (const b of R.boards) h += `<div class=card><div class=row><b class=small>${e(b.title)}</b><span class=small>${b.top.length ? b.top.map((t,i) => `${i?'<span class=dim>':''}${e(t.name)} <b class=acc>${e(t.value)}</b>${i?'</span>':''}`).join(' &middot; ') : '<span class=dim>nobody yet</span>'}</span></div></div>`;
   if (R.win_rate_near.length) h += `<div class="card small dim">Short of 20 frames for the win rate: ${R.win_rate_near.map(([n,f]) => `${e(n)} ${f}`).join(', ')}</div>`;
+  const pb = M.pot_board;
+  if (pb){
+    const pt = (b, title) => `<div class=card><div class=row><b class=small>${title}</b><span class="tiny dim">only you see this &middot; ${b.need}+ attempts</span></div>
+      ${b.rows.length ? `<table>${b.rows.map((r,i) => `<tr><td class=dim style="width:24px">${i+1}</td><td>${e(r.name)}</td><td class=r><b class=acc>${r.pct}%</b> <span class="tiny dim">${r.made}/${r.att}</span></td></tr>`).join('')}</table>` : '<div class="dim small">nobody has enough attempts yet</div>'}
+      ${b.short.length ? `<div class="tiny dim" style="margin-top:4px">Short of ${b.need}: ${b.short.map(([n,a]) => `${e(n)} ${a}`).join(', ')}</div>` : ''}</div>`;
+    h += `<h2>Pot success</h2>${pt(pb.month, mon + ' so far')}${pt(pb.all, 'All time')}`;
+  }
   h += '<h2>All time</h2>';
   for (const b of H_.boards){
     h += `<div class=card><b class=small>${e(b.title)}</b>${b.rows.length ? `<table>${b.rows.map(r => `<tr><td class=dim style="width:24px">${e(r.rank)}</td><td>${e(r.name)}</td><td class=r>${e(r.value)}</td></tr>`).join('')}</table>` : '<div class="dim small">empty</div>'}</div>`; }

@@ -99,6 +99,7 @@ class Model:
         self.seen_first = {}
         self.room_secs = collections.deque(maxlen=2000)
         self.monthp, self.month_names = {}, {}
+        self.pot_all, self.pot_month, self.pot_name = {}, {}, {}
         self.fixed = set()
         self.seen_lines = {}
         self.n_frames = self.n_matches = 0
@@ -257,6 +258,12 @@ class Model:
                     sd = side(i); sh = dict(sd.get("shot") or {})
                     if sd.get("shots") == 1 and side(1 - i).get("shots") == 0:
                         sh.pop("bnr", None)
+                    # pot success, for Mark's eyes only (the stats app's Honours tab; not a club board)
+                    att, made = int(sh.get("att") or 0), int(sh.get("made") or 0)
+                    for tally in (self.pot_all, self.pot_month.setdefault(mon, {})):
+                        pt = tally.setdefault(ids[i], [0, 0])
+                        pt[0] += att; pt[1] += made
+                    self.pot_name[ids[i]] = _clean(names[i], 23) or "?"
                     self.month_names.setdefault(mon, {})[ids[i]] = _clean(names[i], 23) or "?"
                     mp = self.monthp.setdefault(mon, {}).setdefault(ids[i], {"f": 0, "w": 0, "bnr": 0, "clr": 0, "hi": {}})
                     mp["f"] += 1; mp["w"] += 1 if r.get("winner") == i else 0
@@ -477,7 +484,21 @@ class Model:
                               "same_addr": list(reversed(self.same_addr)), "lopsided": lopsided[:100],
                               "notable": list(reversed(self.notable))[:100], "reports": list(reversed(reports)),
                               "left_counts": sorted([(p["name"], p["left"]) for p in players if p["left"]], key=lambda x: -x[1])},
-                "month_race": self._month_race(time.strftime("%Y-%m", time.gmtime()))}
+                "month_race": self._month_race(time.strftime("%Y-%m", time.gmtime())),
+                "pot_board": self._pot_board(time.strftime("%Y-%m", time.gmtime()))}
+
+    POT_MIN_ALL, POT_MIN_MONTH = 100, 50       # pot attempts before a player is on the pot success board
+
+    def _pot_board(self, month):
+        """pot success by account, verified singles frames: all time and this
+        month, each from a minimum of attempts, and who is still short of it"""
+        def board(T, need):
+            on = [(self.pot_name.get(u, "?"), m / a, a, m) for u, (a, m) in T.items() if a >= need]
+            on.sort(key=lambda x: (-x[1], -x[2], x[0]))
+            short = sorted([(self.pot_name.get(u, "?"), a) for u, (a, m) in T.items() if 0 < a < need], key=lambda x: -x[1])
+            return {"need": need, "rows": [{"name": n, "pct": round(100 * r, 1), "att": a, "made": m} for n, r, a, m in on[:20]],
+                    "short": short[:10]}
+        return {"all": board(self.pot_all, self.POT_MIN_ALL), "month": board(self.pot_month.get(month, {}), self.POT_MIN_MONTH)}
 
     # ---- honours: the relay's own answer, and this month so far ------------
     def _month_race(self, month):
