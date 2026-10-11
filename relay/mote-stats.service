@@ -1,8 +1,9 @@
 # mote-stats: a private read-only view of CueVR online play (mote_stats.py),
-# beside the relay and separate from it -- it reads the relay's results and asks
-# its public LIST, writes nothing, and the relay never restarts for it.
+# beside the relay and separate from it -- it reads the relay's results and its
+# log, asks its public LIST and HONOURS, writes nothing of the relay's, and the
+# relay never restarts for it.
 #
-#   /opt/mote-relay/mote_stats.py
+#   /opt/mote-relay/mote_stats.py, mote_stats_model.py, mote_stats.html
 #   /etc/mote-stats/{token,cert.pem,key.pem}   root 600, handed in as credentials
 [Unit]
 Description=mote-stats (read-only CueVR online view, HTTPS 8443)
@@ -16,6 +17,8 @@ LoadCredential=token:/etc/mote-stats/token
 LoadCredential=cert.pem:/etc/mote-stats/cert.pem
 LoadCredential=key.pem:/etc/mote-stats/key.pem
 DynamicUser=yes
+# the relay's log, read through journalctl for the Server and Integrity pages
+SupplementaryGroups=systemd-journal
 # the relay's results, read-only, and nothing else of its
 BindReadOnlyPaths=/var/lib/private/mote-relay:/data
 # its own history (a sample a minute), its own folder -- never the relay's
@@ -26,7 +29,7 @@ PrivateTmp=yes
 PrivateDevices=yes
 NoNewPrivileges=yes
 CapabilityBoundingSet=
-RestrictAddressFamilies=AF_INET AF_INET6
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
 ProtectKernelTunables=yes
 ProtectKernelModules=yes
 ProtectControlGroups=yes

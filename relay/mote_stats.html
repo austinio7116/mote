@@ -1,0 +1,316 @@
+<!doctype html><html><head><meta charset=utf-8>
+<meta name=viewport content="width=device-width,initial-scale=1">
+<title>CueVR online</title>
+<style>
+:root{--bg:#101418;--fg:#e4e8ec;--dim:#7d8790;--acc:#7fd4b4;--line:#242b33;--warn:#f0a070;--bad:#f07070;--card:#151a1f}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:15px system-ui,sans-serif}
+header{position:sticky;top:0;z-index:2;background:var(--bg);border-bottom:1px solid var(--line)}
+.top{padding:10px 16px 6px;display:flex;justify-content:space-between;align-items:baseline}
+h1{font-size:18px;margin:0}
+nav{display:flex;gap:4px;overflow-x:auto;padding:0 12px 8px;scrollbar-width:none}nav::-webkit-scrollbar{display:none}
+nav a{flex:none;color:var(--dim);text-decoration:none;font-size:14px;padding:5px 11px;border-radius:14px;border:1px solid transparent}
+nav a.on{color:var(--acc);border-color:var(--acc)}
+nav a .n{font-size:11px;background:var(--warn);color:#101418;border-radius:8px;padding:0 5px;margin-left:4px}
+h2{font-size:13px;color:var(--acc);margin:18px 16px 6px;text-transform:uppercase;letter-spacing:.05em}
+h3{font-size:16px;margin:0 0 2px}
+.card{margin:6px 16px;padding:10px 12px;border:1px solid var(--line);border-radius:10px;background:var(--card)}
+.tap{cursor:pointer}.tap:active{border-color:var(--acc)}
+.row{display:flex;justify-content:space-between;gap:8px;align-items:baseline}
+.dim{color:var(--dim)}.acc{color:var(--acc)}.warn{color:var(--warn)}.bad{color:var(--bad)}
+.small{font-size:13px}.tiny{font-size:11.5px}
+.chips{display:flex;gap:6px;margin:4px 16px;flex-wrap:wrap}.chip{border:1px solid var(--line);border-radius:14px;padding:3px 12px;font-size:13px;color:var(--dim);cursor:pointer}
+.chip.on{border-color:var(--acc);color:var(--acc)}
+.tag{font-size:11px;border:1px solid var(--acc);color:var(--acc);border-radius:6px;padding:0 5px;margin-left:6px;font-weight:400}
+.tag.w{border-color:var(--warn);color:var(--warn)}.tag.d{border-color:var(--dim);color:var(--dim)}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:6px;margin:6px 16px}
+.stat{border:1px solid var(--line);border-radius:10px;padding:8px 10px;background:var(--card)}
+.stat b{display:block;font-size:19px;color:var(--acc);font-weight:600}.stat span{font-size:12px;color:var(--dim)}
+table{width:100%;border-collapse:collapse;font-size:13px}td,th{padding:4px 4px;text-align:left;border-bottom:1px solid var(--line)}th{color:var(--dim);font-weight:400}
+td.r,th.r{text-align:right}
+input{width:calc(100% - 32px);margin:6px 16px;padding:8px 12px;border-radius:10px;border:1px solid var(--line);background:var(--card);color:var(--fg);font-size:15px}
+.form span{display:inline-block;width:22px;height:22px;line-height:22px;text-align:center;border-radius:5px;margin:0 3px 3px 0;font-size:12px;font-weight:600;color:#101418;cursor:pointer}
+.W{background:var(--acc)}.L{background:#3a434d;color:var(--fg)!important}
+.bar{height:8px;border-radius:4px;background:var(--acc)}
+.back{display:inline-block;margin:10px 16px 0;color:var(--acc);cursor:pointer;font-size:14px}
+pre{white-space:pre-wrap;word-break:break-word;margin:4px 0 0;font:12px ui-monospace,monospace;color:var(--dim)}
+svg{display:block}.key{display:inline-block;width:10px;height:10px;border-radius:2px;margin:0 4px 0 10px}
+.empty{color:var(--dim)}
+</style></head><body>
+<header><div class=top><h1>CueVR online</h1><span id=at class="dim small">...</span></div>
+<nav id=nav></nav></header>
+<div id=view></div>
+<script>
+const T = new URLSearchParams(location.search).get('t') || '';
+const q = p => p + (p.includes('?') ? '&' : '?') + 't=' + encodeURIComponent(T);
+const e = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+/* the server's times are UTC; shown in the phone's own time */
+const D = s => new Date(String(s).replace(' UTC','').replace(' ','T') + (String(s).includes('+') ? '' : 'Z'));
+const lt = (s, day) => { const d = D(s); if (isNaN(d)) return e(s);
+  const hm = d.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'});
+  return day ? d.toLocaleDateString([], {day:'numeric', month:'short'}) + ' ' + hm : hm; };
+const ago = s => { const m = (Date.now() - D(s)) / 60000; if (isNaN(m)) return '';
+  return m < 1 ? 'just now' : m < 60 ? Math.round(m) + ' min ago' : m < 1440 ? Math.round(m/60) + ' h ago' : Math.round(m/1440) + ' d ago'; };
+const pct = (a, b) => b ? Math.round(100 * a / b) + '%' : '-';
+const frac = (a, b) => b ? `${pct(a,b)} <span class="dim tiny">${a}/${b}</span>` : '<span class=dim>-</span>';
+const mins = s => s >= 3600 ? (s/3600).toFixed(1) + ' h' : Math.round(s/60) + ' min';
+const empty = t => `<div class="card empty">${t}</div>`;
+let NOW = null, M = null, MT = 0, S = null, H = null, HD = 1, PQ = '', MG = '', MQ = '', SF = false;
+
+const TABS = [['now','Now'],['players','Players'],['matches','Matches'],['honours','Honours'],['integrity','Integrity'],['activity','Activity'],['server','Server']];
+function route(){ const h = location.hash.slice(1) || 'now'; const [v, a] = h.split('/'); return {v, a: decodeURIComponent(a || '')}; }
+function nav(){
+  const r = route(), base = {player:'players', match:'matches'}[r.v] || r.v;
+  const flags = M ? M.integrity.disputed.filter(d => !d.repaired).length + M.integrity.unconfirmed.length + M.integrity.same_addr.length + M.integrity.lopsided.length : 0;
+  document.getElementById('nav').innerHTML = TABS.map(([k,l]) =>
+    `<a href="#${k}" class="${base==k?'on':''}">${l}${k=='integrity'&&flags?`<span class=n>${flags}</span>`:''}</a>`).join('');
+}
+function draw(){
+  nav();
+  const r = route(), V = document.getElementById('view');
+  const f = {now:vNow, players:vPlayers, player:vPlayer, matches:vMatches, match:vMatch, honours:vHonours,
+             integrity:vIntegrity, activity:vActivity, server:vServer}[r.v] || vNow;
+  const y = window.scrollY, keep = V.dataset.v === location.hash;
+  V.innerHTML = f(r.a); V.dataset.v = location.hash;
+  if (keep) window.scrollTo(0, y);
+  const inp = document.getElementById('srch');
+  if (inp && SF) { inp.focus(); inp.setSelectionRange(inp.value.length, inp.value.length); }
+}
+window.addEventListener('hashchange', () => { window.scrollTo(0, 0); draw(); load(); });
+
+/* ---- NOW ---------------------------------------------------------------- */
+function vNow(){
+  let h = '<h2>Now</h2>', any = false;
+  if (!NOW) return h + empty('Loading...');
+  for (const v of NOW.live){
+    for (const c of v.clubs){ any = true;
+      h += `<div class=card><div class=row><b>Club ${e(c.n)}</b><span class="dim small">${e(v.version)}</span></div>
+            <div class="small dim">${c.have} of ${c.max} in, ${c.tables} table${c.tables==1?'':'s'} playing</div>
+            <div class=small>${c.who.map(e).join(', ')||'<span class=dim>nobody named</span>'}</div></div>`; }
+    for (const m of v.live){ any = true;
+      h += `<div class=card><div class=row><b>Match</b><span class="dim small">${e(v.version)}</span></div><div class=small>${e(m)}</div></div>`; }
+    for (const r of v.rooms){ any = true;
+      h += `<div class=card><div class=row><b>Waiting</b><span class="dim small">${e(v.version)}</span></div><div class=small>${e(r)}</div></div>`; }
+    if (v.error) h += `<div class="card warn small">${e(v.version)}: the relay did not answer (${e(v.error)})</div>`;
+  }
+  if (!any) h += empty('Nobody online right now.');
+  if (M){ const td = M.activity.days.at(-1) || {};
+    h += `<h2>Today (UTC)</h2><div class=grid>${st(td.frames||0,'frames kept')}${st(td.matches||0,'matches')}${st(td.players||0,'players')}${st(td.new||0,'new players')}</div>`; }
+  return h + hChart();
+}
+const st = (v, l, cls) => `<div class=stat><b class="${cls||''}">${v}</b><span>${l}</span></div>`;
+function hChart(){
+  const d = H; let h = '<h2>Online over time</h2><div class=chips>' +
+    [[1,'Day'],[7,'Week'],[30,'Month']].map(([n,l]) => `<span class="chip${HD==n?' on':''}" onclick="HD=${n};hload()">${l}</span>`).join('') + '</div>';
+  if (!d) return h + empty('Loading...');
+  const W = Math.min(window.innerWidth, 640) - 32 - 26, Hh = 150, P = 22;
+  let mx = 1; for (const b of d.series) mx = Math.max(mx, b.club + b.match);
+  const x = t => P + (t - d.from) / (d.to - d.from) * (W - P - 4), y = v => Hh - 18 - v / mx * (Hh - 30);
+  const bw = Math.max(1, (W - P) * d.bucket / (d.to - d.from) - 1);
+  let g = `<svg width=${W} height=${Hh}>`;
+  for (const f of [0, 0.5, 1]){ const v = Math.round(mx * f), yy = y(v);
+    g += `<line x1=${P} x2=${W} y1=${yy} y2=${yy} stroke="#242b33"/><text x=0 y=${yy+4} fill="#7d8790" font-size=10>${v}</text>`; }
+  for (const b of d.series){ const xx = x(b.t);
+    if (b.club) g += `<rect x=${xx} y=${y(b.club)} width=${bw} height=${y(0)-y(b.club)} fill="#7fd4b4"/>`;
+    if (b.match) g += `<rect x=${xx} y=${y(b.club+b.match)} width=${bw} height=${y(b.club)-y(b.club+b.match)} fill="#f0a070"/>`; }
+  const ticks = d.days == 7 ? 7 : 6;
+  for (let i = 0; i <= ticks; i++){ const t = d.from + (d.to - d.from) * i / ticks, dt = new Date(t * 1000);
+    const lab = d.days == 1 ? dt.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'}) : dt.toLocaleDateString([], {day:'numeric', month:'short'});
+    g += `<text x=${i == ticks ? W : x(t)} y=${Hh-3} fill="#7d8790" font-size=10 text-anchor=${i==0?'start':i==ticks?'end':'middle'}>${lab}</text>`; }
+  g += '</svg>';
+  h += `<div class=card>${d.series.length ? g : '<div class="dim small">No history yet: a sample is taken every minute.</div>'}
+        <div class="small dim" style="margin-top:6px"><span class=key style="background:#7fd4b4"></span>in the club<span class=key style="background:#f0a070"></span>in matches</div></div>`;
+  for (const r of d.daily.slice(0, HD == 1 ? 2 : HD)){
+    const day = new Date(r.day + 'T12:00:00Z').toLocaleDateString([], {weekday:'short', day:'numeric', month:'short'});
+    h += `<div class="card small"><div class=row><b>${day}</b><span class=dim>${r.players} player${r.players==1?'':'s'} seen</span></div>
+          <div class=dim>Most at once ${r.peak}${r.peak ? ' at ' + new Date(r.peak_t*1000).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'}) : ''}</div></div>`; }
+  return h;
+}
+
+/* ---- PLAYERS -------------------------------------------------------------- */
+const P = id => M && M.players.find(p => p.id === id);
+function pCard(p){
+  const s = p.shot;
+  return `<div class="card tap" onclick="location.hash='player/${encodeURIComponent(p.id)}'">
+    <div class=row><b>${e(p.name)}${p.proved?'<span class=tag>account</span>':p.team?'<span class="tag d">team</span>':'<span class="tag w">name only</span>'}${p.left>=3?'<span class="tag w">'+p.left+' walk-outs</span>':''}</b><span class="dim small">${ago(p.last)}</span></div>
+    <div class=small>Frames ${p.fwon}/${p.frames} (${pct(p.fwon,p.frames)}) &middot; matches ${p.mwon}/${p.matches}</div>
+    <div class="small dim">Pot success ${pct(s.made,s.att)}${p.version?' &middot; '+e(p.version):''}${p.aka.length?' &middot; also '+p.aka.map(e).join(', '):''}</div></div>`;
+}
+function vPlayers(){
+  if (!M) return empty('Loading...');
+  const ql = PQ.toLowerCase(), hit = p => !ql || p.name.toLowerCase().includes(ql) || p.aka.some(a => a.toLowerCase().includes(ql));
+  const ps = M.players.filter(p => !p.team && hit(p)), ts = M.players.filter(p => p.team && hit(p));
+  let h = `<input id=srch placeholder="Find a player" value="${e(PQ)}" onfocus="SF=true" onblur="SF=false" oninput="PQ=this.value;draw()">`;
+  h += `<h2>Players <span class=dim>(${ps.length})</span></h2>` + (ps.map(pCard).join('') || empty('Nobody matches.'));
+  if (ts.length) h += `<h2>Doubles teams <span class=dim>(${ts.length})</span></h2>` + ts.map(pCard).join('');
+  return h;
+}
+function vPlayer(id){
+  const p = P(id); if (!p) return '<span class=back onclick="history.back()">&lsaquo; Back</span>' + empty(M ? 'No such player.' : 'Loading...');
+  const s = p.shot, perf = p.frames || 1;
+  let h = `<span class=back onclick="history.back()">&lsaquo; Players</span><div class=card><h3>${e(p.name)}</h3>
+    <div class="small dim">${e(p.shown_id)}${p.version?' &middot; plays '+e(p.version):''} &middot; first ${lt(p.first,true)} &middot; last ${lt(p.last,true)}</div>
+    ${p.aka.length?`<div class=small>Also played as ${p.aka.map(e).join(', ')}</div>`:''}
+    ${p.unverified?`<div class="small warn">${p.unverified} frame${p.unverified==1?'':'s'} not verified</div>`:''}</div>`;
+  h += `<div class=grid>${st(pct(p.fwon,p.frames),`frames won, ${p.fwon} of ${p.frames}`)}${st(pct(p.mwon,p.matches),`matches won, ${p.mwon} of ${p.matches}`)}
+    ${st(pct(s.made,s.att),`pot success, ${s.made} of ${s.att}`)}${st(pct(s.long_made,s.long_att),`long pots, ${s.long_made} of ${s.long_att}`)}
+    ${st(pct(s.safe_ok,s.safeties),`safeties held, ${s.safe_ok} of ${s.safeties}`)}${st(s.bnr,'break-and-runs')}${st(s.runouts,'clearances')}
+    ${st(pct(s.breaks_ok,s.breaks),`breaks that potted, of ${s.breaks}`)}${st(s.b50 + ' / ' + s.b100,'breaks of 50 / 100')}
+    ${st((p.fouls/perf).toFixed(1),'fouls a frame')}${st(p.table_secs?mins(p.table_secs/perf):'-','at the table a frame')}
+    ${st(p.left, 'walk-outs', p.left?'warn':'')}${st(p.disputes,'disputed frames', p.disputes?'warn':'')}</div>`;
+  if (p.form.length) h += `<h2>Form, last ${p.form.length} matches</h2><div class="card form">${p.form.map(f => `<span class=${f.won?'W':'L'} onclick="location.hash='match/${f.id}'">${f.won?'W':'L'}</span>`).join('')}</div>`;
+  h += `<h2>By game</h2><div class=card><table><tr><th>Game</th><th class=r>Frames</th><th class=r>Won</th><th class=r>Best</th></tr>
+    ${p.games.map(g => `<tr><td>${e(g.game)}</td><td class=r>${g.f}</td><td class=r>${pct(g.w,g.f)}</td><td class=r>${g.best||'-'}</td></tr>`).join('')}</table></div>`;
+  h += `<h2>Head to head</h2><div class=card><table><tr><th>Against</th><th class=r>Frames</th><th class=r>Matches</th></tr>
+    ${p.opp.map(o => `<tr class=tap onclick="location.hash='player/${encodeURIComponent(o.id)}'"><td>${e(o.name)}</td><td class=r>${o.fw}-${o.f-o.fw}</td><td class=r>${o.mw}-${o.m-o.mw}</td></tr>`).join('')}</table></div>`;
+  const ms = M.matches.filter(m => m.ids.includes(p.id)).slice(0, 30);
+  h += `<h2>Matches</h2>` + (ms.map(mCard).join('') || empty('None kept.'));
+  return h;
+}
+
+/* ---- MATCHES -------------------------------------------------------------- */
+function mCard(m){
+  const w = m.winner===0||m.winner===1 ? m.names[m.winner] : '';
+  return `<div class="card tap" onclick="location.hash='match/${m.id}'"><div class=row><span>${e(m.names[0])} <b class=acc>${(m.frames||[0,0])[0]}-${(m.frames||[0,0])[1]}</b> ${e(m.names[1])}</span><span class="dim small">${lt(m.time, true)}</span></div>
+    <div class="small dim">${e(m.game)}${m.variant?' &middot; '+e(m.variant):''}${w?' &middot; '+e(w)+' won':''}${m.forfeit?' &middot; <span class=warn>'+e(m.left)+' left</span>':''}${m.verified?'':' &middot; <span class=warn>not verified</span>'}${m.repaired?' &middot; repaired':''}</div></div>`;
+}
+function vMatches(){
+  if (!M) return empty('Loading...');
+  const games = [...new Set(M.matches.map(m => m.game))];
+  const ql = MQ.toLowerCase();
+  const ms = M.matches.filter(m => (!MG || m.game == MG) && (!ql || m.names.some(n => n.toLowerCase().includes(ql))));
+  let h = `<input id=srch placeholder="Find a player's matches" value="${e(MQ)}" onfocus="SF=true" onblur="SF=false" oninput="MQ=this.value;draw()">
+    <div class=chips><span class="chip${!MG?' on':''}" onclick="MG='';draw()">All</span>${games.map(g => `<span class="chip${MG==g?' on':''}" onclick='MG=${JSON.stringify(g).replace(/'/g,"&#39;")};draw()'>${e(g)}</span>`).join('')}</div>`;
+  h += `<h2>Matches <span class=dim>(${ms.length})</span></h2>` + (ms.slice(0, 150).map(mCard).join('') || empty('None match.'));
+  if (ms.length > 150) h += `<div class="card dim small">The newest 150 shown; search to narrow.</div>`;
+  return h;
+}
+function vMatch(id){
+  const m = M && M.matches.find(x => x.id === id);
+  if (!m) return '<span class=back onclick="history.back()">&lsaquo; Back</span>' + empty(M ? 'No such match.' : 'Loading...');
+  const w = m.winner===0||m.winner===1 ? m.names[m.winner] : '';
+  let h = `<span class=back onclick="history.back()">&lsaquo; Matches</span><div class=card><h3>${e(m.names[0])} ${(m.frames||[0,0])[0]}-${(m.frames||[0,0])[1]} ${e(m.names[1])}</h3>
+    <div class="small dim">${e(m.game)}${m.variant?' &middot; '+e(m.variant):''} &middot; best of ${m.best_of} &middot; ${lt(m.time,true)} &middot; room ${e(m.room)}${m.room_secs?' &middot; room open '+mins(m.room_secs):''}</div>
+    <div class=small>${w?e(w)+' won':''}${m.forfeit?' &middot; <span class=warn>'+e(m.left)+' left mid-frame</span>':''}${m.verified?' &middot; verified':' &middot; <span class=warn>not verified</span>'}${m.ver.filter(Boolean).length?' &middot; versions '+m.ver.filter(Boolean).map(e).join(' / '):''}</div>
+    ${m.repaired?`<div class="small dim">Repaired: ${e(m.repaired)}</div>`:''}
+    ${m.ids.map((i,k) => `<span class="chip" style="display:inline-block;margin:6px 6px 0 0" onclick="location.hash='player/${encodeURIComponent(i)}'">${e(m.names[k])} &rsaquo;</span>`).join('')}</div>`;
+  for (const f of m.frame_list){
+    const side = i => f.sides[i] || {}, sh = i => side(i).shot || {};
+    h += `<div class=card><div class=row><b>Frame ${f.frame}</b><span class="small"><b class=acc>${(f.score||[0,0]).join('-')}</b> ${f.winner===0||f.winner===1?e(m.names[f.winner]):''}</span></div>
+      <div class="tiny dim">${lt(f.time)}${f.secs?' &middot; '+mins(f.secs):''}${f.bnr>=0&&f.bnr!==null?' &middot; break-and-run':''}${f.golden?' &middot; golden break':''}${f.forfeit?' &middot; forfeit':''}${f.figures===false?' &middot; no figures':''}</div>
+      <table><tr><th></th><th class=r>${e(m.names[0])}</th><th class=r>${e(m.names[1])}</th></tr>
+      ${[['Best break', i => side(i).best ?? '-'], ['Breaks', i => (side(i).breaks||[]).join(', ') || '-'], ['Shots', i => side(i).shots ?? '-'],
+         ['Potted', i => side(i).potted ?? '-'], ['Pot success', i => frac(sh(i).made||0, sh(i).att||0)], ['Long pots', i => frac(sh(i).long_made||0, sh(i).long_att||0)],
+         ['Safeties held', i => frac(sh(i).safe_ok||0, sh(i).safeties||0)], ['Fouls', i => side(i).fouls ?? '-'],
+         ['At the table', i => f.time_at && f.time_at[i] ? mins(f.time_at[i]) : '-']]
+        .map(([l, g]) => `<tr><td class=dim>${l}</td><td class=r>${g(0)}</td><td class=r>${g(1)}</td></tr>`).join('')}</table></div>`;
+  }
+  if (!m.frame_list.length) h += empty('No frame lines for this match.');
+  return h;
+}
+
+/* ---- HONOURS -------------------------------------------------------------- */
+function vHonours(){
+  if (!M) return empty('Loading...');
+  const H_ = M.honours, R = M.month_race;
+  let h = H_.error ? `<div class="card warn small">The relay did not answer (${e(H_.error)}).</div>` : '';
+  const mon = new Date(R.month + '-15T12:00:00Z').toLocaleDateString([], {month:'long', year:'numeric'});
+  h += `<h2>${mon} so far</h2><div class="card small dim">This month's leaders: their plates are engraved when the month closes (00:00 UTC on the 1st).</div>`;
+  for (const b of R.boards) h += `<div class=card><div class=row><b class=small>${e(b.title)}</b><span class=small>${b.top.length ? b.top.map((t,i) => `${i?'<span class=dim>':''}${e(t.name)} <b class=acc>${e(t.value)}</b>${i?'</span>':''}`).join(' &middot; ') : '<span class=dim>nobody yet</span>'}</span></div></div>`;
+  if (R.win_rate_near.length) h += `<div class="card small dim">Short of 20 frames for the win rate: ${R.win_rate_near.map(([n,f]) => `${e(n)} ${f}`).join(', ')}</div>`;
+  h += '<h2>All time</h2>';
+  for (const b of H_.boards){
+    h += `<div class=card><b class=small>${e(b.title)}</b>${b.rows.length ? `<table>${b.rows.map(r => `<tr><td class=dim style="width:24px">${e(r.rank)}</td><td>${e(r.name)}</td><td class=r>${e(r.value)}</td></tr>`).join('')}</table>` : '<div class="dim small">empty</div>'}</div>`; }
+  h += '<h2>Monthly winners</h2>' + (H_.months.length ? `<div class=card><table>${H_.months.map(x => `<tr><td class=dim>${e(x.month)}</td><td>${e(x.title)}</td><td>${e(x.name)}</td><td class=r>${e(x.value)}</td></tr>`).join('')}</table></div>` : empty('No month has closed yet.'));
+  return h;
+}
+
+/* ---- INTEGRITY ------------------------------------------------------------ */
+function sect(t, list, f, none){ return `<h2>${t} <span class=dim>(${list.length})</span></h2>` + (list.length ? list.map(f).join('') : empty(none)); }
+function vIntegrity(){
+  if (!M) return empty('Loading...');
+  const I = M.integrity;
+  let h = `<div class="card small dim">Everything here is for review: a flag is a reason to look, not a finding.</div>`;
+  h += sect('Disputed', I.disputed, d => `<div class=card><div class=row><span>${e(d.names[0])} v ${e(d.names[1])}</span><span class="dim small">${lt(d.time,true)}</span></div>
+      <div class="small dim">${e(d.game)} &middot; ${e(d.t)} ${e(d.frame)} &middot; room ${e(d.room)}${d.verified?'':' &middot; not verified'}${d.same_addr?' &middot; <span class=warn>same address</span>':''}${d.repaired?' &middot; <span class=acc>repaired</span>':''}</div>
+      <div class="tiny dim">Each line: what ${e(d.names[d.senders[0]] ?? 'one')}'s game said v what ${e(d.names[d.senders[1]] ?? 'the other')}'s said</div>
+      <pre>${d.diff.length ? d.diff.map(e).join('\n') : 'no difference in the compared fields'}</pre></div>`, 'No disputes.');
+  h += sect('Unconfirmed', I.unconfirmed, u => `<div class=card><div class=row><span>${e(u.names[0])} v ${e(u.names[1])}</span><span class="dim small">${lt(u.time,true)}</span></div>
+      <div class="small dim">${e(u.game)} &middot; ${e(u.t)} ${e(u.frame)} &middot; sent by ${e(u.sender)} only &middot; ${u.strokes} strokes${u.stale?' &middot; held too long':''}</div></div>`, 'None.');
+  h += `<h2>Walk-outs <span class=dim>(${I.forfeits.length})</span></h2>`;
+  if (I.left_counts.length) h += `<div class="card small">${I.left_counts.map(([n,c]) => `<span class=${c>=3?'warn':''}>${e(n)} ${c}</span>`).join(' &middot; ')}</div>`;
+  h += I.forfeits.length ? I.forfeits.map(mCard).join('') : empty('Nobody has left a frame under way.');
+  h += sect('Same address both sides', I.same_addr, x => `<div class=card><div class=row><span>${e(x.names.join(' v '))}</span><span class="dim small">${lt(x.time,true)}</span></div><div class="small dim">${e(x.game)} &middot; ${e(x.t)} &middot; room ${e(x.room)}</div></div>`, 'None: every kept result came from two addresses.');
+  h += sect('One-sided days', I.lopsided, x => `<div class=card><div class=row><span>${e(x.names.join(' v '))}</span><span class="dim small">${e(x.day)}</span></div><div class="small dim">${x.frames} frames in a day, ${x.top} won by one side</div></div>`, 'No pair played 10 frames in a day with 90% going one way.');
+  h += sect('Worth a look', I.notable, x => `<div class=card><div class=row><span class=small>${e(x.what)}</span><span class="dim small">${lt(x.time,true)}</span></div><div class="tiny dim">${e(x.game)} &middot; room ${e(x.room)}</div></div>`, 'Nothing unusual: no 20-pot frames without a miss, no frames under 45 s.');
+  if (S){ const pf = S.recent.filter(r => r.kind == 'proof' || r.kind == 'honours');
+    h += sect('Proof problems', pf, r => `<div class="card small"><div class=row><span>${e(r.msg)}</span><span class=dim>${lt(r.time,true)}</span></div></div>`, `None in the last 7 days (${S.proofs.good} good room proofs).`); }
+  h += sect('Not verified', I.unverified, mCard, 'Every kept match was verified (both Meta accounts proved).');
+  h += sect('Player reports', I.reports, r => `<div class="card small"><div class=row><span>${r.fields.map(e).join(' &middot; ')}</span><span class=dim>${e(r.time)}</span></div></div>`, 'No reports.');
+  return h;
+}
+
+/* ---- ACTIVITY ------------------------------------------------------------- */
+function bars(rows, fmt){ const mx = Math.max(1, ...rows.map(r => r[1]));
+  return `<table>${rows.map(([l, v, x]) => `<tr><td style="width:38%">${e(l)}</td><td><div class=bar style="width:${Math.max(2, 100*v/mx)}%"></div></td><td class=r style="width:52px">${fmt ? fmt(v, x) : v}</td></tr>`).join('')}</table>`; }
+function vActivity(){
+  if (!M) return empty('Loading...');
+  const A = M.activity, t = A.totals;
+  let h = `<h2>Since ${lt(t.since, true)}</h2><div class=grid>${st(t.frames,'frames kept')}${st(t.matches,'matches')}${st(t.players,'players')}${st(t.accounts,'proved accounts')}${st(mins(A.room_secs_median),'median room time')}</div>`;
+  const days = A.days.filter((d, i) => i >= A.days.findIndex(x => x.frames || x.matches) && A.days.findIndex(x => x.frames || x.matches) >= 0);
+  h += '<h2>Frames a day</h2><div class=card>' + (days.length ? bars(days.slice().reverse().map(d => [new Date(d.day + 'T12:00:00Z').toLocaleDateString([], {weekday:'short', day:'numeric', month:'short'}), d.frames, d]),
+       (v, d) => `${v}<span class="dim tiny"> ${d.players}p</span>`) : '<span class=dim>none yet</span>') + '<div class="tiny dim" style="margin-top:4px">p = players that day</div></div>';
+  const off = -new Date().getTimezoneOffset() / 60, hl = [];
+  for (let i = 0; i < 24; i++){ const u = ((i - off) % 24 + 24) % 24; hl.push([String(i).padStart(2,'0') + ':00', A.hours_utc[Math.round(u) % 24]]); }
+  h += '<h2>Busiest hours (your time)</h2><div class=card>' + bars(hl.filter(r => r[1])) + '</div>';
+  h += '<h2>Games, last 7 days</h2><div class=card>' + (A.games7.length ? bars(A.games7) : '<span class=dim>none</span>') + '</div>';
+  h += '<h2>Games, all time</h2><div class=card>' + bars(A.games) + '</div>';
+  h += '<h2>Frame length (median)</h2><div class=card>' + bars(A.frame_secs.map(([g, s, n]) => [g, s, n]), (s, n) => `${mins(s)}<span class="dim tiny"> ${n}</span>`) + '</div>';
+  h += '<h2>Versions in use (last 14 days)</h2><div class=card>' + (A.versions.length ? bars(A.versions) : '<span class=dim>none</span>') + '</div>';
+  const nd = A.days.filter(d => d.new);
+  h += '<h2>New players</h2><div class=card>' + (nd.length ? bars(nd.slice().reverse().map(d => [new Date(d.day + 'T12:00:00Z').toLocaleDateString([], {day:'numeric', month:'short'}), d.new])) : '<span class=dim>none in 30 days</span>') + '</div>';
+  return h;
+}
+
+/* ---- SERVER --------------------------------------------------------------- */
+function size(b){ return b > 1e6 ? (b/1e6).toFixed(1) + ' MB' : b > 1e3 ? Math.round(b/1e3) + ' kB' : b + ' B'; }
+function vServer(){
+  if (!S) return empty('Loading...');
+  const y = S.sys || {};
+  let h = S.journal_error ? `<div class="card warn small">The relay's log could not be read: ${e(S.journal_error)}</div>` : '';
+  h += `<h2>Health</h2><div class=grid>${st(S.relay_up_since ? ago(S.relay_up_since).replace(' ago','') : '-','relay running')}${st(y.uptime_s ? Math.round(y.uptime_s/86400) + ' d' : '-','server up')}
+    ${st(y.load ? y.load[0] : '-','load (1 min)')}${st(y.mem_total_mb ? Math.round(100*(1-y.mem_avail_mb/y.mem_total_mb)) + '%' : '-','memory used')}
+    ${st(y.disk_total_gb ? y.disk_free_gb + ' GB' : '-','disk free')}${st(S.restarts.length,'relay restarts, 7 days')}</div>`;
+  h += `<h2>Last 7 days</h2><div class=card style="overflow-x:auto"><table><tr><th>Day</th><th class=r>Rooms</th><th class=r>Clubs</th><th class=r>Joins</th><th class=r>Agreed</th><th class=r>Disp.</th><th class=r>Left</th><th class=r>Err.</th></tr>
+    ${S.days.map(d => `<tr><td>${new Date(d.day + 'T12:00:00Z').toLocaleDateString([], {weekday:'short', day:'numeric'})}</td><td class=r>${d.hosted}</td><td class=r>${d.clubs}</td><td class=r>${d.joins}</td><td class=r>${d.agreed}</td><td class="r ${d.disputed?'warn':''}">${d.disputed}</td><td class="r ${d.forfeits?'warn':''}">${d.forfeits}</td><td class="r ${d.errors?'bad':''}">${d.errors}</td></tr>`).join('')}</table>
+    <div class="tiny dim" style="margin-top:4px">Agreed = frames and matches kept. Left = walk-outs (forfeits).</div></div>`;
+  h += `<h2>Proofs, 7 days</h2><div class="card small">Rooms: ${S.proofs.good} good, <span class=${S.proofs.bad?'warn':''}>${S.proofs.bad} refused</span>, <span class=${S.proofs.unchecked?'warn':''}>${S.proofs.unchecked} not checked</span><br>
+    Honours: ${S.honours_proofs.good} good, ${S.honours_proofs.bad} refused, ${S.honours_proofs.unchecked} not checked</div>`;
+  h += '<h2>Why people left, 7 days</h2><div class=card>' + (S.leaves.length ? bars(S.leaves) : '<span class=dim>none</span>') + '</div>';
+  h += `<h2>Events <span class=dim>(${S.recent.length})</span></h2>` + (S.recent.length ? S.recent.slice(0, 60).map(r => `<div class="card small"><div class=row><span class="${r.kind=='error'?'bad':r.kind=='restart'?'acc':'warn'}">${e(r.kind)}</span><span class=dim>${lt(r.time,true)}</span></div><div class=dim>${e(r.msg)}</div></div>`).join('') : empty('Nothing notable.'));
+  h += `<h2>Data files</h2><div class=card><table>${S.files.map(f => `<tr><td>${e(f.name)}</td><td class=r>${f.dir ? f.size + ' files' : size(f.size)}${f.lines!=null?'<span class="dim tiny"> '+f.lines+' lines</span>':''}</td><td class="r dim">${lt(new Date(f.mtime*1000).toISOString().slice(0,19).replace('T',' '),true)}</td></tr>`).join('')}</table></div>`;
+  h += `<h2>Backups beside the data</h2>` + (S.backups.length ? `<div class=card><table>${S.backups.map(f => `<tr><td class=small>${e(f.name)}</td><td class=r>${size(f.size)}</td></tr>`).join('')}</table></div>` : empty('None.'));
+  h += `<h2>Code deployed</h2><div class=card><table>${S.code.map(c => `<tr><td>${e(c.name)}</td><td class=dim>${e(c.sha)}</td><td class="r dim">${lt(new Date(c.mtime*1000).toISOString().slice(0,19).replace('T',' '),true)}</td></tr>`).join('')}</table></div>`;
+  return h;
+}
+
+/* ---- loading ---------------------------------------------------------------- */
+async function get(p){ const r = await fetch(q(p), {cache:'no-store'}); if (!r.ok) throw new Error(r.status); return r.json(); }
+let busy = false;
+async function load(){
+  if (busy) return; busy = true;
+  const v = route().v;
+  try {
+    const jobs = [get('api').then(d => { NOW = d; document.getElementById('at').textContent = lt(d.at); })];
+    if (!M || Date.now() - MT > 55000) jobs.push(get('api/model').then(d => { M = d; MT = Date.now(); }));
+    if (v == 'server' || v == 'integrity') jobs.push(get('api/server').then(d => S = d));
+    await Promise.all(jobs);
+  } catch (x) { document.getElementById('at').textContent = String(x.message) == '403' ? 'refused' : 'no connection'; }
+  busy = false;
+  const a = document.activeElement; if (!(a && a.id == 'srch')) draw();
+}
+async function hload(){ try { H = await get('api/history?days=' + HD); if (route().v == 'now') draw(); } catch (x) {} }
+draw(); load(); hload();
+setInterval(load, 15000); setInterval(hload, 60000);
+window.addEventListener('resize', () => { if (route().v == 'now') draw(); });
+</script></body></html>

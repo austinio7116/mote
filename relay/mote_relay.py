@@ -949,7 +949,9 @@ class Relay:
                 ok = await asyncio.get_running_loop().run_in_executor(None, self.meta_check, a[0], a[1])
             except Exception as e:
                 log(f"honours: a proof could not be checked ({type(e).__name__})")
-                ok = False
+                ok = None
+            if ok is not None:                # every check, for the stats page's proof counts
+                log(f"honours: proof {'good' if ok else 'BAD'}, {len(mine.get(a[0], []))} monthly wins {'sent' if ok else 'held'}")
             if ok:
                 text += "".join(f"MINE {b} {m} {v}\n" for b, m, v in mine.get(a[0], []))
         return text
