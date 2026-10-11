@@ -137,7 +137,8 @@ class Model:
                                "frames": 0, "fwon": 0, "matches": 0, "mwon": 0, "games": {}, "best": {},
                                "shot": {k: 0 for k in SHOT_SUM}, "pot_shots": 0, "potted": 0, "fouls": 0, "shots": 0,
                                "table_secs": 0.0, "first": t, "last": t, "versions": {}, "left": 0, "stayed_won": 0,
-                               "form": collections.deque(maxlen=20), "opp": {}, "unverified": 0}
+                               "form": collections.deque(maxlen=20), "opp": {}, "unverified": 0,
+                               "carom_strokes": 0, "carom_cannons": 0}
         a["names"][name] = max(a["names"].get(name, ""), t)
         a["first"] = min(a["first"], t); a["last"] = max(a["last"], t)
         return a
@@ -204,6 +205,9 @@ class Model:
                 g["best"] = max(g["best"], int(sd.get("best") or 0))
                 for k in ("pot_shots", "potted", "fouls", "shots"):
                     acc[k] += int(sd.get(k) or 0)
+                if fr["kind"] in (18, 19, 20, 21, 22):           # carom: every point is a cannon
+                    sh0 = sd.get("shot") or {}
+                    acc["carom_strokes"] += int(sh0.get("strokes") or 0); acc["carom_cannons"] += int(sh0.get("scoring") or 0)
                 golden = sd.get("shots") == 1 and side(1 - i).get("shots") == 0
                 for k, v in (sd.get("shot") or {}).items():
                     if k in acc["shot"] and not (golden and k == "bnr"):     # a golden break is not a break-and-run
