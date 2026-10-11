@@ -1012,7 +1012,8 @@ class Relay:
     # 7.4.4 (a missed pot had been a safety). Two games either side of that
     # judge the same strokes differently, so between DIFFERENT versions these
     # are not compared; everything else still is (Mark, 2026-10-11).
-    SHOT_JUDGED = ("att", "made", "long_att", "long_made", "safeties", "safe_ok")
+    SHOT_JUDGED = ("att", "made", "long_att", "long_made", "safeties", "safe_ok",
+                   "random")      # a fluke is a ball other than the one played FOR, which the judging names
 
     @staticmethod
     def ver_key(r):

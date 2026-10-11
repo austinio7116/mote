@@ -112,8 +112,8 @@ def main():
 
     # 7.4.4 JUDGES STROKES DIFFERENTLY: two versions agree on a frame whose
     # attempts and safeties they counted differently; one version still must not
-    a3 = {"t": "frame", "ver": "7.4.3", "sides": [{"shots": 9, "shot": {"att": 5, "made": 4, "safeties": 4, "safe_ok": 1, "bnr": 0}}, {"shots": 8, "shot": {"att": 6, "made": 3}}]}
-    a4 = {"t": "frame", "ver": "7.4.4", "sides": [{"shots": 9, "shot": {"att": 7, "made": 4, "safeties": 2, "safe_ok": 1, "bnr": 0}}, {"shots": 8, "shot": {"att": 7, "made": 3}}]}
+    a3 = {"t": "frame", "ver": "7.4.3", "sides": [{"shots": 9, "shot": {"att": 5, "made": 4, "safeties": 4, "safe_ok": 1, "bnr": 0, "random": 1}}, {"shots": 8, "shot": {"att": 6, "made": 3}}]}
+    a4 = {"t": "frame", "ver": "7.4.4", "sides": [{"shots": 9, "shot": {"att": 7, "made": 4, "safeties": 2, "safe_ok": 1, "bnr": 0, "random": 0}}, {"shots": 8, "shot": {"att": 7, "made": 3}}]}
     check(r.result_key(a3, True) == r.result_key(a4, True), "a 7.4.3 and a 7.4.4 account that judged strokes differently agree")
     check(r.result_key(a3) != r.result_key(a4), "...but two games of one version that differ still do not")
     a4b = dict(a4); a4b["sides"] = [{"shots": 10, "shot": a4["sides"][0]["shot"]}, a4["sides"][1]]
