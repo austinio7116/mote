@@ -686,7 +686,7 @@ class ResultsDB:
     the offset, its first line changed, an older schema -- the index is thrown
     away and built again from the file: it can always be rebuilt, nothing in it
     is only there. Safe from any thread: one lock, a connection per call."""
-    SCHEMA_VERSION = "1"
+    SCHEMA_VERSION = "2"          # 2: a golden break's bnr left out (2026-10-11)
 
     def __init__(self, store, hon_kind):
         self.jsonl = os.path.join(store, "results.jsonl")
@@ -761,6 +761,8 @@ class ResultsDB:
                 continue
             sd = sides[side] if isinstance(sides[side], dict) else {}
             sh = sd.get("shot") if isinstance(sd.get("shot"), dict) else {}
+            if Relay.golden_side(sides, side):          # a golden break is not a break-and-run
+                sh = {k: v for k, v in sh.items() if k != "bnr"}
             name = "".join(ch if 32 < ord(ch) < 127 else "?" for ch in str(names[side]))[:23] or "?"
             c.execute("INSERT INTO hside(result_id, month, uid, name, won, best, board, bnr, clr) VALUES(?,?,?,?,?,?,?,?,?)",
                       (rid, month, uid, name, 1 if r.get("winner") == side else 0, int(sd.get("best") or 0),
@@ -1009,7 +1011,22 @@ class Relay:
     def result_key(self, r):
         shared = {k: r.get(k) for k in self.RES_SHARED}
         shared["sides"] = [{k: sd.get(k) for k in self.RES_SIDE} for sd in r["sides"]]
+        # A GOLDEN BREAK'S shot.bnr is not compared: up to 7.4.1 a frame won
+        # with the break itself counted as a break-and-run, from 7.4.2 it does
+        # not, and the two must still agree on the frame (Mark, 2026-10-11)
+        for i, sd in enumerate(shared["sides"]):
+            if self.golden_side(r["sides"], i) and isinstance(sd.get("shot"), dict):
+                sd["shot"] = {k: v for k, v in sd["shot"].items() if k != "bnr"}
         return json.dumps(shared, sort_keys=True)
+
+    @staticmethod
+    def golden_side(sides, i):
+        """side i won its frame with the break and nothing else: one stroke, the
+        other side none -- a golden break, never a break-and-run"""
+        try:
+            return sides[i].get("shots") == 1 and sides[1 - i].get("shots") == 0
+        except (AttributeError, IndexError, TypeError):
+            return False
 
     # ---- HONOURS (7.4): the club's records, from what both players agreed ----
     # Nine boards (CueVR cuevr_honours.c HON_TITLE, in slot order): frames won,
@@ -1092,7 +1109,10 @@ class Relay:
                             continue
                         name_of[uid] = "".join(c if 32 < ord(c) < 127 else "?" for c in str(names[side]))[:23] or "?"
                         sd = sides[side] or {}
-                        args = (uid, r.get("winner") == side, sd.get("shot") or {}, int(r.get("kind", -1)), int(sd.get("best") or 0))
+                        sh = sd.get("shot") or {}
+                        if self.golden_side(sides, side):          # a golden break is not a break-and-run
+                            sh = {k: v for k, v in sh.items() if k != "bnr"}
+                        args = (uid, r.get("winner") == side, sh, int(r.get("kind", -1)), int(sd.get("best") or 0))
                         tally(allp, *args)
                         if month and month < month_now:
                             tally(monthp.setdefault(month, {}), *args)

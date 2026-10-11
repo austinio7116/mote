@@ -89,6 +89,27 @@ def main():
     check(db == scan and "Zed" in db[0], "the index deleted: built again from the file")
     shutil.rmtree(store)
 
+    # A GOLDEN BREAK is not a break-and-run (2026-10-11): one stroke, the other side none
+    store = tempfile.mkdtemp()
+    g = frame("2026-09-10 20:00:00", "Gil", "Hal", 0, 2, "301", "302", bnr=(1, 0))
+    g["result"]["sides"][0]["shots"], g["result"]["sides"][1]["shots"] = 1, 0
+    run = frame("2026-09-11 20:00:00", "Ivy", "Hal", 0, 2, "303", "302", bnr=(1, 0))
+    run["result"]["sides"][0]["shots"], run["result"]["sides"][1]["shots"] = 6, 0
+    with open(os.path.join(store, "results.jsonl"), "w") as fh:
+        fh.write(json.dumps(g) + "\n" + json.dumps(run) + "\n")
+    db, scan = both(store)
+    check(db == scan and "HON 2 1 1 Ivy" in db[0] and "Gil" not in "".join(l for l in db[0].splitlines() if l.startswith("HON 2")),
+          "a golden break is left off the break-and-runs board; a real break-and-run is on it")
+    shutil.rmtree(store)
+    # ...and two games that differ only in a golden break's bnr agree on the frame
+    r = mote_relay.Relay.__new__(mote_relay.Relay)
+    old_end = {"t": "frame", "sides": [{"shots": 1, "shot": {"bnr": 1, "att": 1}}, {"shots": 0, "shot": {"bnr": 0}}]}
+    new_end = {"t": "frame", "sides": [{"shots": 1, "shot": {"bnr": 0, "att": 1}}, {"shots": 0, "shot": {"bnr": 0}}]}
+    check(r.result_key(old_end) == r.result_key(new_end), "a 7.4.1 and a 7.4.2 account of a golden break agree")
+    other = {"t": "frame", "sides": [{"shots": 5, "shot": {"bnr": 1}}, {"shots": 0, "shot": {"bnr": 0}}]}
+    other2 = {"t": "frame", "sides": [{"shots": 5, "shot": {"bnr": 0}}, {"shots": 0, "shot": {"bnr": 0}}]}
+    check(r.result_key(other) != r.result_key(other2), "a real break-and-run's bnr is still compared")
+
     # a real file, if given (a copy -- this test writes results.db beside it)
     if len(sys.argv) > 1:
         store = tempfile.mkdtemp()

@@ -198,7 +198,7 @@ function vMatch(id){
   for (const f of m.frame_list){
     const side = i => f.sides[i] || {}, sh = i => side(i).shot || {};
     h += `<div class=card><div class=row><b>Frame ${f.frame}</b><span class="small">${(f.score||[0,0]).some(Boolean)?`<b class=acc>${f.score.join('-')}</b> `:''}${f.winner===0||f.winner===1?e(m.names[f.winner])+' won':''}</span></div>
-      <div class="tiny dim">${lt(f.time)}${f.secs?' &middot; '+mins(f.secs):''}${f.bnr>=0&&f.bnr!==null?' &middot; break-and-run':''}${f.golden?' &middot; golden break':''}${f.forfeit?' &middot; forfeit':''}${f.figures===false?' &middot; no figures':''}</div>
+      <div class="tiny dim">${lt(f.time)}${f.secs?' &middot; '+mins(f.secs):''}${f.golden||(f.winner>=0&&f.winner<2&&(f.sides[f.winner]||{}).shots===1&&(f.sides[1-f.winner]||{}).shots===0)?' &middot; golden break':f.bnr>=0&&f.bnr!==null?' &middot; break-and-run':''}${f.forfeit?' &middot; forfeit':''}${f.figures===false?' &middot; no figures':''}</div>
       <table><tr><th></th><th class=r>${e(m.names[0])}</th><th class=r>${e(m.names[1])}</th></tr>
       ${[['Best break', i => side(i).best ?? '-'], ['Breaks', i => (side(i).breaks||[]).join(', ') || '-'], ['Shots', i => side(i).shots ?? '-'],
          ['Potted', i => side(i).potted ?? '-'], ['Pot success', i => frac(sh(i).made||0, sh(i).att||0)], ['Long pots', i => frac(sh(i).long_made||0, sh(i).long_att||0)],

@@ -203,8 +203,9 @@ class Model:
                 g["best"] = max(g["best"], int(sd.get("best") or 0))
                 for k in ("pot_shots", "potted", "fouls", "shots"):
                     acc[k] += int(sd.get(k) or 0)
+                golden = sd.get("shots") == 1 and side(1 - i).get("shots") == 0
                 for k, v in (sd.get("shot") or {}).items():
-                    if k in acc["shot"]:
+                    if k in acc["shot"] and not (golden and k == "bnr"):     # a golden break is not a break-and-run
                         acc["shot"][k] += int(v or 0)
                 ta = fr["time_at"][i]
                 if isinstance(ta, (int, float)):
@@ -253,7 +254,9 @@ class Model:
                 for i in (0, 1):
                     if not ids[i].startswith("a:"):
                         continue
-                    sd = side(i); sh = sd.get("shot") or {}
+                    sd = side(i); sh = dict(sd.get("shot") or {})
+                    if sd.get("shots") == 1 and side(1 - i).get("shots") == 0:
+                        sh.pop("bnr", None)
                     self.month_names.setdefault(mon, {})[ids[i]] = _clean(names[i], 23) or "?"
                     mp = self.monthp.setdefault(mon, {}).setdefault(ids[i], {"f": 0, "w": 0, "bnr": 0, "clr": 0, "hi": {}})
                     mp["f"] += 1; mp["w"] += 1 if r.get("winner") == i else 0
