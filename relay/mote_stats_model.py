@@ -3,7 +3,7 @@ the relay's files and its log: players by Meta account, matches with their
 frames, the honours (and this month's race), the integrity queue, activity and
 the server's health. Read only: nothing here ever writes to the relay's store.
 """
-import hashlib, json, os, re, socket, subprocess, time
+import collections, hashlib, json, os, re, socket, subprocess, time
 
 # the shared facts of a result, as the relay compares them (mote_relay.py)
 RES_SHARED = ("t", "game", "variant", "kind", "mode", "best_of", "frame",
@@ -69,14 +69,235 @@ def _report(line, side):
 
 
 class Model:
+    """the stats, kept as running totals: each line results.jsonl gains is
+    folded in once, and only the lines added since the last look are read
+    (2026-10-11 -- re-reading and holding every line would have outgrown the
+    service's 200 MB at about 14,000 lines). A file that is not the one being
+    followed (shorter, or its first line changed) starts the totals again."""
+    MATCHES_KEPT = 2000           # the newest matches, with their frames, for the Matches page
+
     def __init__(self, store, relay, gid, journal_file="", backups=""):
         self.store, self.relay, self.gid, self.journal_file, self.backups = store, relay, gid, journal_file, backups
         self._key = None
         self._model = None
         self._hon = (0.0, None)
         self._srv = (0.0, None)
+        self._reset()
 
-    # ---- the files, reloaded only when one changes -------------------------
+    def _reset(self):
+        self.off, self.head = 0, None
+        self.acc = {}
+        self.matches = collections.deque(maxlen=self.MATCHES_KEPT)
+        self.frames_pend = {}
+        self.notable = collections.deque(maxlen=200)
+        self.same_addr = collections.deque(maxlen=200)
+        self.pairday = {}
+        self.perday = {}
+        self.hours = [0] * 24
+        self.games_all, self.games_day = {}, {}
+        self.frame_secs = {}
+        self.seen_first = {}
+        self.room_secs = collections.deque(maxlen=2000)
+        self.monthp, self.month_names = {}, {}
+        self.fixed = set()
+        self.seen_lines = {}
+        self.n_frames = self.n_matches = 0
+        self.since = ""
+
+    # ---- following results.jsonl --------------------------------------------
+    def _follow(self):
+        path = os.path.join(self.store, "results.jsonl")
+        try:
+            size = os.path.getsize(path)
+            with open(path, "rb") as f:
+                head = hashlib.sha256(f.readline()).hexdigest()
+                if self.head is not None and (head != self.head or size < self.off):
+                    self._reset()
+                self.head = head
+                f.seek(self.off)
+                while self.off < size:
+                    raw = f.readline(size - self.off)
+                    if not raw.endswith(b"\n"):          # a line still being written waits
+                        break
+                    self.off += len(raw)
+                    try:
+                        line = json.loads(raw)
+                    except ValueError:
+                        continue
+                    if isinstance(line, dict):
+                        self._fold(line)
+        except OSError:
+            pass
+
+    def _acc(self, i, name, t):
+        a = self.acc.get(i)
+        if a is None:
+            a = self.acc[i] = {"id": i, "proved": i.startswith("a:"), "team": i.startswith("t:"), "names": {},
+                               "frames": 0, "fwon": 0, "matches": 0, "mwon": 0, "games": {}, "best": {},
+                               "shot": {k: 0 for k in SHOT_SUM}, "pot_shots": 0, "potted": 0, "fouls": 0, "shots": 0,
+                               "table_secs": 0.0, "first": t, "last": t, "versions": {}, "left": 0, "stayed_won": 0,
+                               "form": collections.deque(maxlen=20), "opp": {}, "unverified": 0}
+        a["names"][name] = max(a["names"].get(name, ""), t)
+        a["first"] = min(a["first"], t); a["last"] = max(a["last"], t)
+        return a
+
+    def _fold(self, line):
+        """one line of results.jsonl into every total"""
+        for g in re.finditer(r"results_disputed\.jsonl lines? (\d+)[ab]?(?: \+ (\d+)[ab]?)?", str(line.get("repaired", ""))):
+            self.fixed.update(int(n) for n in g.groups() if n)
+        r = line.get("result") if isinstance(line.get("result"), dict) else {}
+        t = str(line.get("time", ""))
+        if r.get("t") not in ("frame", "match"):
+            return
+        names = ([_clean(x, 30) for x in (r.get("names") or [])] + ["?", "?"])[:2]
+        # ONE FRAME, ONCE: a doubles frame is reported by both pairs of seats and
+        # kept twice, the same frame, result and time -- counted the once
+        dup = json.dumps([r["t"], line.get("gid"), line.get("room"), t, r.get("frame"), r.get("frames"),
+                          r.get("score"), r.get("winner"), r.get("match_winner"), names])
+        if dup in self.seen_lines:
+            return
+        self.seen_lines[dup] = None
+        while len(self.seen_lines) > 2000:
+            self.seen_lines.pop(next(iter(self.seen_lines)))
+        ids = _ids(line, names)
+        sides = r.get("sides") if isinstance(r.get("sides"), list) else [{}, {}]
+        side = lambda i: sides[i] if i < len(sides) and isinstance(sides[i], dict) else {}
+        rep = _report(line, 0)
+        verified = bool(line.get("verified"))
+        day = t[:10]
+        self.since = min(self.since, t) if self.since else t
+        for i in (0, 1):
+            self.seen_first.setdefault(ids[i], day)
+        for who in ("a", "b"):           # each sender's version, against their own account
+            x = line.get(who)
+            if isinstance(x, dict) and isinstance(x.get("r"), dict) and x.get("side") in (0, 1):
+                v = _clean(x["r"].get("ver"), 12)
+                if v:
+                    acc = self._acc(ids[x["side"]], names[x["side"]], t)
+                    acc["versions"][v] = max(acc["versions"].get(v, ""), t)
+        a_, b_ = line.get("a"), line.get("b")
+        if isinstance(a_, dict) and isinstance(b_, dict) and a_.get("addr") and a_.get("addr") == b_.get("addr"):
+            self.same_addr.append({"time": t, "names": names, "game": _clean(r.get("game")),
+                                   "room": _clean(line.get("room"), 8), "t": r.get("t")})
+        pd = self.perday.setdefault(day, {"day": day, "frames": 0, "matches": 0, "players": set()})
+        if r["t"] == "frame":
+            self.n_frames += 1
+            game = _clean(r.get("game")) or "?"
+            fr = {"time": t, "frame": r.get("frame"), "game": game, "variant": _clean(r.get("variant")),
+                  "kind": r.get("kind"), "score": r.get("score"), "winner": r.get("winner"),
+                  "secs": rep.get("secs"), "bnr": r.get("bnr"), "golden": r.get("golden"),
+                  "forfeit": line.get("forfeit"), "figures": line.get("figures", True),
+                  "sides": [{k: side(i).get(k) for k in RES_SIDE} for i in (0, 1)],
+                  "time_at": [((rep.get("sides") or [{}, {}])[i] or {}).get("time") if i < len(rep.get("sides") or []) else None for i in (0, 1)]}
+            pend = self.frames_pend.setdefault((line.get("gid"), line.get("room")), [])
+            pend.append(fr)
+            del pend[:-64]                               # a room that never sends its match line cannot grow without end
+            for i in (0, 1):
+                acc = self._acc(ids[i], names[i], t)
+                sd = side(i)
+                won = r.get("winner") == i
+                acc["frames"] += 1; acc["fwon"] += 1 if won else 0
+                acc["unverified"] += 0 if verified else 1
+                g = acc["games"].setdefault(game, {"f": 0, "w": 0, "best": 0})
+                g["f"] += 1; g["w"] += 1 if won else 0
+                g["best"] = max(g["best"], int(sd.get("best") or 0))
+                for k in ("pot_shots", "potted", "fouls", "shots"):
+                    acc[k] += int(sd.get(k) or 0)
+                for k, v in (sd.get("shot") or {}).items():
+                    if k in acc["shot"]:
+                        acc["shot"][k] += int(v or 0)
+                ta = fr["time_at"][i]
+                if isinstance(ta, (int, float)):
+                    acc["table_secs"] += ta
+                o = acc["opp"].get(ids[1 - i])            # [frames, won, matches, won]: four numbers, not a dict each
+                if o is None:
+                    o = acc["opp"][ids[1 - i]] = [0, 0, 0, 0]
+                o[0] += 1; o[1] += 1 if won else 0
+            # worth a look: a whole frame's pots and no misses, a quick frame
+            for i in (0, 1):
+                sh = side(i).get("shot") or {}
+                if int(sh.get("att") or 0) >= 20 and sh.get("att") == sh.get("made"):
+                    self.notable.append({"time": t, "what": f"{names[i]} potted {sh.get('made')} of {sh.get('att')}",
+                                         "game": game, "room": line.get("room")})
+            if isinstance(fr["secs"], (int, float)) and 0 < fr["secs"] < 45 and not line.get("forfeit"):
+                self.notable.append({"time": t, "what": f"a {int(fr['secs'])} s frame, {names[0]} v {names[1]}",
+                                     "game": game, "room": line.get("room")})
+            # one pair, one day, many frames, nearly all one way
+            k = (day,) + tuple(sorted((ids[0], ids[1])))
+            if k not in self.pairday and len(self.pairday) % 500 == 0:     # only the last 60 days are flagged
+                cut = time.strftime("%Y-%m-%d", time.gmtime(time.time() - 60 * 86400))
+                for old_k in [x for x in self.pairday if x[0] < cut]:
+                    del self.pairday[old_k]
+            p = self.pairday.setdefault(k, {"day": day, "names": {}, "n": 0, "w": {}})
+            p["n"] += 1
+            for i in (0, 1):
+                p["names"][ids[i]] = names[i]
+            if r.get("winner") in (0, 1):
+                w = ids[r["winner"]]
+                p["w"][w] = p["w"].get(w, 0) + 1
+            # activity
+            self.games_all[game] = self.games_all.get(game, 0) + 1
+            gd = self.games_day.setdefault(day, {})
+            gd[game] = gd.get(game, 0) + 1
+            pd["frames"] += 1; pd["players"].update((ids[0], ids[1]))
+            try:
+                self.hours[int(t[11:13])] += 1
+            except ValueError:
+                pass
+            if isinstance(fr["secs"], (int, float)) and fr["secs"] > 0:
+                fs = self.frame_secs.setdefault(game, [collections.deque(maxlen=1000), 0])
+                fs[0].append(fr["secs"]); fs[1] += 1
+            # this month's race, by the relay's honours rules
+            if verified and not any(" & " in x for x in names):
+                mon = t[:7]
+                for i in (0, 1):
+                    if not ids[i].startswith("a:"):
+                        continue
+                    sd = side(i); sh = sd.get("shot") or {}
+                    self.month_names.setdefault(mon, {})[ids[i]] = _clean(names[i], 23) or "?"
+                    mp = self.monthp.setdefault(mon, {}).setdefault(ids[i], {"f": 0, "w": 0, "bnr": 0, "clr": 0, "hi": {}})
+                    mp["f"] += 1; mp["w"] += 1 if r.get("winner") == i else 0
+                    mp["bnr"] += int(sh.get("bnr") or 0); mp["clr"] += int(sh.get("runouts") or 0)
+                    try:
+                        bd = HON_KIND.get(int(r.get("kind", -1)))
+                    except (TypeError, ValueError):
+                        bd = None
+                    best = int(sd.get("best") or 0)
+                    if bd is not None and best > mp["hi"].get(bd, 0):
+                        mp["hi"][bd] = best
+        else:
+            self.n_matches += 1
+            pd["matches"] += 1
+            fl = self.frames_pend.pop((line.get("gid"), line.get("room")), [])
+            mid = hashlib.sha1(f"{t}|{line.get('room')}|{names}".encode()).hexdigest()[:10]
+            mw = r.get("match_winner")
+            m = {"id": mid, "time": t, "room": _clean(line.get("room"), 8), "game": _clean(r.get("game")),
+                 "variant": _clean(r.get("variant")), "names": names, "ids": [ids[0], ids[1]],
+                 "frames": r.get("frames"), "best_of": r.get("best_of"), "winner": mw, "verified": verified,
+                 "forfeit": bool(line.get("forfeit")) or "left" in line, "left": _clean(line.get("left"), 30) if "left" in line else "",
+                 "figures": line.get("figures", True), "repaired": _clean(line.get("repaired"), 400),
+                 "room_secs": line.get("room_secs"), "doubles": any(" & " in x for x in names), "frame_list": fl,
+                 "ver": [_clean((line.get(w) or {}).get("r", {}).get("ver") if isinstance(line.get(w), dict) else "", 12) for w in ("a", "b")]}
+            self.matches.append(m)
+            if isinstance(m["room_secs"], (int, float)):
+                self.room_secs.append(m["room_secs"])
+            for i in (0, 1):
+                acc = self._acc(ids[i], names[i], t)
+                won = mw == i
+                acc["matches"] += 1; acc["mwon"] += 1 if won else 0
+                acc["form"].append({"id": mid, "won": won, "time": t})
+                o = acc["opp"].get(ids[1 - i])
+                if o is None:
+                    o = acc["opp"][ids[1 - i]] = [0, 0, 0, 0]
+                o[2] += 1; o[3] += 1 if won else 0
+            if "left" in line:
+                for i in (0, 1):
+                    if names[i] == line.get("left"):
+                        self._acc(ids[i], names[i], t)["left"] += 1
+                    elif mw == i:
+                        self._acc(ids[i], names[i], t)["stayed_won"] += 1
+
+    # ---- the model out ---------------------------------------------------------
     def _mtimes(self):
         k = []
         for n in FILES + ("reports.tsv",):
@@ -88,122 +309,54 @@ class Model:
         k.append(time.strftime("%Y-%m-%d", time.gmtime()))     # the month and the days move on too
         return tuple(k)
 
-    def get(self):
+    def _fresh(self):
         k = self._mtimes()
         if k != self._key or self._model is None:
-            self._model = self._build()
+            self._follow()
+            self._model = self._out()
+            self._slim = self._slimmed(self._model)
             self._key = k
-        m = dict(self._model)
+
+    @staticmethod
+    def _slimmed(m):
+        """what the page loads every minute: each player without their whole
+        head to head, each match without its frames -- those come with
+        player() and match() when one is opened"""
+        out = dict(m)
+        out["players"] = [{**{k: v for k, v in p.items() if k != "opp"}, "nopp": len(p["opp"])} for p in m["players"]]
+        slim_m = lambda x: {**{k: v for k, v in x.items() if k != "frame_list"}, "nframes": len(x["frame_list"])}
+        out["matches"] = [slim_m(x) for x in m["matches"]]
+        integ = dict(m["integrity"])
+        for k in ("forfeits", "unverified"):
+            integ[k] = [slim_m(x) for x in integ[k]]
+        out["integrity"] = integ
+        return out
+
+    def get(self):
+        self._fresh()
+        m = dict(self._slim)
         m["honours"] = self.honours(m)
         return m
 
-    # ---- the model ---------------------------------------------------------
-    def _build(self):
+    def player(self, pid):
+        self._fresh()
+        p = next((x for x in self._model["players"] if x["id"] == pid), None)
+        if p is None:
+            return None
+        ms = [x for x in self.matches if pid in x["ids"]]
+        ms.sort(key=lambda x: x["time"], reverse=True)
+        return {**p, "recent": [{k: v for k, v in x.items() if k != "frame_list"} for x in ms[:30]]}
+
+    def match(self, mid):
+        self._fresh()
+        return next((x for x in self.matches if x["id"] == mid), None)
+
+    def _out(self):
         P = lambda n: os.path.join(self.store, n)
-        rows = sorted(_jsonl(P("results.jsonl")), key=lambda d: str(d.get("time", "")))
         disputed = _jsonl(P("results_disputed.jsonl"))
         unconf = _jsonl(P("results_unconfirmed.jsonl"))
-        acc, matches, frames_pend, notable = {}, [], {}, []
-        month_now = time.strftime("%Y-%m", time.gmtime())
+        acc = self.acc
 
-        def A(i, name, t):
-            a = acc.get(i)
-            if a is None:
-                a = acc[i] = {"id": i, "proved": i.startswith("a:"), "team": i.startswith("t:"), "names": {}, "frames": 0, "fwon": 0,
-                              "matches": 0, "mwon": 0, "games": {}, "best": {}, "shot": {k: 0 for k in SHOT_SUM},
-                              "pot_shots": 0, "potted": 0, "fouls": 0, "shots": 0, "table_secs": 0.0,
-                              "first": t, "last": t, "versions": {}, "left": 0, "stayed_won": 0, "disputes": 0,
-                              "form": [], "opp": {}, "unverified": 0, "b50": 0, "b100": 0}
-            a["names"][name] = max(a["names"].get(name, ""), t)
-            a["first"] = min(a["first"], t); a["last"] = max(a["last"], t)
-            return a
-
-        for n, line in enumerate(rows):
-            r = line.get("result") or {}
-            t = str(line.get("time", ""))
-            if r.get("t") not in ("frame", "match"):
-                continue
-            names = [_clean(x, 30) for x in (r.get("names") or ["?", "?"])][:2] + ["?", "?"]
-            names = names[:2]
-            ids = _ids(line, names)
-            sides = r.get("sides") or [{}, {}]
-            rep = _report(line, 0)
-            verified = bool(line.get("verified"))
-            doubles = any(" & " in x for x in names)
-            for who in ("a", "b"):           # each sender's version, against their own account
-                x = line.get(who)
-                if isinstance(x, dict) and isinstance(x.get("r"), dict) and x.get("side") in (0, 1):
-                    a = A(ids[x["side"]], names[x["side"]], t)
-                    v = _clean(x["r"].get("ver"), 12)
-                    if v:
-                        a["versions"][v] = max(a["versions"].get(v, ""), t)
-            if r["t"] == "frame":
-                fr = {"time": t, "frame": r.get("frame"), "game": _clean(r.get("game")), "variant": _clean(r.get("variant")),
-                      "kind": r.get("kind"), "score": r.get("score"), "winner": r.get("winner"),
-                      "secs": rep.get("secs"), "bnr": r.get("bnr"), "golden": r.get("golden"),
-                      "forfeit": line.get("forfeit"), "figures": line.get("figures", True),
-                      "sides": [{k: (sides[i] or {}).get(k) for k in RES_SIDE} for i in (0, 1)],
-                      "time_at": [((rep.get("sides") or [{}, {}])[i] or {}).get("time") for i in (0, 1)]}
-                frames_pend.setdefault((line.get("gid"), line.get("room")), []).append(fr)
-                for i in (0, 1):
-                    a = A(ids[i], names[i], t)
-                    sd = sides[i] if i < len(sides) and isinstance(sides[i], dict) else {}
-                    won = r.get("winner") == i
-                    a["frames"] += 1; a["fwon"] += 1 if won else 0
-                    a["unverified"] += 0 if verified else 1
-                    g = a["games"].setdefault(fr["game"] or "?", {"f": 0, "w": 0, "best": 0})
-                    g["f"] += 1; g["w"] += 1 if won else 0
-                    b = int(sd.get("best") or 0)
-                    g["best"] = max(g["best"], b)
-                    if b > a["best"].get(fr["game"], 0):
-                        a["best"][fr["game"]] = b
-                    for k in ("pot_shots", "potted", "fouls", "shots"):
-                        a[k] += int(sd.get(k) or 0)
-                    for k, v in (sd.get("shot") or {}).items():
-                        if k in a["shot"]:
-                            a["shot"][k] += int(v or 0)
-                    ta = fr["time_at"][i]
-                    if isinstance(ta, (int, float)):
-                        a["table_secs"] += ta
-                    o = a["opp"].setdefault(ids[1 - i], {"f": 0, "fw": 0, "m": 0, "mw": 0})
-                    o["f"] += 1; o["fw"] += 1 if won else 0
-                # worth a look: a whole frame's pots and no misses, a quick frame
-                for i in (0, 1):
-                    sh = (sides[i] or {}).get("shot") or {}
-                    if int(sh.get("att") or 0) >= 20 and sh.get("att") == sh.get("made"):
-                        notable.append({"time": t, "what": f"{names[i]} potted {sh.get('made')} of {sh.get('att')}",
-                                        "game": fr["game"], "room": line.get("room")})
-                if isinstance(fr["secs"], (int, float)) and 0 < fr["secs"] < 45 and not line.get("forfeit"):
-                    notable.append({"time": t, "what": f"a {int(fr['secs'])} s frame, {names[0]} v {names[1]}",
-                                    "game": fr["game"], "room": line.get("room")})
-            else:
-                key = (line.get("gid"), line.get("room"))
-                fl = frames_pend.pop(key, [])
-                mid = hashlib.sha1(f"{t}|{line.get('room')}|{names}".encode()).hexdigest()[:10]
-                mw = r.get("match_winner")
-                m = {"id": mid, "time": t, "room": _clean(line.get("room"), 8), "game": _clean(r.get("game")),
-                     "variant": _clean(r.get("variant")), "names": names, "ids": [ids[0], ids[1]],
-                     "frames": r.get("frames"), "best_of": r.get("best_of"), "winner": mw, "verified": verified,
-                     "forfeit": bool(line.get("forfeit")) or "left" in line, "left": _clean(line.get("left"), 30) if "left" in line else "",
-                     "figures": line.get("figures", True), "repaired": _clean(line.get("repaired"), 400),
-                     "room_secs": line.get("room_secs"), "doubles": doubles, "frame_list": fl,
-                     "ver": [_clean((line.get(w) or {}).get("r", {}).get("ver") if isinstance(line.get(w), dict) else "", 12) for w in ("a", "b")]}
-                matches.append(m)
-                for i in (0, 1):
-                    a = A(ids[i], names[i], t)
-                    won = mw == i
-                    a["matches"] += 1; a["mwon"] += 1 if won else 0
-                    a["form"].append({"id": mid, "won": won, "time": t})
-                    o = a["opp"].setdefault(ids[1 - i], {"f": 0, "fw": 0, "m": 0, "mw": 0})
-                    o["m"] += 1; o["mw"] += 1 if won else 0
-                if "left" in line:
-                    for i in (0, 1):
-                        if names[i] == line.get("left"):
-                            A(ids[i], names[i], t)["left"] += 1
-                        elif mw == i:
-                            A(ids[i], names[i], t)["stayed_won"] += 1
-
-        # ---- integrity -----------------------------------------------------
         def diff(ra, rb, names):
             out = []
             for k in RES_SHARED:
@@ -223,11 +376,7 @@ class Model:
                         out.append(f"{names[i] if i < len(names) else i} {k}: {json.dumps(xa.get(k))} v {json.dumps(xb.get(k))}")
             return out
 
-        # the disputed lines a repair took up ("results_disputed.jsonl lines 1b + 3a", "line 9")
-        fixed = set()
-        for x in rows:
-            for g in re.finditer(r"results_disputed\.jsonl lines? (\d+)[ab]?(?: \+ (\d+)[ab]?)?", str(x.get("repaired", ""))):
-                fixed.update(int(n) for n in g.groups() if n)
+        disputes_of = {}
         dlist = []
         for no, line in sorted(enumerate(disputed, 1), key=lambda nd: str(nd[1].get("time", "")), reverse=True):
             a, b = line.get("a") or {}, line.get("b") or {}
@@ -235,12 +384,12 @@ class Model:
             names = [_clean(x, 30) for x in (ra.get("names") or rb.get("names") or ["?", "?"])][:2]
             ids = _ids(line, names + ["?", "?"])
             for i in (0, 1):
-                if ids.get(i) in acc:
-                    acc[ids[i]]["disputes"] += 1
+                disputes_of[ids.get(i)] = disputes_of.get(ids.get(i), 0) + 1
             dlist.append({"time": line.get("time"), "room": _clean(line.get("room"), 8), "t": ra.get("t"),
                           "frame": ra.get("frame"), "game": _clean(ra.get("game")), "names": names,
                           "senders": [a.get("side"), b.get("side")], "verified": bool(line.get("verified")),
-                          "diff": diff(ra, rb, names), "repaired": no in fixed, "same_addr": bool(a.get("addr")) and a.get("addr") == b.get("addr")})
+                          "diff": diff(ra, rb, names), "repaired": no in self.fixed,
+                          "same_addr": bool(a.get("addr")) and a.get("addr") == b.get("addr")})
         ulist = []
         for line in sorted(unconf, key=lambda d: str(d.get("time", "")), reverse=True):
             a = line.get("a") or {}
@@ -250,42 +399,20 @@ class Model:
                           "frame": ra.get("frame"), "game": _clean(ra.get("game")), "names": nm,
                           "sender": nm[a["side"]] if a.get("side") in (0, 1) and len(nm) == 2 else "?",
                           "stale": bool(line.get("stale")), "strokes": sum(int((s or {}).get("shots") or 0) for s in (ra.get("sides") or []))})
-        same_addr = []
-        for line in rows:
-            a, b = line.get("a"), line.get("b")
-            if isinstance(a, dict) and isinstance(b, dict) and a.get("addr") and a.get("addr") == b.get("addr"):
-                r = line.get("result") or {}
-                same_addr.append({"time": line.get("time"), "names": [_clean(x, 30) for x in (r.get("names") or [])],
-                                  "game": _clean(r.get("game")), "room": _clean(line.get("room"), 8), "t": r.get("t")})
-        # one pair, one day, many frames, nearly all one way
-        pairday = {}
-        for line in rows:
-            r = line.get("result") or {}
-            if r.get("t") != "frame":
-                continue
-            nm = [_clean(x, 30) for x in (r.get("names") or ["?", "?"])][:2]
-            ids = _ids(line, nm + ["?", "?"])
-            k = (str(line.get("time", ""))[:10],) + tuple(sorted((ids[0], ids[1])))
-            p = pairday.setdefault(k, {"day": k[0], "names": {}, "n": 0, "w": {}})
-            p["n"] += 1
-            for i in (0, 1):
-                p["names"][ids[i]] = nm[i]
-            if r.get("winner") in (0, 1):
-                w = ids[r["winner"]]
-                p["w"][w] = p["w"].get(w, 0) + 1
         lopsided = []
-        for p in pairday.values():
+        for p in self.pairday.values():
             top = max(p["w"].values()) if p["w"] else 0
             if p["n"] >= 10 and top >= 0.9 * p["n"]:
                 lopsided.append({"day": p["day"], "names": list(p["names"].values()), "frames": p["n"], "top": top})
-        forfeits = [m for m in reversed(matches) if m["forfeit"]]
-        unverified = [m for m in reversed(matches) if not m["verified"]]
+        lopsided.sort(key=lambda x: x["day"], reverse=True)
+        matches = sorted(self.matches, key=lambda m: m["time"], reverse=True)
         reports = []
         try:
             with open(P("reports.tsv"), encoding="ascii", errors="replace") as f:
                 for l in f:
                     c = l.rstrip("\n").split("\t")
                     reports.append({"time": c[0] if c else "", "fields": [_clean(x, 60) for x in c[1:] if not re.fullmatch(r"[0-9a-f]{16,}", x)]})
+                    del reports[:-100]
         except OSError:
             pass
 
@@ -295,109 +422,63 @@ class Model:
         name_of = {i: disp(a) for i, a in acc.items()}
         players = []
         for i, a in acc.items():
-            p = dict(a)
+            p = {k: v for k, v in a.items() if k not in ("names", "versions", "form", "opp", "games")}
             p["name"] = name_of[i]
             p["aka"] = [n for n, _ in sorted(a["names"].items(), key=lambda kv: kv[1], reverse=True) if n != p["name"]]
             p["version"] = max(a["versions"].items(), key=lambda kv: kv[1])[0] if a["versions"] else ""
-            p["opp"] = sorted([{"id": o, "name": name_of.get(o, o[2:] if o.startswith("n:") else "?"), **v}
-                               for o, v in a["opp"].items()], key=lambda x: -(x["f"] + x["m"]))
-            p["form"] = a["form"][-10:]
+            p["opp"] = sorted([{"id": o, "name": name_of.get(o, o[2:] if o.startswith("n:") else "?"),
+                                "f": v[0], "fw": v[1], "m": v[2], "mw": v[3]}
+                               for o, v in a["opp"].items()], key=lambda x: -(x["f"] + x["m"]))[:100]
+            p["form"] = sorted(a["form"], key=lambda f: f["time"])[-10:]
             p["games"] = sorted([{"game": g, **v} for g, v in a["games"].items()], key=lambda x: -x["f"])
+            p["shot"] = dict(a["shot"])
+            p["disputes"] = disputes_of.get(i, 0)
             p["shown_id"] = "account " + i[2:8] if a["proved"] else "doubles team" if a["team"] else "name only"
-            del p["names"], p["versions"]
             players.append(p)
         players.sort(key=lambda p: (p["team"], -p["frames"], p["name"]))
 
         # ---- activity ------------------------------------------------------
         today = time.time()
         days = [time.strftime("%Y-%m-%d", time.gmtime(today - k * 86400)) for k in range(29, -1, -1)]
-        perday = {d: {"day": d, "frames": 0, "matches": 0, "players": set(), "new": 0} for d in days}
-        hours = [0] * 24
-        games_all, games_7 = {}, {}
-        frame_secs = {}
-        seen_first = {}
+        new_on = {}
+        for d0 in self.seen_first.values():
+            new_on[d0] = new_on.get(d0, 0) + 1
+        perday = [{"day": d, "frames": self.perday.get(d, {}).get("frames", 0), "matches": self.perday.get(d, {}).get("matches", 0),
+                   "players": len(self.perday.get(d, {}).get("players", ())), "new": new_on.get(d, 0)} for d in days]
         d7 = time.strftime("%Y-%m-%d", time.gmtime(today - 7 * 86400))
-        for line in rows:
-            r = line.get("result") or {}
-            t = str(line.get("time", ""))
-            if r.get("t") not in ("frame", "match"):
-                continue
-            nm = [_clean(x, 30) for x in (r.get("names") or ["?", "?"])][:2] + ["?", "?"]
-            ids = _ids(line, nm)
-            d = perday.get(t[:10])
-            for i in (0, 1):
-                seen_first.setdefault(ids[i], t[:10])
-            if r["t"] == "match":
-                if d:
-                    d["matches"] += 1
-                continue
-            g = _clean(r.get("game")) or "?"
-            games_all[g] = games_all.get(g, 0) + 1
-            if t[:10] >= d7:
-                games_7[g] = games_7.get(g, 0) + 1
-            if d:
-                d["frames"] += 1; d["players"].update((ids[0], ids[1]))
-            try:
-                hours[int(t[11:13])] += 1
-            except ValueError:
-                pass
-            s = _report(line, 0).get("secs")
-            if isinstance(s, (int, float)) and s > 0:
-                frame_secs.setdefault(g, []).append(s)
-        for i, d0 in seen_first.items():
-            if d0 in perday:
-                perday[d0]["new"] += 1
+        games_7 = {}
+        for d, gd in self.games_day.items():
+            if d >= d7:
+                for g, n in gd.items():
+                    games_7[g] = games_7.get(g, 0) + n
         med = lambda v: sorted(v)[len(v) // 2] if v else 0
-        room_secs = [m["room_secs"] for m in matches if isinstance(m["room_secs"], (int, float))]
         vers = {}
         cut14 = time.strftime("%Y-%m-%d", time.gmtime(today - 14 * 86400))
         for p in players:
             if p["version"] and p["last"][:10] >= cut14:
                 vers[p["version"]] = vers.get(p["version"], 0) + 1
-        activity = {"days": [{**d, "players": len(d["players"])} for d in perday.values()],
-                    "hours_utc": hours,
-                    "games": sorted(games_all.items(), key=lambda kv: -kv[1]),
+        activity = {"days": perday, "hours_utc": list(self.hours),
+                    "games": sorted(self.games_all.items(), key=lambda kv: -kv[1]),
                     "games7": sorted(games_7.items(), key=lambda kv: -kv[1]),
-                    "frame_secs": sorted([(g, round(med(v)), len(v)) for g, v in frame_secs.items()], key=lambda x: -x[2]),
-                    "room_secs_median": round(med(room_secs)), "versions": sorted(vers.items(), key=lambda kv: kv[0], reverse=True),
-                    "totals": {"frames": sum(1 for x in rows if (x.get("result") or {}).get("t") == "frame"),
-                               "matches": len(matches), "players": sum(1 for p in players if p["frames"] and not p["team"]),
-                               "accounts": sum(1 for p in players if p["proved"] and p["frames"]),
-                               "since": rows[0]["time"] if rows else ""}}
+                    "frame_secs": sorted([(g, round(med(v[0])), v[1]) for g, v in self.frame_secs.items()], key=lambda x: -x[2]),
+                    "room_secs_median": round(med(self.room_secs)), "versions": sorted(vers.items(), key=lambda kv: kv[0], reverse=True),
+                    "totals": {"frames": self.n_frames, "matches": self.n_matches,
+                               "players": sum(1 for p in players if p["frames"] and not p["team"]),
+                               "accounts": sum(1 for p in players if p["proved"] and p["frames"]), "since": self.since}}
 
         return {"built": time.strftime("%Y-%m-%d %H:%M:%S", time.gmtime()) + " UTC",
-                "players": players, "matches": list(reversed(matches))[:1000], "activity": activity,
-                "integrity": {"disputed": dlist, "unconfirmed": ulist, "forfeits": forfeits[:200],
-                              "unverified": unverified[:200], "same_addr": same_addr, "lopsided": lopsided,
-                              "notable": list(reversed(notable))[:100], "reports": list(reversed(reports))[:100],
+                "players": players, "matches": matches[:1000], "activity": activity,
+                "integrity": {"disputed": dlist, "unconfirmed": ulist,
+                              "forfeits": [m for m in matches if m["forfeit"]][:200],
+                              "unverified": [m for m in matches if not m["verified"]][:200],
+                              "same_addr": list(reversed(self.same_addr)), "lopsided": lopsided[:100],
+                              "notable": list(reversed(self.notable))[:100], "reports": list(reversed(reports)),
                               "left_counts": sorted([(p["name"], p["left"]) for p in players if p["left"]], key=lambda x: -x[1])},
-                "month_race": self._month_race(rows, month_now)}
+                "month_race": self._month_race(time.strftime("%Y-%m", time.gmtime()))}
 
     # ---- honours: the relay's own answer, and this month so far ------------
-    def _month_race(self, rows, month):
-        P, name_of = {}, {}
-        for d in rows:
-            r = d.get("result") or {}
-            if not d.get("verified") or r.get("t") != "frame" or str(d.get("time", ""))[:7] != month:
-                continue
-            names, sides = r.get("names") or [], r.get("sides") or []
-            if any(" & " in str(n) for n in names):
-                continue
-            ids = _ids(d, [_clean(x, 30) for x in names] + ["?", "?"])
-            for side in (0, 1):
-                uid = ids.get(side)
-                if not uid or not uid.startswith("a:") or side >= len(names) or side >= len(sides):
-                    continue
-                name_of[uid] = _clean(names[side], 23) or "?"
-                sd = sides[side] or {}
-                sh = sd.get("shot") or {}
-                p = P.setdefault(uid, {"f": 0, "w": 0, "bnr": 0, "clr": 0, "hi": {}})
-                p["f"] += 1; p["w"] += 1 if r.get("winner") == side else 0
-                p["bnr"] += int(sh.get("bnr") or 0); p["clr"] += int(sh.get("runouts") or 0)
-                b = HON_KIND.get(int(r.get("kind", -1)))
-                best = int(sd.get("best") or 0)
-                if b is not None and best > p["hi"].get(b, 0):
-                    p["hi"][b] = best
+    def _month_race(self, month):
+        P, name_of = self.monthp.get(month, {}), self.month_names.get(month, {})
         v = [{} for _ in range(10)]
         for uid, p in P.items():
             if p["w"]: v[0][uid] = p["w"]

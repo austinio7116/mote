@@ -55,7 +55,7 @@ const pct = (a, b) => b ? Math.round(100 * a / b) + '%' : '-';
 const frac = (a, b) => b ? `${pct(a,b)} <span class="dim tiny">${a}/${b}</span>` : '<span class=dim>-</span>';
 const mins = s => s >= 3600 ? (s/3600).toFixed(1) + ' h' : Math.round(s/60) + ' min';
 const empty = t => `<div class="card empty">${t}</div>`;
-let NOW = null, M = null, MT = 0, S = null, H = null, HD = 1, PQ = '', MG = '', MQ = '', SF = false;
+let NOW = null, M = null, MT = 0, DP = {}, DM = {}, S = null, H = null, HD = 1, PQ = '', MG = '', MQ = '', SF = false;
 
 const TABS = [['now','Now'],['players','Players'],['matches','Matches'],['honours','Honours'],['integrity','Integrity'],['activity','Activity'],['server','Server']];
 function route(){ const h = location.hash.slice(1) || 'now'; const [v, a] = h.split('/'); return {v, a: decodeURIComponent(a || '')}; }
@@ -146,7 +146,7 @@ function vPlayers(){
   return h;
 }
 function vPlayer(id){
-  const p = P(id); if (!p) return '<span class=back onclick="history.back()">&lsaquo; Back</span>' + empty(M ? 'No such player.' : 'Loading...');
+  const p = DP[id] || P(id); if (!p) return '<span class=back onclick="history.back()">&lsaquo; Back</span>' + empty(M ? 'No such player.' : 'Loading...');
   const s = p.shot, perf = p.frames || 1;
   let h = `<span class=back onclick="history.back()">&lsaquo; Players</span><div class=card><h3>${e(p.name)}</h3>
     <div class="small dim">${e(p.shown_id)}${p.version?' &middot; plays '+e(p.version):''} &middot; first ${lt(p.first,true)} &middot; last ${lt(p.last,true)}</div>
@@ -161,9 +161,9 @@ function vPlayer(id){
   if (p.form.length) h += `<h2>Form, last ${p.form.length} matches</h2><div class="card form">${p.form.map(f => `<span class=${f.won?'W':'L'} onclick="location.hash='match/${f.id}'">${f.won?'W':'L'}</span>`).join('')}</div>`;
   h += `<h2>By game</h2><div class=card><table><tr><th>Game</th><th class=r>Frames</th><th class=r>Won</th><th class=r>Best</th></tr>
     ${p.games.map(g => `<tr><td>${e(g.game)}</td><td class=r>${g.f}</td><td class=r>${pct(g.w,g.f)}</td><td class=r>${g.best||'-'}</td></tr>`).join('')}</table></div>`;
-  h += `<h2>Head to head</h2><div class=card><table><tr><th>Against</th><th class=r>Frames</th><th class=r>Matches</th></tr>
+  h += !p.opp ? `<h2>Head to head</h2>${empty('Loading...')}` : `<h2>Head to head</h2><div class=card><table><tr><th>Against</th><th class=r>Frames</th><th class=r>Matches</th></tr>
     ${p.opp.map(o => `<tr class=tap onclick="location.hash='player/${encodeURIComponent(o.id)}'"><td>${e(o.name)}</td><td class=r>${o.fw}-${o.f-o.fw}</td><td class=r>${o.mw}-${o.m-o.mw}</td></tr>`).join('')}</table></div>`;
-  const ms = M.matches.filter(m => m.ids.includes(p.id)).slice(0, 30);
+  const ms = p.recent || M.matches.filter(m => m.ids.includes(p.id)).slice(0, 30);
   h += `<h2>Matches</h2>` + (ms.map(mCard).join('') || empty('None kept.'));
   return h;
 }
@@ -186,7 +186,7 @@ function vMatches(){
   return h;
 }
 function vMatch(id){
-  const m = M && M.matches.find(x => x.id === id);
+  const m = DM[id] || (M && M.matches.find(x => x.id === id));
   if (!m) return '<span class=back onclick="history.back()">&lsaquo; Back</span>' + empty(M ? 'No such match.' : 'Loading...');
   const w = m.winner===0||m.winner===1 ? m.names[m.winner] : '';
   let h = `<span class=back onclick="history.back()">&lsaquo; Matches</span><div class=card><h3>${e(m.names[0])} ${(m.frames||[0,0])[0]}-${(m.frames||[0,0])[1]} ${e(m.names[1])}</h3>
@@ -194,9 +194,10 @@ function vMatch(id){
     <div class=small>${w?e(w)+' won':''}${m.forfeit?' &middot; <span class=warn>'+e(m.left)+' left mid-frame</span>':''}${m.verified?' &middot; verified':' &middot; <span class=warn>not verified</span>'}${m.ver.filter(Boolean).length?' &middot; versions '+m.ver.filter(Boolean).map(e).join(' / '):''}</div>
     ${m.repaired?`<div class="small dim">Repaired: ${e(m.repaired)}</div>`:''}
     ${m.ids.map((i,k) => `<span class="chip" style="display:inline-block;margin:6px 6px 0 0" onclick="location.hash='player/${encodeURIComponent(i)}'">${e(m.names[k])} &rsaquo;</span>`).join('')}</div>`;
+  if (!m.frame_list) return h + empty('Loading the frames...');
   for (const f of m.frame_list){
     const side = i => f.sides[i] || {}, sh = i => side(i).shot || {};
-    h += `<div class=card><div class=row><b>Frame ${f.frame}</b><span class="small"><b class=acc>${(f.score||[0,0]).join('-')}</b> ${f.winner===0||f.winner===1?e(m.names[f.winner]):''}</span></div>
+    h += `<div class=card><div class=row><b>Frame ${f.frame}</b><span class="small">${(f.score||[0,0]).some(Boolean)?`<b class=acc>${f.score.join('-')}</b> `:''}${f.winner===0||f.winner===1?e(m.names[f.winner])+' won':''}</span></div>
       <div class="tiny dim">${lt(f.time)}${f.secs?' &middot; '+mins(f.secs):''}${f.bnr>=0&&f.bnr!==null?' &middot; break-and-run':''}${f.golden?' &middot; golden break':''}${f.forfeit?' &middot; forfeit':''}${f.figures===false?' &middot; no figures':''}</div>
       <table><tr><th></th><th class=r>${e(m.names[0])}</th><th class=r>${e(m.names[1])}</th></tr>
       ${[['Best break', i => side(i).best ?? '-'], ['Breaks', i => (side(i).breaks||[]).join(', ') || '-'], ['Shots', i => side(i).shots ?? '-'],
@@ -306,6 +307,9 @@ async function load(){
     const jobs = [get('api').then(d => { NOW = d; document.getElementById('at').textContent = lt(d.at); })];
     if (!M || Date.now() - MT > 55000) jobs.push(get('api/model').then(d => { M = d; MT = Date.now(); }));
     if (v == 'server' || v == 'integrity') jobs.push(get('api/server').then(d => S = d));
+    const a = route().a;
+    if (v == 'player' && a) jobs.push(get('api/player?id=' + encodeURIComponent(a)).then(d => DP[a] = d).catch(() => {}));
+    if (v == 'match' && a && !DM[a]) jobs.push(get('api/match?id=' + encodeURIComponent(a)).then(d => DM[a] = d).catch(() => {}));
     await Promise.all(jobs);
   } catch (x) { document.getElementById('at').textContent = String(x.message) == '403' ? 'refused' : 'no connection'; }
   busy = false;

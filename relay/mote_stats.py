@@ -16,6 +16,8 @@ asks. The working-out is in mote_stats_model.py, the page in mote_stats.html.
                                  number), matches with their frames, the
                                  honours and this month's race, the integrity
                                  queue, activity
+    GET /api/player?t=<token>&id=<id>   one player in full: head to head, recent matches
+    GET /api/match?t=<token>&id=<id>    one match with its frames
     GET /api/server?t=<token>    the relay's log over 7 days (addresses taken
                                  out), the box's health, the data files
     GET /api/history?t=<token>&days=1|7|30
@@ -219,7 +221,7 @@ class H(BaseHTTPRequestHandler):
     def do_GET(self):
         u = urlparse(self.path)
         q = parse_qs(u.query)
-        if u.path not in ("/", "/api", "/api/history", "/api/model", "/api/server"):
+        if u.path not in ("/", "/api", "/api/history", "/api/model", "/api/server", "/api/player", "/api/match"):
             return self._send(404, "text/plain", b"not here\n")
         if not self._ok(q):
             return self._send(403, "text/plain", b"no\n")
@@ -229,6 +231,13 @@ class H(BaseHTTPRequestHandler):
             with LOCK:
                 m = MODEL.get()
             return self._send(200, "application/json", json.dumps(m, separators=(",", ":")).encode())
+        if u.path in ("/api/player", "/api/match"):
+            key = (q.get("id") or [""])[0][:80]
+            with LOCK:
+                v = MODEL.player(key) if u.path == "/api/player" else MODEL.match(key)
+            if v is None:
+                return self._send(404, "application/json", b'{"error":"not found"}')
+            return self._send(200, "application/json", json.dumps(v, separators=(",", ":")).encode())
         if u.path == "/api/server":
             return self._send(200, "application/json", json.dumps(MODEL.server(), separators=(",", ":")).encode())
         if u.path == "/api/history":

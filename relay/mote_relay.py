@@ -145,7 +145,9 @@ Wire protocol (client <-> relay), one text handshake line then raw bytes:
     is kept in <store>/results.jsonl with both senders, each salted address
     hash, the room's code and how long the room had been open. Two that
     disagree go to results_disputed.jsonl; one never confirmed (the other
-    left) goes to results_unconfirmed.jsonl when the room closes. A result
+    left) goes to results_unconfirmed.jsonl when the room closes. results.db
+    beside it is an index of results.jsonl for the honours (see ResultsDB):
+    rebuilt from the file whenever the two disagree, so it can be deleted. A result
     that fails the checks (sizes, a snooker break past 155, frames past the
     match) is answered "RESULT BAD" and kept nowhere; too many from one
     address in an hour, "RESULT BUSY". No --store, "RESULT OFF".
@@ -179,6 +181,8 @@ import hmac
 import json
 import os
 import socket
+import sqlite3
+import threading
 import time
 import urllib.parse
 import urllib.request
@@ -669,6 +673,172 @@ def parse_gid(v):
         return 0
 
 
+
+class ResultsDB:
+    """results.db (2026-10-11; Mark: "do that now"): an INDEX of results.jsonl,
+    which stays the record. Reading the whole file again for every honours
+    answer grew with every result kept -- 0.24 ms a line on the desk, more on
+    the free server, and it ran on the event loop, so at a few thousand lines
+    every game on the relay would have waited seconds each time a club player's
+    game asked. The index takes only the lines appended since it last looked
+    (the byte offset it reached is kept in it), and the honours become indexed
+    queries. If the file and the index ever disagree -- the file shorter than
+    the offset, its first line changed, an older schema -- the index is thrown
+    away and built again from the file: it can always be rebuilt, nothing in it
+    is only there. Safe from any thread: one lock, a connection per call."""
+    SCHEMA_VERSION = "1"
+
+    def __init__(self, store, hon_kind):
+        self.jsonl = os.path.join(store, "results.jsonl")
+        self.path = os.path.join(store, "results.db")
+        self.hon_kind = hon_kind
+        self.lock = threading.Lock()
+
+    def _conn(self):
+        c = sqlite3.connect(self.path, timeout=30)
+        c.execute("PRAGMA synchronous=NORMAL")
+        return c
+
+    def _create(self, c):
+        c.executescript("""
+            CREATE TABLE IF NOT EXISTS meta(k TEXT PRIMARY KEY, v TEXT);
+            -- a row per line of results.jsonl (the line itself stays in the file)
+            CREATE TABLE IF NOT EXISTS results(id INTEGER PRIMARY KEY, time TEXT, t TEXT, verified INTEGER,
+                kind INTEGER, game TEXT, gid INTEGER, room TEXT);
+            CREATE INDEX IF NOT EXISTS results_time ON results(time);
+            -- one row per side that counts for the honours: a verified singles
+            -- frame, the side's Meta account known (see Relay.honours_tally)
+            CREATE TABLE IF NOT EXISTS hside(id INTEGER PRIMARY KEY, result_id INTEGER, month TEXT, uid TEXT,
+                name TEXT, won INTEGER, best INTEGER, board INTEGER, bnr INTEGER, clr INTEGER);
+            CREATE INDEX IF NOT EXISTS hside_uid ON hside(uid);
+            CREATE INDEX IF NOT EXISTS hside_month ON hside(month, uid);
+        """)
+
+    def _meta(self, c, k, default=""):
+        r = c.execute("SELECT v FROM meta WHERE k=?", (k,)).fetchone()
+        return r[0] if r else default
+
+    @staticmethod
+    def _head(path):
+        with open(path, "rb") as f:
+            return hashlib.sha256(f.readline()).hexdigest()
+
+    def _add(self, c, raw):
+        try:
+            d = json.loads(raw)
+        except ValueError:
+            return
+        if not isinstance(d, dict):
+            return
+        r = d.get("result") if isinstance(d.get("result"), dict) else {}
+        try:
+            kind = int(r.get("kind", -1))
+        except (TypeError, ValueError):
+            kind = -1
+        cur = c.execute("INSERT INTO results(time, t, verified, kind, game, gid, room) VALUES(?,?,?,?,?,?,?)",
+                        (str(d.get("time", "")), r.get("t"), 1 if d.get("verified") else 0, kind,
+                         str(r.get("game", ""))[:64], d.get("gid") if isinstance(d.get("gid"), int) else None,
+                         str(d.get("room", ""))[:16]))
+        rid = cur.lastrowid
+        if not d.get("verified") or r.get("t") != "frame":
+            return
+        names, sides = r.get("names") or [], r.get("sides") or []
+        if any(" & " in str(n) for n in names):     # singles only: a team names a side "A & B"
+            return
+        uids = {}
+        for who in ("a", "b"):
+            x = d.get(who)
+            if isinstance(x, dict) and x.get("uid") and x.get("side") in (0, 1):
+                uids[x["side"]] = str(x["uid"])
+        for sd_i, u in enumerate(d.get("uids") or []):
+            if u and sd_i not in uids:
+                uids[sd_i] = str(u)
+        month = str(d.get("time", ""))[:7]
+        board = self.hon_kind.get(kind)
+        for side in (0, 1):
+            uid = uids.get(side)
+            if not uid or side >= len(names) or side >= len(sides):
+                continue
+            sd = sides[side] if isinstance(sides[side], dict) else {}
+            sh = sd.get("shot") if isinstance(sd.get("shot"), dict) else {}
+            name = "".join(ch if 32 < ord(ch) < 127 else "?" for ch in str(names[side]))[:23] or "?"
+            c.execute("INSERT INTO hside(result_id, month, uid, name, won, best, board, bnr, clr) VALUES(?,?,?,?,?,?,?,?,?)",
+                      (rid, month, uid, name, 1 if r.get("winner") == side else 0, int(sd.get("best") or 0),
+                       board, int(sh.get("bnr") or 0), int(sh.get("runouts") or 0)))
+
+    def sync(self):
+        """take in whatever results.jsonl has gained; True when the index is
+        whole and current. Raises nothing: a failure is logged and answered
+        False, and the caller reads the file the old way."""
+        with self.lock:
+            try:
+                if not os.path.exists(self.jsonl):
+                    return False
+                size = os.path.getsize(self.jsonl)
+                head = self._head(self.jsonl)
+                c = self._conn()
+                try:
+                    self._create(c)
+                    off = int(self._meta(c, "offset", "0") or 0)
+                    fresh = self._meta(c, "schema") == "" and off == 0
+                    if not fresh and (self._meta(c, "schema") != self.SCHEMA_VERSION or self._meta(c, "head", head) != head
+                                      or off > size):
+                        log(f"results.db: rebuilt from results.jsonl ({'schema' if self._meta(c, 'schema') != self.SCHEMA_VERSION else 'the file changed'})")
+                        c.executescript("DELETE FROM results; DELETE FROM hside; DELETE FROM meta;")
+                        off = 0
+                    if off == size:
+                        c.commit()
+                        return True
+                    n, pos = 0, off
+                    with open(self.jsonl, "rb") as f:       # a line at a time: the file may be far bigger than memory
+                        f.seek(off)
+                        while pos < size:
+                            raw = f.readline(size - pos)
+                            if not raw.endswith(b"\n"):     # only whole lines: one still being written waits
+                                break
+                            pos += len(raw)
+                            if raw.strip():
+                                self._add(c, raw.decode("ascii", "replace").rstrip("\n"))
+                                n += 1
+                    if pos == off:
+                        c.commit()
+                        return True
+                    for k, v in (("offset", str(pos)), ("head", head), ("schema", self.SCHEMA_VERSION)):
+                        c.execute("INSERT OR REPLACE INTO meta(k, v) VALUES(?, ?)", (k, v))
+                    c.commit()
+                    if off == 0:
+                        log(f"results.db: {n} results indexed")
+                    return True
+                finally:
+                    c.close()
+            except (OSError, sqlite3.Error, ValueError) as e:
+                log(f"results.db: {type(e).__name__}: {e} -- honours read from the file")
+                return False
+
+    def honours_parts(self, month_now):
+        """the per-account totals the honours are drawn from, all time and per
+        completed month, and each account's latest name -- the same shapes
+        Relay.honours_tally's file scan builds"""
+        with self.lock:
+            c = self._conn()
+            try:
+                def totals(where, args, key):
+                    P = {}
+                    for row in c.execute(f"SELECT {key}uid, COUNT(*), SUM(won), SUM(bnr), SUM(clr) FROM hside {where} GROUP BY {key}uid", args):
+                        k = row[:-4]
+                        P.setdefault(k[0] if key else None, {})[k[-1]] = {"f": row[-4], "w": row[-3], "bnr": row[-2], "clr": row[-1], "hi": {}}
+                    for row in c.execute(f"SELECT {key}uid, board, MAX(best) FROM hside {where}{' AND' if where else ' WHERE'} board IS NOT NULL AND best > 0 GROUP BY {key}uid, board", args):
+                        grp = P[row[0] if key else None]
+                        grp[row[-3]]["hi"][row[-2]] = row[-1]
+                    return P
+                allp = totals("", (), "").get(None, {})
+                monthp = totals("WHERE month != '' AND month < ?", (month_now,), "month, ")
+                name_of = dict(c.execute("SELECT h.uid, h.name FROM hside h JOIN (SELECT uid, MAX(id) m FROM hside GROUP BY uid) l ON h.id = l.m"))
+                return allp, monthp, name_of
+            finally:
+                c.close()
+
+
 class Relay:
     def __init__(self, args):
         self.args = args
@@ -676,6 +846,7 @@ class Relay:
         self.nrooms = {}           # "gid/CODE" -> RoomN (a hub of up to eight)
         self.conns = 0
         self.store = Store(args.store, args.store_cap, args.puts_per_hour) if args.store else None
+        self.results_db = ResultsDB(args.store, self.HON_KIND) if args.store else None
         # THE META KEY (7.3): the app's secret, read once from its file and
         # never logged; with it a player's proof of their account is checked
         # with Meta and their results are kept against that account
@@ -867,6 +1038,23 @@ class Relay:
         month_now = time.strftime("%Y-%m", time.gmtime())
         if cache and cache[0] == mt and cache[1] == month_now:
             return cache[2], cache[3]
+        parts = None
+        db = getattr(self, "results_db", None)
+        if db is not None and db.sync():
+            try:
+                parts = db.honours_parts(month_now)
+            except sqlite3.Error as e:
+                log(f"results.db: {type(e).__name__}: {e} -- honours read from the file")
+        if parts is None:
+            parts = self.honours_scan(path, month_now)
+            if parts is None:
+                return "", {}
+        allp, monthp, name_of = parts
+        return self.honours_render(mt, month_now, allp, monthp, name_of)
+
+    def honours_scan(self, path, month_now):
+        """the honours' totals by reading the whole of results.jsonl -- the
+        way before results.db, kept for when the index cannot be used"""
         allp, monthp, name_of = {}, {}, {}
         def tally(P, uid, won, sh, kind, best):
             p = P.setdefault(uid, {"f": 0, "w": 0, "bnr": 0, "clr": 0, "hi": {}})
@@ -909,7 +1097,10 @@ class Relay:
                         if month and month < month_now:
                             tally(monthp.setdefault(month, {}), *args)
         except OSError:
-            return "", {}
+            return None
+        return allp, monthp, name_of
+
+    def honours_render(self, mt, month_now, allp, monthp, name_of):
         def boards(P):
             v = [{} for _ in range(10)]
             for uid, p in P.items():
@@ -943,7 +1134,8 @@ class Relay:
         when the asker proves its Meta account, that account's own monthly
         wins as MINE <board> <YYYY-MM> <value> -- the winner's trophies back
         however a player's files were lost, and nobody else's to claim"""
-        text, mine = self.honours_tally()
+        # OFF THE EVENT LOOP: a tally that reads results was every game's wait
+        text, mine = await asyncio.get_running_loop().run_in_executor(None, self.honours_tally)
         if len(a) >= 2 and self.meta_token and a[0].isdigit() and 0 < len(a[1]) <= 256:
             try:
                 ok = await asyncio.get_running_loop().run_in_executor(None, self.meta_check, a[0], a[1])
@@ -1844,6 +2036,8 @@ async def main():
     asyncio.get_event_loop().create_task(watchdog())
 
     relay = Relay(args)
+    if getattr(relay, "results_db", None) is not None:      # the index brought up to date at start, off the loop
+        asyncio.get_running_loop().run_in_executor(None, relay.results_db.sync)
     if not args.no_voice:
         class VoiceUDP(asyncio.DatagramProtocol):
             def connection_made(self, transport):
