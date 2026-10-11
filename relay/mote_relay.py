@@ -1378,13 +1378,34 @@ class Relay:
             room.results.clear()
 
     # ---- WHO IS PLAYING, PROVED (7.3) ---------------------------------------
+    PROOF_KEEP = 600.0     # seconds a proof Meta has said is good is good again here
+
     def meta_check(self, uid, nonce):
         """Meta's answer to a proof: is this nonce a good one for this account?
-        (blocking; run off the loop)"""
+        (blocking; run off the loop)
+
+        A PROOF ALREADY GOOD IS GOOD AGAIN for ten minutes (7.4.5). Meta takes
+        a nonce once, and a game sending its room's PROOF and its honours
+        fetch together used to send the same one: whichever arrived second was
+        refused, and a room went unverified (Joethe147, room 7NSQ,
+        2026-10-11). The same account with the same nonce Meta has just
+        accepted is the same proof; a different account with it is not."""
+        key = (str(uid), str(nonce))
+        now = time.monotonic()
+        cache = getattr(self, "_proof_ok", None)
+        if cache is None:
+            cache = self._proof_ok = {}
+        for k in [k for k, t in cache.items() if now - t > self.PROOF_KEEP]:
+            del cache[k]
+        if key in cache:
+            return True
         q = urllib.parse.urlencode({"nonce": nonce, "user_id": uid, "access_token": self.meta_token}).encode()
         req = urllib.request.Request(self.args.meta_verify_url, data=q, method="POST")
         with urllib.request.urlopen(req, timeout=8) as r:
-            return bool(json.loads(r.read().decode("utf-8", "replace")).get("is_valid"))
+            ok = bool(json.loads(r.read().decode("utf-8", "replace")).get("is_valid"))
+        if ok:
+            cache[key] = now
+        return ok
 
     async def proof(self, room, m, raw):
         """PROOF <ACCOUNT ID> <NONCE>: Meta asked whether the nonce proves the

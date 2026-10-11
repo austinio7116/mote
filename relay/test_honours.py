@@ -84,6 +84,8 @@ def main():
         ann = ask("MOTE2 HONOURS 1129661807 101 proofANN\n")
         bad = ask("MOTE2 HONOURS 1129661807 101 proofBOB\n")
         steal = ask("MOTE2 HONOURS 1129661807 102 proofANN\n")
+        GOOD.pop("proofANN")                  # Meta would now refuse it: it has been used
+        again = ask("MOTE2 HONOURS 1129661807 101 proofANN\n")
     finally:
         p.terminate()
     ok = 0; bad_n = 0
@@ -108,6 +110,7 @@ def main():
           "a proved account gets its own monthly wins back (Ann: frames, straight pool, win rate)")
     check(not any(l.startswith("MINE ") for l in bad), "a proof that is not that account's: no MINE lines")
     check(not any(l.startswith("MINE ") for l in steal), "someone else's account with your proof: nothing of theirs to claim")
+    check("MINE 0 2026-09 21" in again, "the same account's proof, used again within ten minutes, is still good (7.4.5)")
     check(lines and lines[-1] == "END", "the answer ends with END")
     print(f"{ok} ok, {bad_n} bad"); sys.exit(1 if bad_n else 0)
 

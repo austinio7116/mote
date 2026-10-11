@@ -102,6 +102,7 @@ class Model:
         self.pot_all, self.pot_month, self.pot_name = {}, {}, {}
         self.fixed = set()
         self.seen_lines = {}
+        self.superseded = set()
         self.n_frames = self.n_matches = 0
         self.since = ""
 
@@ -114,6 +115,14 @@ class Model:
                 head = hashlib.sha256(f.readline()).hexdigest()
                 if self.head is not None and (head != self.head or size < self.off):
                     self._reset()
+                if self.off == 0:          # a full read: which lines a repaired copy stands in for
+                    for raw in f:
+                        if b'"repaired"' in raw:
+                            try:
+                                self.superseded.add(self._dupkey(json.loads(raw)))
+                            except ValueError:
+                                pass
+                    f.seek(0); f.readline()
                 self.head = head
                 f.seek(self.off)
                 while self.off < size:
@@ -129,6 +138,13 @@ class Model:
                         self._fold(line)
         except OSError:
             pass
+
+    @staticmethod
+    def _dupkey(line):
+        r = line.get("result") if isinstance(line.get("result"), dict) else {}
+        names = ([_clean(x, 30) for x in (r.get("names") or [])] + ["?", "?"])[:2]
+        return json.dumps([r.get("t"), line.get("gid"), line.get("room"), str(line.get("time", "")), r.get("frame"),
+                           r.get("frames"), r.get("score"), r.get("winner"), r.get("match_winner"), names])
 
     def _acc(self, i, name, t):
         a = self.acc.get(i)
@@ -154,9 +170,13 @@ class Model:
         names = ([_clean(x, 30) for x in (r.get("names") or [])] + ["?", "?"])[:2]
         # ONE FRAME, ONCE: a doubles frame is reported by both pairs of seats and
         # kept twice, the same frame, result and time -- counted the once
-        dup = json.dumps([r["t"], line.get("gid"), line.get("room"), t, r.get("frame"), r.get("frames"),
-                          r.get("score"), r.get("winner"), r.get("match_winner"), names])
+        dup = self._dupkey(line)
         if dup in self.seen_lines:
+            return
+        # ...AND A REPAIRED COPY IN PLACE OF ITS ORIGINAL: a repair appends a
+        # corrected copy (verified, the missing account added) further down
+        # the file, so the original is passed over (7.4.5)
+        if dup in self.superseded and not line.get("repaired"):
             return
         self.seen_lines[dup] = None
         while len(self.seen_lines) > 2000:
