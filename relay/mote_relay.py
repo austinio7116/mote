@@ -852,19 +852,24 @@ class Relay:
     HON_KIND = {7: 4, 4: 5, 5: 6, 6: 7, 10: 8, 23: 9}   # CueGameKind -> board (23 = 3-red, board 9: Mark, 2026-10-11)
     HON_MIN_FRAMES = 20
 
-    def honours_text(self):
+    def honours_tally(self):
+        """the boards and every completed month's winners, BY META ACCOUNT
+        (Mark, 2026-10-11: "this has to be robust and not by name") -- each
+        account shown by the latest name it played under. Verified results
+        only, so every side has its account. Cached until results.jsonl or the
+        month changes: (lines text, {uid: [(board, month, value)]})."""
         path = os.path.join(self.args.store or "", "results.jsonl")
         try:
             mt = os.stat(path).st_mtime
         except OSError:
-            return ""
+            return "", {}
         cache = getattr(self, "_hon_cache", None)
         month_now = time.strftime("%Y-%m", time.gmtime())
         if cache and cache[0] == mt and cache[1] == month_now:
-            return cache[2]
-        allp, monthp = {}, {}
-        def tally(P, nm, won, sh, kind, best):
-            p = P.setdefault(nm, {"f": 0, "w": 0, "bnr": 0, "clr": 0, "hi": {}})
+            return cache[2], cache[3]
+        allp, monthp, name_of = {}, {}, {}
+        def tally(P, uid, won, sh, kind, best):
+            p = P.setdefault(uid, {"f": 0, "w": 0, "bnr": 0, "clr": 0, "hi": {}})
             p["f"] += 1; p["w"] += 1 if won else 0
             p["bnr"] += int(sh.get("bnr") or 0); p["clr"] += int(sh.get("runouts") or 0)
             b = self.HON_KIND.get(kind)
@@ -881,45 +886,72 @@ class Relay:
                     if not d.get("verified") or r.get("t") != "frame":
                         continue
                     names, sides = r.get("names") or [], r.get("sides") or []
-                    # SINGLES ONLY: a doubles or team frame names a side "A & B"
-                    # (the game's own records are singles records too) -- seen
-                    # live on the first deploy, "Joethe147 & Red_Dead_Steve" on
-                    # the frames board as one player
-                    if any(" & " in str(n) for n in names):
+                    if any(" & " in str(n) for n in names):     # singles only: a team names a side "A & B"
                         continue
+                    # each side's account: the two reports' senders, or a forfeit's STARTED pair
+                    uids = {}
+                    for who in ("a", "b"):
+                        x = d.get(who)
+                        if isinstance(x, dict) and x.get("uid") and x.get("side") in (0, 1):
+                            uids[x["side"]] = str(x["uid"])
+                    for sd_i, u in enumerate(d.get("uids") or []):
+                        if u and sd_i not in uids:
+                            uids[sd_i] = str(u)
                     month = str(d.get("time", ""))[:7]
                     for side in (0, 1):
-                        if side >= len(names) or side >= len(sides) or not names[side]:
+                        uid = uids.get(side)
+                        if not uid or side >= len(names) or side >= len(sides):
                             continue
-                        nm = "".join(c if 32 < ord(c) < 127 else "?" for c in str(names[side]))[:23]
+                        name_of[uid] = "".join(c if 32 < ord(c) < 127 else "?" for c in str(names[side]))[:23] or "?"
                         sd = sides[side] or {}
-                        args = (nm, r.get("winner") == side, sd.get("shot") or {}, int(r.get("kind", -1)), int(sd.get("best") or 0))
+                        args = (uid, r.get("winner") == side, sd.get("shot") or {}, int(r.get("kind", -1)), int(sd.get("best") or 0))
                         tally(allp, *args)
                         if month and month < month_now:
                             tally(monthp.setdefault(month, {}), *args)
         except OSError:
-            return ""
+            return "", {}
         def boards(P):
             v = [{} for _ in range(10)]
-            for nm, p in P.items():
-                if p["w"]: v[0][nm] = p["w"]
-                if p["f"] >= self.HON_MIN_FRAMES: v[1][nm] = round(100 * p["w"] / p["f"])
-                if p["bnr"]: v[2][nm] = p["bnr"]
-                if p["clr"]: v[3][nm] = p["clr"]
+            for uid, p in P.items():
+                if p["w"]: v[0][uid] = p["w"]
+                if p["f"] >= self.HON_MIN_FRAMES: v[1][uid] = round(100 * p["w"] / p["f"])
+                if p["bnr"]: v[2][uid] = p["bnr"]
+                if p["clr"]: v[3][uid] = p["clr"]
                 for b, best in p["hi"].items():
-                    if best: v[b][nm] = best
-            return [sorted(x.items(), key=lambda kv: (-kv[1], kv[0])) for x in v]
-        out = []
+                    if best: v[b][uid] = best
+            return [sorted(x.items(), key=lambda kv: (-kv[1], name_of.get(kv[0], ""))) for x in v]
+        out, mine = [], {}
         for b, rows in enumerate(boards(allp)):
-            for i, (nm, val) in enumerate(rows[:10]):
-                out.append(f"HON {b} {i + 1} {val}{'%' if b == 1 else ''} {nm}")
+            for i, (uid, val) in enumerate(rows[:10]):
+                out.append(f"HON {b} {i + 1} {val}{'%' if b == 1 else ''} {name_of.get(uid, '?')}")
         for month in sorted(monthp):
             for b, rows in enumerate(boards(monthp[month])):
                 if rows:
-                    nm, val = rows[0]
-                    out.append(f"MONTH {b} {month} {val}{'%' if b == 1 else ''} {nm}")
+                    uid, val = rows[0]
+                    vs = f"{val}{'%' if b == 1 else ''}"
+                    out.append(f"MONTH {b} {month} {vs} {name_of.get(uid, '?')}")
+                    mine.setdefault(uid, []).append((b, month, vs))
         text = "".join(x + "\n" for x in out)
-        self._hon_cache = (mt, month_now, text)
+        self._hon_cache = (mt, month_now, text, mine)
+        return text, mine
+
+    def honours_text(self):
+        return self.honours_tally()[0]
+
+    async def honours_answer(self, a):
+        """HONOURS [<account> <proof>]: the boards and months for everyone; and,
+        when the asker proves its Meta account, that account's own monthly
+        wins as MINE <board> <YYYY-MM> <value> -- the winner's trophies back
+        however a player's files were lost, and nobody else's to claim"""
+        text, mine = self.honours_tally()
+        if len(a) >= 2 and self.meta_token and a[0].isdigit() and 0 < len(a[1]) <= 256:
+            try:
+                ok = await asyncio.get_running_loop().run_in_executor(None, self.meta_check, a[0], a[1])
+            except Exception as e:
+                log(f"honours: a proof could not be checked ({type(e).__name__})")
+                ok = False
+            if ok:
+                text += "".join(f"MINE {b} {m} {v}\n" for b, m, v in mine.get(a[0], []))
         return text
 
     def result_write(self, name, line):
@@ -1004,6 +1036,7 @@ class Relay:
                 # a forfeit when the one who stayed is the winner; a frame the
                 # one who stayed says they LOST is their honest account, kept
                 "agreed": False, "forfeit": r.get("winner") == f["winner"], "left": st["names"][f["leaver"]], "a": entry,
+                "uids": [st["sides"].get(0, {}).get("uid"), st["sides"].get(1, {}).get("uid")],   # both accounts, from STARTED
                 "verified": bool(uw) and bool(ul) and uw != ul}
         line["result"] = {k: r.get(k) for k in self.RES_SHARED}
         line["result"]["names"] = r.get("names")
@@ -1688,7 +1721,7 @@ class Relay:
                 return
 
             if verb == "HONOURS" and t[0] == "MOTE2":   # (7.4) the club's honours boards and trophies
-                writer.write(self.honours_text().encode() + b"END\n"); await writer.drain()
+                writer.write((await self.honours_answer(a)).encode() + b"END\n"); await writer.drain()
                 return
 
             if verb == "LIST":                  # browse this game's open public rooms
