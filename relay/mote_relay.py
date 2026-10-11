@@ -1008,9 +1008,28 @@ class Relay:
                     return False
         return True
 
-    def result_key(self, r):
+    # WHAT A STROKE WAS JUDGED TO BE -- an attempt or a safety -- changed in
+    # 7.4.4 (a missed pot had been a safety). Two games either side of that
+    # judge the same strokes differently, so between DIFFERENT versions these
+    # are not compared; everything else still is (Mark, 2026-10-11).
+    SHOT_JUDGED = ("att", "made", "long_att", "long_made", "safeties", "safe_ok")
+
+    @staticmethod
+    def ver_key(r):
+        """a report's game version as numbers, for the newer of two; anything
+        that is not one (the desk) is oldest"""
+        try:
+            return tuple(int(x) for x in str(r.get("ver", "")).split("."))
+        except ValueError:
+            return ()
+
+    def result_key(self, r, mixed=False):
         shared = {k: r.get(k) for k in self.RES_SHARED}
         shared["sides"] = [{k: sd.get(k) for k in self.RES_SIDE} for sd in r["sides"]]
+        if mixed:                          # two versions: the strokes' judging is left out
+            for sd in shared["sides"]:
+                if isinstance(sd.get("shot"), dict):
+                    sd["shot"] = {k: v for k, v in sd["shot"].items() if k not in self.SHOT_JUDGED}
         # A GOLDEN BREAK'S shot.bnr is not compared: up to 7.4.1 a frame won
         # with the break itself counted as a break-and-run, from 7.4.2 it does
         # not, and the two must still agree on the frame (Mark, 2026-10-11)
@@ -1324,16 +1343,18 @@ class Relay:
         for o in pend:
             if o["side"] != side and o["k"] != m.k:
                 pend.remove(o)
-                same = self.result_key(o["r"]) == self.result_key(r)
+                mixed = str(o["r"].get("ver", "")) != str(r.get("ver", ""))
+                same = self.result_key(o["r"], mixed) == self.result_key(r, mixed)
+                rk = max((o["r"], r), key=self.ver_key) if mixed else r     # the newer game's figures are kept
                 line = {"time": time.strftime("%Y-%m-%d %H:%M:%S"), "gid": room.gid, "room": room.code,
                         "room_secs": round(now - room.created), "players": len(room.players()),
                         "agreed": same, "a": {k: v for k, v in o.items() if k != "at"}, "b": entry_out,
                         # both players' Meta accounts proved: the result is theirs, not a name's
                         "verified": bool(o.get("uid")) and bool(entry.get("uid")) and o.get("uid") != entry.get("uid")}
                 if same:
-                    line["result"] = {k: r.get(k) for k in self.RES_SHARED}
-                    line["result"]["names"] = r.get("names")
-                    line["result"]["sides"] = [{k: sd.get(k) for k in self.RES_SIDE} for sd in r["sides"]]
+                    line["result"] = {k: rk.get(k) for k in self.RES_SHARED}
+                    line["result"]["names"] = rk.get("names")
+                    line["result"]["sides"] = [{k: sd.get(k) for k in self.RES_SIDE} for sd in rk["sides"]]
                 self.result_write("results.jsonl" if same else "results_disputed.jsonl", line)
                 st = getattr(room, "start", None)
                 if st and st["frame"] == r["frame"]:

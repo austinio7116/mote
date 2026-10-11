@@ -110,6 +110,16 @@ def main():
     other2 = {"t": "frame", "sides": [{"shots": 5, "shot": {"bnr": 0}}, {"shots": 0, "shot": {"bnr": 0}}]}
     check(r.result_key(other) != r.result_key(other2), "a real break-and-run's bnr is still compared")
 
+    # 7.4.4 JUDGES STROKES DIFFERENTLY: two versions agree on a frame whose
+    # attempts and safeties they counted differently; one version still must not
+    a3 = {"t": "frame", "ver": "7.4.3", "sides": [{"shots": 9, "shot": {"att": 5, "made": 4, "safeties": 4, "safe_ok": 1, "bnr": 0}}, {"shots": 8, "shot": {"att": 6, "made": 3}}]}
+    a4 = {"t": "frame", "ver": "7.4.4", "sides": [{"shots": 9, "shot": {"att": 7, "made": 4, "safeties": 2, "safe_ok": 1, "bnr": 0}}, {"shots": 8, "shot": {"att": 7, "made": 3}}]}
+    check(r.result_key(a3, True) == r.result_key(a4, True), "a 7.4.3 and a 7.4.4 account that judged strokes differently agree")
+    check(r.result_key(a3) != r.result_key(a4), "...but two games of one version that differ still do not")
+    a4b = dict(a4); a4b["sides"] = [{"shots": 10, "shot": a4["sides"][0]["shot"]}, a4["sides"][1]]
+    check(r.result_key(a3, True) != r.result_key(a4b, True), "...and a different stroke count is still a dispute between versions")
+    check(max((a3, a4), key=r.ver_key) is a4 and max((a4, a3), key=r.ver_key) is a4, "the newer game's account is the one kept")
+
     # a real file, if given (a copy -- this test writes results.db beside it)
     if len(sys.argv) > 1:
         store = tempfile.mkdtemp()
