@@ -245,10 +245,30 @@ def recent(results, n=30):
     return out
 
 
+def forfeits(results, n=30):
+    """the frames someone walked out of (relay STARTED forfeits, 7.4.x), newest
+    first, and how often each player has left -- for review"""
+    out, left = [], {}
+    for line in reversed(results):
+        if "left" not in line or (line.get("result") or {}).get("t") != "frame":
+            continue
+        r = line.get("result") or {}
+        names = r.get("names") or ["?", "?"]
+        lv = line.get("left")
+        left[lv] = left.get(lv, 0) + 1
+        if len(out) < n:
+            out.append({"time": line.get("time", ""), "room": line.get("room", ""), "game": (r.get("game") or "").strip(),
+                        "left": lv, "stayed": [x for x in names if x != lv][:1] or ["?"],
+                        "winner": names[r["winner"]] if r.get("winner") in (0, 1) else "",
+                        "figures": line.get("figures", True), "verified": bool(line.get("verified"))})
+    return out, sorted(left.items(), key=lambda kv: -kv[1])
+
+
 def snapshot():
     res = results_now()
+    ff, lefts = forfeits(res)
     return {"at": time.strftime("%Y-%m-%d %H:%M:%S", time.gmtime()) + " UTC", "live": live_now(),
-            "players": players(res), "recent": recent(res), "results": len(res)}
+            "players": players(res), "recent": recent(res), "results": len(res), "forfeits": ff, "lefts": lefts}
 
 
 PAGE = """<!doctype html><html><head><meta charset=utf-8>
@@ -302,6 +322,12 @@ function draw(d){
     const w = r.winner===0||r.winner===1 ? r.names[r.winner] : '';
     h += `<div class=card><div class=row><span>${e(r.names[0])} <b class=acc>${r.frames[0]}-${r.frames[1]}</b> ${e(r.names[1])}</span><span class="dim small">${lt(r.time, true)}</span></div>
           <div class="small dim">${e(r.game)}${r.variant?' &middot; '+e(r.variant):''}${w?' &middot; '+e(w)+' won':''}</div></div>`; }
+  h += '<h2>Left mid-frame</h2>';
+  if (d.lefts && d.lefts.length) h += `<div class="card small">${d.lefts.map(([n,c])=>`<span class=${c>=3?'warn':''}>${e(n)} ${c}</span>`).join(' &middot; ')}</div>`;
+  for (const f of (d.forfeits||[])){
+    h += `<div class=card><div class=row><span><b class=warn>${e(f.left)}</b> left v ${e(f.stayed[0])}</span><span class="dim small">${lt(f.time, true)}</span></div>
+          <div class="small dim">${e(f.game)} &middot; room ${e(f.room)} &middot; ${f.winner?e(f.winner)+' given the frame':''}${f.figures?'':' &middot; no figures'}${f.verified?'':' &middot; not verified'}</div></div>`; }
+  if (!d.forfeits || !d.forfeits.length) h += '<div class="card dim">Nobody has left a frame under way.</div>';
   document.getElementById('rest').innerHTML = h;
 }
 /* ONLINE OVER TIME: the most people at once in each slice, club and matches */

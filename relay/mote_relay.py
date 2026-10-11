@@ -939,7 +939,9 @@ class Relay:
     # have sent is under way. A seated player who leaves it before its result
     # has FORFEITED it: the other's report, if it comes within FORFEIT_WAIT, is
     # kept with their own figures, marked "forfeit"; if none comes the relay
-    # writes the forfeit itself, with no figures. A frame left before anybody
+    # writes the forfeit itself, with no figures. Every one is also written to
+    # results_forfeits.jsonl, for review (Mark: "flag these ... so we can
+    # review for misbehaviour and manipulation"). A frame left before anybody
     # struck has no STARTED and counts for nothing (Mark: once a stroke is
     # played). Games before 7.4.x send no STARTED: nothing changes for them.
     FORFEIT_WAIT = 90.0
@@ -988,7 +990,9 @@ class Relay:
                 if o["side"] == f["winner"] and o["k"] == wk and t not in f["kept"]:
                     pend.remove(o)
                     f["kept"].add(t)
-                    self.result_write("results.jsonl", self.forfeit_line(room, f, o["r"], {k: v for k, v in o.items() if k != "at"}))
+                    line = self.forfeit_line(room, f, o["r"], {k: v for k, v in o.items() if k != "at"})
+                    self.result_write("results.jsonl", line)
+                    self.result_write("results_forfeits.jsonl", line)
                     log(f"nroom {room.gid}/{room.code}: {t} {st['frame']} kept, the other having left")
         asyncio.get_event_loop().call_later(getattr(self.args, "forfeit_wait", self.FORFEIT_WAIT), self.forfeit_settle, room, f)
 
@@ -1020,6 +1024,7 @@ class Relay:
             line = self.forfeit_line(room, f, r, None)
             line["figures"] = False
             self.result_write("results.jsonl", line)
+            self.result_write("results_forfeits.jsonl", line)
         log(f"nroom {room.gid}/{room.code}: frame {st['frame']} forfeited by {st['names'][f['leaver']]}, kept without figures")
 
     def result(self, room, m, raw):
@@ -1064,7 +1069,9 @@ class Relay:
         if (f and r["frame"] == f["st"]["frame"] and side == f["winner"] and m.k == f["st"]["sides"][f["winner"]]["k"]
                 and r["t"] not in f["kept"]):
             f["kept"].add(r["t"])
-            self.result_write("results.jsonl", self.forfeit_line(room, f, r, entry_out))
+            line = self.forfeit_line(room, f, r, entry_out)
+            self.result_write("results.jsonl", line)
+            self.result_write("results_forfeits.jsonl", line)      # for review: every walk-out in one place
             log(f"nroom {room.gid}/{room.code}: {r['t']} {r['frame']} kept, the other having left")
             return "RESULT KEPT"
         for o in pend:
