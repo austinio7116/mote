@@ -2432,7 +2432,7 @@ async def main():
     ap.add_argument("--meta-app-id", default="1036582382349280", help="the Meta app the proofs are for (CueVR)")
     ap.add_argument("--meta-verify-url", default="https://graph.oculus.com/user_nonce_validate", help="where proofs are checked (a test points it at a fake)")
     ap.add_argument("--admin-token-file", default="", help="file holding the admin token that may CREATE and CANCEL tournaments (7.5)")
-    ap.add_argument("--club-batch-ms", type=float, default=0.0, help="a club's frames written to each member in batches this many ms apart (0 = every frame at once, as before)")
+    ap.add_argument("--club-batch-ms", type=float, default=25.0, help="a club's frames written to each member in batches this many ms apart (0 = every frame at once, as before 7.5); 25 halves the relay's work (Mark, 2026-10-12)")
     ap.add_argument("--tourn-watchers", type=int, default=40, help="most watchers in a tournament's room (7.5)")
     ap.add_argument("--tourn-trust", action="store_true", help="DESK ONLY: take a tournament entrant's account as given, without Meta")
     ap.add_argument("--forfeit-wait", type=float, default=90.0, help="seconds a forfeit waits for the remaining player's report before the relay records it without figures (7.4.x)")
