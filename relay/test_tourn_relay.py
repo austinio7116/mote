@@ -62,6 +62,7 @@ class Member:
         self.lines = []
         self.state = None
         self.ts = []
+        self.styles = []
         self.s.settimeout(None)
         if self.seat.startswith("SEAT"):
             threading.Thread(target=self.read, daemon=True).start()
@@ -74,6 +75,8 @@ class Member:
                     l = payload.decode("ascii", "replace")
                     if l.startswith("TS "):
                         self.ts.append(l)
+                        if l.startswith("TS STYLE "):
+                            self.styles.append(l)
                         if l == "TS END":
                             self.state, self.ts = parse_state(self.ts), []
                     else:
@@ -113,9 +116,11 @@ def main():
             except OSError:
                 time.sleep(0.05)
         start = int(time.time()) + 62
-        spec = f"{start} 0 0 4 3 3 7.5 {start - 1} DESK KNOCKOUT"     # start kind rules size best_of final ver close title
-        check(ask(port, f"MOTE2 TOURN {GID} CREATE wrong-token {spec}")[0] == "CREATE DENIED", "a wrong admin token makes nothing")
-        ans = ask(port, f"MOTE2 TOURN {GID} CREATE {TOKEN} {spec}")[0]
+        spec = "\n" + json.dumps({"start": start, "kind": 0, "rules": 0, "size": 4, "best_of": 3, "final_best_of": 3, "ver": "7.5",
+                                   "close": start - 1, "title": "DESK KNOCKOUT",
+                                   "style": {"cloth": 9, "frame": 7, "body": -1, "set": 2, "leather": "6B3A1E", "metal": [0.8, 0.7, 0.3]}})
+        check(ask(port, f"MOTE2 TOURN {GID} CREATE wrong-token{spec}")[0] == "CREATE DENIED", "a wrong admin token makes nothing")
+        ans = ask(port, f"MOTE2 TOURN {GID} CREATE {TOKEN}{spec}")[0]
         check(ans.startswith("CREATE OK"), f"the admin makes a tournament: {ans}")
         tid = int(ans.split()[2])
         uids = ["201", "202", "203", "204"]
@@ -141,6 +146,8 @@ def main():
         calls = [l for l in ms[0].lines if l.startswith("T CALL ")]
         check(len(calls) == 2 and all(m.state and m.state["status"] == "running" for m in ms),
               f"at the start everyone hears the draw and two calls: {calls}")
+        style = [l for l in ms[0].styles]
+        check(style and style[-1] == "TS STYLE 9 7 -1 2 6B3A1E CCB24C", f"the tournament's style, hide and fittings reach the room: {style[-1:]}")
         state = ms[0].state
         draw = {int(n): nm for n, nm in state["draw"].items()}
         num = {f"DESK{i + 1}": u for i, u in enumerate(uids)}

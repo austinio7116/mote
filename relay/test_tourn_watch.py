@@ -88,7 +88,8 @@ def main():
             except OSError:
                 time.sleep(0.05)
         start = int(time.time()) + 300
-        tid = int(ask(port, f"MOTE2 TOURN {GID} CREATE {TOKEN} {start} 0 0 4 3 3 7.5 {start - 1} WATCH TEST").split()[2])
+        tid = int(ask(port, f"MOTE2 TOURN {GID} CREATE {TOKEN}\n" + json.dumps({"start": start, "kind": 0, "size": 4, "best_of": 3,
+                      "final_best_of": 3, "ver": "7.5", "close": start - 1, "title": "WATCH TEST"})).split()[2])
         for u in ("301", "302", "303"):
             ask(port, f"MOTE2 TOURN {GID} ENTER {tid} {u} desknonce{u} 7.5 P{u}")
         time.sleep(2.5)                                         # the clock opens the room
@@ -112,14 +113,16 @@ def main():
         time.sleep(0.4)
         check(any(p == b"pose-from-alice" for _, p in w.frames), "the watcher sees the players' frames")
         check(not any(p == b"pose-from-watcher" for _, p in a.frames + b.frames + c.frames), "nothing the watcher sends reaches a player")
-        check(not any("SPY" in l for l in a.ctrl + b.ctrl + c.ctrl), "a watcher cannot give itself a name")
+        check(not any(l.startswith("NAME") and "SPY" in l for l in a.ctrl + b.ctrl + c.ctrl) and
+              any(l == f"TW {w.k} SPY" for l in a.ctrl) and any(l == f"TW {w.k} SPY" for l in w.ctrl),
+              "a watcher's name goes on the watching list (TW), never as a member's NAME")
         more = [Seat(port, tid, "WATCH") for _ in range(3)]
         check([x.seat.split()[0] for x in more] == ["SEAT", "SEAT", "FULL"], f"watchers stop at the room's limit: {[x.seat for x in more]}")
         before = len(a.ctrl)
         w.s.shutdown(socket.SHUT_RDWR); w.s.close()
         time.sleep(0.4)
-        check(not any(l.startswith("LEFT") for l in a.ctrl[before:]) and "watcher" not in "".join(a.ctrl[before:]),
-              f"nobody is told a watcher left: {a.ctrl[before:]}")
+        check(not any(l.startswith("LEFT") for l in a.ctrl[before:]) and a.ctrl[before:] == [f"TW {w.k} -"],
+              f"a watcher leaving only comes off the watching list: {a.ctrl[before:]}")
         b.s.shutdown(socket.SHUT_RDWR); b.s.close()
         time.sleep(0.4)
         check(any(l == "LEFT 1" for l in a.ctrl), "a player leaving is still told, as in any club")

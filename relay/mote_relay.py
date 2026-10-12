@@ -508,6 +508,7 @@ class TournClub(ClubRoom):
 
     def __init__(self, gid, tid, watch_max=40):
         super().__init__(gid, 0)
+        self.watch_names = {}           # k -> the name a watcher gave (shown on a list, never in the room)
         self.code = f"TCLUB{tid}"
         self.label = f"TOURNAMENT {tid}"
         self.tid = tid
@@ -548,6 +549,10 @@ class TournClub(ClubRoom):
         m.q.put_nowait(None)
         if self.members.get(m.k) is m:
             del self.members[m.k]
+        nm = self.watch_names.pop(m.k, None)
+        if nm is not None:
+            log(f"club {self.gid}/{self.code}: {nm} stopped watching")
+            self.control(f"TW {m.k} -", 1 << 30)
         if not self.members:
             self.closed = True
             self.done.set()
@@ -1548,9 +1553,12 @@ class Relay:
                 return False
         return bool(getattr(self.args, "tourn_trust", False))
 
-    async def tourn_answer(self, gid, a, peer):
+    async def tourn_answer(self, gid, a, peer, reader=None):
         """TOURN LIST | ENTER <tid> <uid> <nonce> <ver> <name...> |
-        WITHDRAW <tid> <uid> <nonce> | CREATE <token> <fields...> | CANCEL <token> <tid>"""
+        WITHDRAW <tid> <uid> <nonce> | CREATE <token> <fields...> | CANCEL <token> <tid>
+        LIST [<uid>]: with an account, "MINE <tid>" for each tournament it has
+        entered (not proved: it says only what that account entered, and
+        entering, joining and playing all prove it)"""
         if self.tourn is None:
             return "OFF\n"
         sub = a[0].upper() if a else ""
@@ -1558,9 +1566,14 @@ class Relay:
             out = f"NOW {int(time.time())}\n"
             for v in self.tourn.listing(gid):
                 out += "T " + json.dumps(v, separators=(",", ":")) + "\n"
+            uid = a[1] if len(a) > 1 and a[1].isdigit() else ""
+            if uid:
+                for tid, t in sorted(self.tourn.t.items()):
+                    if t.entered(uid) and t.status not in ("done", "off"):
+                        out += f"MINE {tid}\n"
             return out + "END\n"
         if sub in ("CREATE", "CANCEL"):
-            if not self.admin_token or len(a) < 3 or not hmac.compare_digest(a[1], self.admin_token):
+            if not self.admin_token or len(a) < (3 if sub == "CANCEL" else 2) or not hmac.compare_digest(a[1], self.admin_token):
                 return f"{sub} DENIED\n"
             if sub == "CANCEL":
                 try:
@@ -1568,18 +1581,24 @@ class Relay:
                 except ValueError:
                     ans = "BAD"
             else:
-                # CREATE <token> <start> <kind> <rules> <size> <best_of> <final_best_of> <ver> <close> <title...>
-                # -- words, not JSON: a request's first line is 160 bytes at most
+                # CREATE <token>, then the spec as JSON on the next line: the
+                # request's first line is 160 bytes at most, and a style is
+                # more than that (start, kind, rules, size, best_of,
+                # final_best_of, ver, close, title, style {cloth, frame, body,
+                # set, leather, metal})
                 try:
-                    f = a[2:]
-                    spec = {"gid": gid, "start": int(f[0]), "kind": int(f[1]), "rules": int(f[2]), "size": int(f[3]),
-                            "best_of": int(f[4]), "final_best_of": int(f[5]), "ver": "" if f[6] == "-" else f[6],
-                            "close": int(f[7]) if f[7] != "-" else int(f[0]) - mote_tourn.OPEN_BEFORE,
-                            "title": clean_label(" ".join(f[8:]))[:48]}
+                    body = (await asyncio.wait_for(read_line(reader, 4000), timeout=10)).decode("ascii", "replace")
+                    spec = json.loads(body)
+                    if not isinstance(spec, dict):
+                        raise ValueError
+                    spec["gid"] = gid
+                    if not spec.get("close"):
+                        spec["close"] = int(spec["start"]) - mote_tourn.OPEN_BEFORE
+                    spec["title"] = clean_label(str(spec.get("title", "")))[:48]
                     tid, ans = self.tourn.create(spec)
                     if tid:
                         ans = f"OK {tid}"
-                except (IndexError, ValueError):
+                except (asyncio.TimeoutError, KeyError, TypeError, ValueError):
                     ans = "BAD"
             self.tourn_flush()
             return f"{sub} {ans}\n"
@@ -1883,6 +1902,15 @@ class Relay:
                         # open to JOIN, and now listed LIVE as well, to WATCH
                         room.playing = True
                         log(f"nroom {room.gid}/{room.code}: playing, open, with {len(room.members)}")
+                    elif getattr(room, "tid", None) and cmd.startswith("NAME ") and m.k >= room.WATCH_BASE:
+                        # WHO IS WATCHING (Mark, 2026-10-12): the name a watcher
+                        # gives goes on a list everyone in the room can open --
+                        # as "TW <k> <name>", never as a member's NAME
+                        nm = clean_label(raw[5:])[:24] or "SOMEONE"
+                        if room.watch_names.get(m.k) != nm:
+                            room.watch_names[m.k] = nm
+                            log(f"club {room.gid}/{room.code}: {nm} is watching")
+                            room.control(f"TW {m.k} {nm}", cap)
                     elif getattr(room, "club", False) and cmd.startswith("NAME ") and m.k < room.WATCH_BASE:
                         nm = clean_label(raw[5:])[:24] or "PLAYER"
                         room.names[m.k] = nm
@@ -1998,6 +2026,8 @@ class Relay:
             club.control(f"NAME {o} {nm}", cap, only=k)
         for slot, (o, text) in sorted(club.tables.items()):
             club.control(f"TABLE {slot} {o} {text}", cap, only=k)
+        for o, nm in sorted(getattr(club, "watch_names", {}).items()):
+            club.control(f"TW {o} {nm}", cap, only=k)
         if others:
             club.control(f"JOINED {k}", cap, skip=k)
         log(f"club {key}: member {k} in ({peer}), {len(club.members)}/{club.maxn}")
@@ -2138,6 +2168,8 @@ class Relay:
         club.control("MEMBERS " + " ".join(str(x) for x in sorted(club.players())), cap, only=k)
         for o, nm in sorted(club.names.items()):
             club.control(f"NAME {o} {nm}", cap, only=k)
+        for o, nm in sorted(club.watch_names.items()):
+            club.control(f"TW {o} {nm}", cap, only=k)
         self.tourn_state_to(club, self.tourn.t[tid], only=k)
         log(f"club {key}: a watcher in ({len(club.watchers())} watching)")
         await self.member_reader(club, m)
@@ -2340,7 +2372,7 @@ class Relay:
                 return
 
             if verb == "TOURN" and t[0] == "MOTE2":     # (7.5) the club's tournaments
-                writer.write((await self.tourn_answer(gid, a, peer)).encode()); await writer.drain()
+                writer.write((await self.tourn_answer(gid, a, peer, reader)).encode()); await writer.drain()
                 return
 
             if verb == "HONOURS" and t[0] == "MOTE2":   # (7.4) the club's honours boards and trophies

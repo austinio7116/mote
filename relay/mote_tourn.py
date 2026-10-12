@@ -86,6 +86,13 @@ class Tournament:
         self.close = float(ev.get("close", self.start))
         self.ver = str(ev.get("ver", ""))
         self.venue = str(ev.get("venue", "club"))
+        # THE STYLE, the same for everyone (Mark, 2026-10-12: "a fixed
+        # tournament style and ball set -- defined in the tournament setup"):
+        # the game's own indices -- cloth, timber, body (-1 the game's own),
+        # ball set; and the hide and fittings (Mark: "make sure the
+        # leather/metal is set on the style too"), each "RRGGBB" or "" for
+        # the body's own
+        self.style = clean_style(ev.get("style"))
         self.entrants = []                         # [{"uid", "name"}] in order of entry
         self.status = "open"                       # open / room / running / done / off
         self.draw = {}                             # draw number -> uid
@@ -115,11 +122,35 @@ class Tournament:
         return {"tid": self.tid, "title": self.title, "kind": self.kind, "rules": self.rules, "size": self.size,
                 "best_of": self.best_of, "final_best_of": self.final_best_of, "start": int(self.start),
                 "close": int(self.close), "ver": self.ver, "venue": self.venue, "status": self.status,
+                "style": dict(self.style),
                 "entrants": [e["name"] for e in self.entrants],
                 "draw": {str(n): self.name_of(u) for n, u in sorted(self.draw.items())},
                 "present": sorted(n for n, u in self.draw.items() if u in self.present) if self.draw
                            else len([e for e in self.entrants if e["uid"] in self.present]),
                 "matches": [m.view() for m in self.matches], "champion": self.champion, "why_off": self.why_off}
+
+
+def hexcol(v):
+    """a colour as RRGGBB, from "RRGGBB"/"#RRGGBB" or [r, g, b] 0..1; "" for none (the body's own)"""
+    if isinstance(v, (list, tuple)) and len(v) == 3:
+        try:
+            return "".join(f"{max(0, min(255, round(float(x) * 255))):02X}" for x in v)
+        except (TypeError, ValueError):
+            return ""
+    s = str(v or "").lstrip("#").upper()
+    return s if len(s) == 6 and all(ch in "0123456789ABCDEF" for ch in s) else ""
+
+
+def clean_style(st):
+    st = st if isinstance(st, dict) else {}
+    out = {}
+    for k, d in (("cloth", 9), ("frame", 7), ("body", -1), ("set", 0)):
+        try:
+            out[k] = int(st.get(k, d))
+        except (TypeError, ValueError):
+            out[k] = d
+    out["leather"], out["metal"] = hexcol(st.get("leather")), hexcol(st.get("metal"))
+    return out
 
 
 def word(s):
@@ -136,7 +167,9 @@ def state_lines(t):
     v = t.view()
     out = [f"TS BEGIN {t.tid} {t.status} {t.kind} {t.rules} {t.size} {t.best_of} {t.final_best_of} "
            f"{int(t.start)} {t.champion or 0} {word(t.why_off).replace(' ', '_')}",
-           f"TS TITLE {word(t.title)}"]
+           f"TS TITLE {word(t.title)}",
+           f"TS STYLE {t.style['cloth']} {t.style['frame']} {t.style['body']} {t.style['set']} "
+           f"{t.style['leather'] or '-'} {t.style['metal'] or '-'}"]
     if t.draw:
         for n, u in sorted(t.draw.items()):
             out.append(f"TS DRAW {n} {1 if u in t.present else 0} {word(t.name_of(u))[:23]}")
@@ -339,7 +372,8 @@ class Organiser:
               "title": str(spec.get("title", ""))[:48], "kind": kind, "rules": int(spec.get("rules", 0)),
               "size": size, "best_of": bo, "final_best_of": fbo, "start": start,
               "close": float(spec.get("close", start - OPEN_BEFORE)), "ver": str(spec.get("ver", ""))[:16],
-              "venue": str(spec.get("venue", "club"))[:16]}
+              "venue": str(spec.get("venue", "club"))[:16],
+              "style": clean_style(spec.get("style"))}
         self.record(ev)
         self.log(f"tournament {tid}: created, {ev['title']!r} kind {kind} size {size} at {time.strftime('%Y-%m-%d %H:%M', time.gmtime(start))} UTC")
         return tid, "OK"

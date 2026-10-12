@@ -44,7 +44,9 @@ def main():
             except OSError:
                 time.sleep(0.05)
         st = int(time.time()) + 600
-        s = conn(port, f"MOTE2 TOURN {GID} CREATE {TOKEN} {st} 0 0 8 3 5 7.5 {st - 1} BENCH")
+        import json
+        s = conn(port, f"MOTE2 TOURN {GID} CREATE {TOKEN}\n" + json.dumps({"start": st, "kind": 0, "size": 8, "best_of": 3,
+                 "final_best_of": 5, "ver": "7.5", "close": st - 1, "title": "BENCH"}))
         tid = int(readline(s).split()[2]); s.close()
         uids = [str(400 + i) for i in range(8)]
         for u in uids:
