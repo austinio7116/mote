@@ -57,7 +57,7 @@ const mins = s => s >= 3600 ? (s/3600).toFixed(1) + ' h' : Math.round(s/60) + ' 
 const empty = t => `<div class="card empty">${t}</div>`;
 let NOW = null, M = null, MT = 0, DP = {}, DM = {}, S = null, H = null, HD = 1, PQ = '', MG = '', MQ = '', SF = false;
 
-const TABS = [['now','Now'],['players','Players'],['matches','Matches'],['honours','Honours'],['integrity','Integrity'],['activity','Activity'],['server','Server']];
+const TABS = [['now','Now'],['players','Players'],['ratings','Ratings'],['matches','Matches'],['honours','Honours'],['integrity','Integrity'],['activity','Activity'],['server','Server']];
 function route(){ const h = location.hash.slice(1) || 'now'; const [v, a] = h.split('/'); return {v, a: decodeURIComponent(a || '')}; }
 function nav(){
   const r = route(), base = {player:'players', match:'matches'}[r.v] || r.v;
@@ -68,7 +68,7 @@ function nav(){
 function draw(){
   nav();
   const r = route(), V = document.getElementById('view');
-  const f = {now:vNow, players:vPlayers, player:vPlayer, matches:vMatches, match:vMatch, honours:vHonours,
+  const f = {now:vNow, players:vPlayers, player:vPlayer, ratings:vRatings, matches:vMatches, match:vMatch, honours:vHonours,
              integrity:vIntegrity, activity:vActivity, server:vServer}[r.v] || vNow;
   const y = window.scrollY, keep = V.dataset.v === location.hash;
   V.innerHTML = f(r.a); V.dataset.v = location.hash;
@@ -216,6 +216,24 @@ function vMatch(id){
 }
 
 /* ---- HONOURS -------------------------------------------------------------- */
+// RATINGS (Mark, 2026-10-12): Elo from 1500, K 30, over every verified singles
+// frame between two proved accounts -- overall, and a table a game
+let RG = 'all';
+function vRatings(){
+  if (!M || !M.ratings) return empty('Loading...');
+  const R = M.ratings;
+  const games = [['all', 'All games', R.all.length]].concat(R.games.map(g => [String(g.kind), g.game, g.players]));
+  const rows = RG === 'all' ? R.all : ((R.games.find(g => String(g.kind) === RG) || {}).rows || []);
+  let h = `<div class="small dim" style="margin:4px 2px 8px">Elo from ${R.start}, K ${R.k}: every verified one-against-one frame, in the order played. A forfeit counts as a win for the one who stayed.</div>`;
+  h += `<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px">${games.map(([k, l, n]) =>
+        `<a class="chip ${k === RG ? 'on' : ''}" style="cursor:pointer;padding:4px 10px;border-radius:12px;border:1px solid ${k === RG ? 'var(--acc)' : 'var(--line)'};color:${k === RG ? 'var(--acc)' : 'var(--dim)'}" onclick="RG='${k}';draw()">${e(l)} <span class=tiny>${n}</span></a>`).join('')}</div>`;
+  if (!rows.length) return h + empty('No rated frames yet.');
+  h += `<div class=card><table><tr><th></th><th>Player</th><th class=r>Rating</th><th class=r>Frames</th><th class=r>Peak</th><th class=r>Last</th></tr>
+    ${rows.map((r, i) => `<tr class=tap onclick="location.hash='player/${encodeURIComponent(r.id)}'"><td class=dim style="width:24px">${i + 1}</td><td>${e(r.name)}</td>
+      <td class=r><b class=acc>${r.r}</b></td><td class=r>${r.f}</td><td class="r dim">${r.peak}</td>
+      <td class="r ${r.last > 0 ? 'acc' : r.last < 0 ? 'bad' : 'dim'}">${r.last > 0 ? '+' : ''}${r.last}</td></tr>`).join('')}</table></div>`;
+  return h;
+}
 function vHonours(){
   if (!M) return empty('Loading...');
   const H_ = M.honours, R = M.month_race;

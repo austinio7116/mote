@@ -105,6 +105,13 @@ class Model:
         self.superseded = set()
         self.n_frames = self.n_matches = 0
         self.since = ""
+        # RATINGS (Mark, 2026-10-12): Elo, everyone from 1500, K 30, a rating
+        # over every game ("all") and one a game (by its kind), moved by each
+        # verified singles frame between two proved accounts, in the order the
+        # frames were played -- the whole history on the first read. key ->
+        # account -> [rating, frames, peak, last change]
+        self.elo = {}
+        self.elo_game = {}
 
     # ---- following results.jsonl --------------------------------------------
     def _follow(self):
@@ -159,6 +166,20 @@ class Model:
         a["first"] = min(a["first"], t); a["last"] = max(a["last"], t)
         return a
 
+    ELO_START, ELO_K = 1500.0, 30.0
+
+    def _elo(self, key, wa, la):
+        """one frame into the ratings under key: wa beat la"""
+        R = self.elo.setdefault(key, {})
+        a = R.setdefault(wa, [self.ELO_START, 0, self.ELO_START, 0.0])
+        b = R.setdefault(la, [self.ELO_START, 0, self.ELO_START, 0.0])
+        ea = 1.0 / (1.0 + 10.0 ** ((b[0] - a[0]) / 400.0))
+        d = self.ELO_K * (1.0 - ea)
+        a[0] += d; b[0] -= d
+        a[1] += 1; b[1] += 1
+        a[2] = max(a[2], a[0])
+        a[3], b[3] = d, -d
+
     def _fold(self, line):
         """one line of results.jsonl into every total"""
         for g in re.finditer(r"results_disputed\.jsonl lines? (\d+)[ab]?(?: \+ (\d+)[ab]?)?", str(line.get("repaired", ""))):
@@ -182,6 +203,20 @@ class Model:
         while len(self.seen_lines) > 2000:
             self.seen_lines.pop(next(iter(self.seen_lines)))
         ids = _ids(line, names)
+        # THE RATINGS: a verified singles frame, both sides proved accounts,
+        # a winner -- a forfeit's included, the one who stayed the winner
+        if (r.get("t") == "frame" and line.get("verified") and r.get("winner") in (0, 1)
+                and ids[0][:2] == "a:" and ids[1][:2] == "a:" and ids[0] != ids[1]):
+            w = r["winner"]
+            try:
+                kind = int(r.get("kind", -1))
+            except (TypeError, ValueError):
+                kind = -1
+            # snooker's sizes all report "SNOOKER": named by their kind (CueGameKind)
+            self.elo_game[kind] = {4: "15-RED SNOOKER", 5: "10-RED SNOOKER", 6: "6-RED SNOOKER", 23: "3-RED SNOOKER"}.get(
+                kind, _clean(r.get("game") or f"game {kind}", 30))
+            for key in ("all", kind):
+                self._elo(key, ids[w], ids[1 - w])
         sides = r.get("sides") if isinstance(r.get("sides"), list) else [{}, {}]
         side = lambda i: sides[i] if i < len(sides) and isinstance(sides[i], dict) else {}
         rep = _report(line, 0)
@@ -385,6 +420,19 @@ class Model:
         self._fresh()
         return next((x for x in self.matches if x["id"] == mid), None)
 
+    def _ratings(self):
+        """the ratings, highest first: overall and a table a game"""
+        def name_of(i):
+            a = self.acc.get(i)
+            return max(a["names"].items(), key=lambda kv: kv[1])[0] if a and a["names"] else "?"
+        def rows(R):
+            return [{"id": i, "name": name_of(i), "r": round(v[0]), "f": v[1], "peak": round(v[2]), "last": round(v[3], 1)}
+                    for i, v in sorted(R.items(), key=lambda kv: -kv[1][0])]
+        games = sorted(((k, self.elo_game.get(k, "?"), len(R)) for k, R in self.elo.items() if k != "all"),
+                       key=lambda g: (-g[2], g[1]))
+        return {"start": self.ELO_START, "k": self.ELO_K, "all": rows(self.elo.get("all", {})),
+                "games": [{"kind": k, "game": g, "players": n, "rows": rows(self.elo[k])} for k, g, n in games]}
+
     def _out(self):
         P = lambda n: os.path.join(self.store, n)
         disputed = _jsonl(P("results_disputed.jsonl"))
@@ -509,7 +557,8 @@ class Model:
                               "notable": list(reversed(self.notable))[:100], "reports": list(reversed(reports)),
                               "left_counts": sorted([(p["name"], p["left"]) for p in players if p["left"]], key=lambda x: -x[1])},
                 "month_race": self._month_race(time.strftime("%Y-%m", time.gmtime())),
-                "pot_board": self._pot_board(time.strftime("%Y-%m", time.gmtime()))}
+                "pot_board": self._pot_board(time.strftime("%Y-%m", time.gmtime())),
+                "ratings": self._ratings()}
 
     POT_MIN_ALL, POT_MIN_MONTH = 100, 50       # pot attempts before a player is on the pot success board
 
