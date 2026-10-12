@@ -196,7 +196,7 @@ def main():
             time.sleep(0.4)
             sb.close(); time.sleep(0.5)
             h = ask(port, f"MOTE2 ROOMN {GID} HELD {ub}")[0].split()
-            check(len(h) == 5 and h[0] == "HELD" and h[1] == code and h[3] == str(tid) and h[4] == mid,
+            check(len(h) == 6 and h[0] == "HELD" and h[1] == code and h[3] == "T" and h[4] == str(tid) and h[5] == mid,
                   f"the dropped finalist's place is held, and HELD names the tournament and the match: {h}")
             back = conn(port, f"MOTE2 ROOMN {GID} REJOIN {code} {ub} desknonce{ub}")
             check(readline(back).startswith("SEAT 1 2 BACK"), "...and they come back to it")

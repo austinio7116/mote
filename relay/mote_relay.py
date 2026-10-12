@@ -474,6 +474,34 @@ class ClubRoom(RoomN):
         self.names = {}             # k -> display name
         self.tables = {}            # slot -> (k, text): who set the table up, and what it is
         self.dropped = 0            # frames not queued to a backed-up member
+        # A PLACE KEPT (7.5, Mark: "reserve the slot for them so they can
+        # return and not be blocked by a club filling"): a member whose club
+        # link went while a match of theirs at a club table is held keeps
+        # their place and the tables they set up, for as long as the match
+        # holds theirs; BACK <n> <code> takes it again
+        self.playing = {}           # k -> the code of the match room they are in at a table
+        self.reserved = {}          # k -> {"code", "at"}: places kept
+        self.can_hold = None        # code -> True while that room holds a dropped player's place
+        self.hold_wait = 300.0
+
+    def free_place(self):
+        for k in range(self.maxn):
+            if k not in self.members and k not in self.reserved:
+                return k
+        return -1
+
+    def release(self, k, at):
+        r = self.reserved.get(k)
+        if r is None or r["at"] != at or k in self.members:
+            return
+        del self.reserved[k]
+        log(f"club {self.gid}/{self.n}: place {k} not taken back: its tables freed")
+        for slot in [s for s, (o, _) in self.tables.items() if o == k]:
+            del self.tables[slot]
+            self.control(f"TABLE {slot} -", 1 << 30)
+        if not self.members and not self.reserved:
+            self.closed = True
+            self.done.set()
 
     def send_to(self, m, data, cap):
         if m.gone:
@@ -513,12 +541,20 @@ class ClubRoom(RoomN):
             del self.members[m.k]
         self.names.pop(m.k, None)
         log(f"club {self.gid}/{self.n}: member {m.k} left ({why}), {len(self.members)} remain")
-        # the tables they set up go back to free
-        for slot in [s for s, (k, _) in self.tables.items() if k == m.k]:
-            del self.tables[slot]
-            self.control(f"TABLE {slot} -", 1 << 30)
+        code = self.playing.pop(m.k, None)
+        if code and not self.closed and self.can_hold is not None and self.can_hold(code):
+            # THEIR MATCH IS HOLDING THEIR PLACE: so does the club, tables and all
+            at = time.monotonic()
+            self.reserved[m.k] = {"code": code, "at": at}
+            log(f"club {self.gid}/{self.n}: place {m.k} kept for the player in room {code}")
+            asyncio.get_event_loop().call_later(self.hold_wait, self.release, m.k, at)
+        else:
+            # the tables they set up go back to free
+            for slot in [s for s, (k, _) in self.tables.items() if k == m.k]:
+                del self.tables[slot]
+                self.control(f"TABLE {slot} -", 1 << 30)
         self.control(f"LEFT {m.k}", 1 << 30)
-        if not self.members:
+        if not self.members and not self.reserved:
             self.closed = True
             self.done.set()
 
@@ -1766,6 +1802,14 @@ class Relay:
             room.closed = True
             room.done.set()
 
+    def room_holds(self, gid, code):
+        """is room CODE a frame under way that would hold a dropped player's place?"""
+        room = self.nrooms.get(rkey(gid, code))
+        if room is None or room.closed or getattr(room, "club", False):
+            return False
+        st = getattr(room, "start", None)
+        return bool(room.away) or bool(st and len(st.get("sides", {})) == 2)
+
     async def handle_rejoin(self, gid, a, reader, writer, peer):
         """ROOMN <GAMEID> REJOIN <CODE> <ACCOUNT> <NONCE>: back to a held place"""
         code = clean_code(a[1]) if len(a) > 1 else ""
@@ -2061,6 +2105,14 @@ class Relay:
                         nm = clean_label(raw[5:])[:24] or "PLAYER"
                         room.names[m.k] = nm
                         room.control(f"NAME {m.k} {nm}", cap)
+                    elif getattr(room, "club", False) and (cmd == "PLAYING" or cmd.startswith("PLAYING ")) and not getattr(room, "tid", None):
+                        # PLAYING <code> | PLAYING -: the match room this member
+                        # is in at a club table, so a dropped link keeps its place
+                        code = clean_code(raw[8:].strip()) if len(raw) > 8 else ""
+                        if code and code != "-":
+                            room.playing[m.k] = code
+                        else:
+                            room.playing.pop(m.k, None)
                     elif getattr(room, "club", False) and cmd.startswith("TABLE ") and not getattr(room, "tid", None):
                         # TABLE <slot> <text...> | TABLE <slot> -: a table set
                         # up (or freed) by this member, for everyone in the club
@@ -2216,6 +2268,10 @@ class Relay:
         if sub == "TOURN":
             await self.handle_tourn_club(gid, a, reader, writer, peer)
             return
+        back_code = ""
+        if sub == "BACK":                   # BACK <N> <CODE>: the place kept for the player in room CODE (7.5)
+            back_code = clean_code(a[2]) if len(a) > 2 else ""
+            sub, a = "JOIN", ["JOIN", a[1] if len(a) > 1 else "0"]
         if sub != "JOIN":
             writer.write(b"ERR\n"); await writer.drain(); return
         want = 0
@@ -2239,8 +2295,16 @@ class Relay:
         if club is None or club.closed:
             club = ClubRoom(gid, n)
             club.batch = (self.args.club_batch_ms / 1000.0) if getattr(self.args, "club_batch_ms", 0) else None
+            club.can_hold = lambda code, gid=gid: self.room_holds(gid, code)
+            club.hold_wait = getattr(self.args, "resume_wait", self.RESUME_WAIT)
             self.nrooms[key] = club
             log(f"club {key}: opened ({peer})")
+        k = next((x for x, r in club.reserved.items() if back_code and r["code"] == back_code), None)
+        if k is not None:
+            del club.reserved[k]
+            log(f"club {key}: place {k} taken back by the player in room {back_code}")
+            await self.club_member(key, club, k, reader, writer, peer)
+            return
         k = club.free_place()
         if k < 0:
             writer.write(b"FULL\n"); await writer.drain(); return
@@ -2382,7 +2446,14 @@ class Relay:
                         # into that tournament's room and to its table, not to
                         # a bare match (Mark: "massively confusing")
                         tt = getattr(room, "tourn", None)
-                        more = f" {tt[0]} {tt[1]}" if tt else ""
+                        more = f" T {tt[0]} {tt[1]}" if tt else ""
+                        # ...or a CLUB's table: which club, whose place it keeps
+                        if not tt:
+                            for c in self.nrooms.values():
+                                if getattr(c, "club", False) and c.gid == gid and not c.closed and not getattr(c, "tid", None) and \
+                                        (room.code in c.playing.values() or any(r["code"] == room.code for r in c.reserved.values())):
+                                    more = f" C {c.n}"
+                                    break
                         writer.write(f"HELD {room.code} {left}{more}\n".encode()); await writer.drain(); return
             writer.write(b"NONE\n"); await writer.drain(); return
         if sub == "REJOIN":                 # REJOIN <CODE> <ACCOUNT> <NONCE>: back to a held place (7.5)
