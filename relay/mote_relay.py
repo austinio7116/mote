@@ -2365,6 +2365,21 @@ class Relay:
                 writer.write(b"FULL\n"); await writer.drain(); return
             await self.nroom_member(key, room, k, reader, writer, peer)
             return
+        if sub == "HELD":                   # HELD <ACCOUNT>: is a place held for this account? (7.5)
+            # A game started again after its link failed has no room any more:
+            # it asks here, and its Online page offers the way back. Only the
+            # code and the time left -- REJOIN still wants the account proved.
+            uid = a[1] if len(a) > 1 else ""
+            wait = getattr(self.args, "resume_wait", self.RESUME_WAIT)
+            now = time.monotonic()
+            for room in self.nrooms.values():
+                if room.gid != gid or room.closed or not uid:
+                    continue
+                for k, v in room.away.items():
+                    if v["uid"] == uid:
+                        left = max(0, int(wait - (now - v["at"])))
+                        writer.write(f"HELD {room.code} {left}\n".encode()); await writer.drain(); return
+            writer.write(b"NONE\n"); await writer.drain(); return
         if sub == "REJOIN":                 # REJOIN <CODE> <ACCOUNT> <NONCE>: back to a held place (7.5)
             await self.handle_rejoin(gid, a, reader, writer, peer)
             return

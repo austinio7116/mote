@@ -106,6 +106,10 @@ def main():
         g.cut(); time.sleep(0.4)
         check(any(l.startswith("AWAY 1 ") for l in h.ctrl) and not any(l.startswith(("LEFT", "CLOSED")) for l in h.ctrl),
               f"a joiner dropped mid-frame: the host hears AWAY, not LEFT: {h.ctrl[-2:]}")
+        q = conn(port, f"MOTE2 ROOMN {GID} HELD 722"); held = readline(q); q.close()
+        check(held.startswith("HELD RJA ") and 0 < int(held.split()[2]) <= 4, f"a game started again asks: its place is held, the room and the time: {held}")
+        q = conn(port, f"MOTE2 ROOMN {GID} HELD 799"); held = readline(q); q.close()
+        check(held == "NONE", f"...and nothing held for an account that was not there: {held}")
         x = P(port, f"MOTE2 ROOMN {GID} REJOIN RJA 799 desk799")
         check(x.seat == "NOTYOU", f"another account cannot take the held place: {x.seat}")
         g2 = P(port, f"MOTE2 ROOMN {GID} REJOIN RJA 722 desk722", "722")
