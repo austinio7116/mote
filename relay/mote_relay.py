@@ -778,7 +778,7 @@ class ResultsDB:
     the offset, its first line changed, an older schema -- the index is thrown
     away and built again from the file: it can always be rebuilt, nothing in it
     is only there. Safe from any thread: one lock, a connection per call."""
-    SCHEMA_VERSION = "3"          # 2: a golden break's bnr left out (2026-10-11); 3: 9/10-ball runs need every ball down (2026-10-12)
+    SCHEMA_VERSION = "4"          # 2: a golden break's bnr left out (2026-10-11); 3: 9/10-ball runs need every ball down; 4: 8-ball runs need 8 of the runner's own (2026-10-12)
 
     def __init__(self, store, hon_kind):
         self.jsonl = os.path.join(store, "results.jsonl")
@@ -1143,6 +1143,12 @@ class Relay:
         return json.dumps(shared, sort_keys=True)
 
     RUN_CLEARS = {2: 9, 13: 10}   # 9-ball and 10-ball (CueGameKind): the object balls a run must pot
+    # 8-BALL (UK 0, US 1, Chinese 3): a run is the runner's seven and the 8 --
+    # at least 8 balls of the RUNNER'S OWN. Before 7.5 the game counted a run-out
+    # for a frame won in one visit however it was won, the other side's loss of
+    # it included (kumakazeXP, room 7T55, 2026-10-12: a US 8-ball "clearance"
+    # with one ball potted)
+    RUN_OWN_MIN = {0: 8, 1: 8, 3: 8}
 
     @classmethod
     def honours_shot(cls, sides, side, kind):
@@ -1155,6 +1161,14 @@ class Relay:
         sh = sd.get("shot") if isinstance(sd.get("shot"), dict) else {}
         if cls.golden_side(sides, side):
             sh = {k: v for k, v in sh.items() if k != "bnr"}
+        own = cls.RUN_OWN_MIN.get(kind)
+        if own:
+            try:
+                mine = int((sides[side] or {}).get("potted") or 0)
+            except (TypeError, ValueError, AttributeError):
+                mine = 0
+            if mine < own:
+                sh = {k: v for k, v in sh.items() if k not in ("bnr", "runouts")}
         need = cls.RUN_CLEARS.get(kind)
         if need:
             try:

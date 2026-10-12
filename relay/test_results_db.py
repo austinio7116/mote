@@ -145,6 +145,19 @@ def main():
     check("Lu" in hon(3) and "Mo" not in hon(3), "10-ball: ten down between both sides is a clearance; nine is not")
     check("Ned" in hon(2), "other games keep their runs as they were")
     shutil.rmtree(store)
+    # 8-BALL: A RUN IS THE RUNNER'S OWN SEVEN AND THE 8 (kumakazeXP, 7T55)
+    store = tempfile.mkdtemp()
+    lucky = frame("2026-09-17 20:00:00", "Kuma", "Hal", 0, 1, "406", "302", runs=(1, 0))
+    lucky["result"]["sides"][0].update(shots=2, potted=1); lucky["result"]["sides"][1].update(shots=2, potted=2)
+    real = frame("2026-09-18 20:00:00", "Pat", "Hal", 0, 0, "407", "302", runs=(1, 0))
+    real["result"]["sides"][0].update(shots=9, potted=8); real["result"]["sides"][1].update(shots=2, potted=1)
+    with open(os.path.join(store, "results.jsonl"), "w") as fh:
+        for x in (lucky, real):
+            fh.write(json.dumps(x) + "\n")
+    db, scan = both(store)
+    check(db == scan and "Kuma" not in hon(3) and "Pat" in hon(3),
+          "8-ball: a one-ball 'clearance' is off the board, a real one (8 of their own) on it")
+    shutil.rmtree(store)
     # ...and two versions that differ only in that agree on the frame; one version still must not
     v4 = {"t": "frame", "ver": "7.4.4", "kind": 2, "sides": [{"shots": 3, "potted": 3, "shot": {"bnr": 1, "runouts": 0}}, {"shots": 0, "shot": {"bnr": 0}}]}
     v5 = {"t": "frame", "ver": "7.4.5", "kind": 2, "sides": [{"shots": 3, "potted": 3, "shot": {"bnr": 0, "runouts": 0}}, {"shots": 0, "shot": {"bnr": 0}}]}
