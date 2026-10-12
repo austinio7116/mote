@@ -323,7 +323,10 @@ class Organiser:
             return "NONE"
         if t.entered(uid):
             return "ALREADY"
-        if self.now() > t.close or t.status != "open":
+        # SIGN-UP CLOSES AT ITS OWN TIME (by default as the room opens, 15
+        # minutes before the start), not at a state: a tournament made inside
+        # that window takes entries up to the close it was given
+        if self.now() > t.close or t.status not in ("open", "room"):
             return "CLOSED"
         if t.ver and ver != t.ver:
             return "VERSION"

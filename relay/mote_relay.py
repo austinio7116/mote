@@ -187,6 +187,11 @@ import time
 import urllib.parse
 import urllib.request
 
+try:
+    import mote_tourn            # the club's tournaments (7.5), beside this file
+except ImportError:              # a relay copied without it runs as before, with no tournaments
+    mote_tourn = None
+
 def log(*a):
     print(time.strftime("%Y-%m-%d %H:%M:%S"), *a, flush=True)
 
@@ -465,6 +470,20 @@ class ClubRoom(RoomN):
         if not self.members:
             self.closed = True
             self.done.set()
+
+class TournClub(ClubRoom):
+    """A TOURNAMENT'S ROOM (CueVR 7.5): a club the relay opens for one
+    tournament. Its places are the entrants (in by their Meta account; being
+    here is checking in), and its tables are the relay's to set, never a
+    member's. The organiser's news goes to everyone as "T <line>" and the
+    whole state as "TSTATE <json>"."""
+    def __init__(self, gid, tid):
+        super().__init__(gid, 0)
+        self.code = f"TCLUB{tid}"
+        self.label = f"TOURNAMENT {tid}"
+        self.tid = tid
+        self.public = False
+
 
 SHARE_ALPHA = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"   # no confusable 0/O/1/I
 
@@ -867,6 +886,16 @@ class Relay:
         self.udp = None            # the voice's datagram transport, once bound
         self.report_rate = {}      # ip -> [times]
         self.result_rate = {}      # ip -> [times] (RESULT, 7.3)
+        # THE CLUB'S TOURNAMENTS (7.5): the organiser, and the admin's key
+        # for making them (read once, never logged)
+        self.tourn = mote_tourn.Organiser(args.store, log=log) if (mote_tourn and args.store) else None
+        self.tourn_rate = {}       # ip -> [times] (ENTER / WITHDRAW)
+        self.admin_token = None
+        if getattr(args, "admin_token_file", ""):
+            try:
+                self.admin_token = open(args.admin_token_file).read().strip() or None
+            except OSError as e:
+                log(f"tournaments: the admin token could not be read ({type(e).__name__}); making them is off")
 
     # ---- VOICE ------------------------------------------------------------
     def voice_ctrl(self, room, m, cmd, raw):
@@ -1377,6 +1406,7 @@ class Relay:
                     line["result"]["names"] = rk.get("names")
                     line["result"]["sides"] = [{k: sd.get(k) for k in self.RES_SIDE} for sd in rk["sides"]]
                 self.result_write("results.jsonl" if same else "results_disputed.jsonl", line)
+                self.tourn_result(room, r, same, o, entry)
                 st = getattr(room, "start", None)
                 if st and st["frame"] == r["frame"]:
                     room.start = None              # the frame is over: nobody leaving now forfeits it
@@ -1396,6 +1426,138 @@ class Relay:
                                    "a": {k: v for k, v in o.items() if k != "at"}})
         if getattr(room, "results", None):
             room.results.clear()
+
+    # ---- THE CLUB'S TOURNAMENTS (7.5) ----------------------------------------
+    # mote_tourn.py decides; this is its post. tourn_flush hands what it has
+    # announced to the tournament's room, and the whole state after it, so a
+    # board never has to piece the night together from the lines.
+    def tourn_flush(self):
+        if self.tourn is None:
+            return
+        news = self.tourn.take()
+        cap = self.args.room_backlog
+        for tid in sorted({tid for tid, _ in news}):
+            t = self.tourn.t.get(tid)
+            club = self.nrooms.get(rkey(t.gid, f"TCLUB{tid}")) if t else None
+            if club is None or club.closed:
+                continue
+            for _, line in [x for x in news if x[0] == tid]:
+                club.control(f"T {line}", cap)
+            club.control("TSTATE " + json.dumps(t.view(), separators=(",", ":")), cap)
+
+    def tourn_tick(self):
+        if self.tourn is None:
+            return
+        try:
+            self.tourn.tick()
+        except Exception as e:
+            log(f"tournaments: the clock tripped ({type(e).__name__}: {e})")
+        self.tourn_flush()
+
+    async def tourn_proof(self, uid, nonce):
+        """is this the account it says? Meta's answer, or on a desk relay with
+        --tourn-trust the account as given; False when it cannot be told"""
+        if not (uid.isdigit() and len(uid) <= 20):
+            return False
+        if self.meta_token:
+            if not (8 <= len(nonce) <= 256 and nonce.isalnum()):
+                return False
+            try:
+                return await asyncio.get_running_loop().run_in_executor(None, self.meta_check, uid, nonce)
+            except Exception as e:
+                log(f"tournaments: a proof could not be checked ({type(e).__name__})")
+                return False
+        return bool(getattr(self.args, "tourn_trust", False))
+
+    async def tourn_answer(self, gid, a, peer):
+        """TOURN LIST | ENTER <tid> <uid> <nonce> <ver> <name...> |
+        WITHDRAW <tid> <uid> <nonce> | CREATE <token> <fields...> | CANCEL <token> <tid>"""
+        if self.tourn is None:
+            return "OFF\n"
+        sub = a[0].upper() if a else ""
+        if sub == "LIST":
+            out = f"NOW {int(time.time())}\n"
+            for v in self.tourn.listing(gid):
+                out += "T " + json.dumps(v, separators=(",", ":")) + "\n"
+            return out + "END\n"
+        if sub in ("CREATE", "CANCEL"):
+            if not self.admin_token or len(a) < 3 or not hmac.compare_digest(a[1], self.admin_token):
+                return f"{sub} DENIED\n"
+            if sub == "CANCEL":
+                try:
+                    ans = self.tourn.cancel(int(a[2]))
+                except ValueError:
+                    ans = "BAD"
+            else:
+                # CREATE <token> <start> <kind> <rules> <size> <best_of> <final_best_of> <ver> <close> <title...>
+                # -- words, not JSON: a request's first line is 160 bytes at most
+                try:
+                    f = a[2:]
+                    spec = {"gid": gid, "start": int(f[0]), "kind": int(f[1]), "rules": int(f[2]), "size": int(f[3]),
+                            "best_of": int(f[4]), "final_best_of": int(f[5]), "ver": "" if f[6] == "-" else f[6],
+                            "close": int(f[7]) if f[7] != "-" else int(f[0]) - mote_tourn.OPEN_BEFORE,
+                            "title": clean_label(" ".join(f[8:]))[:48]}
+                    tid, ans = self.tourn.create(spec)
+                    if tid:
+                        ans = f"OK {tid}"
+                except (IndexError, ValueError):
+                    ans = "BAD"
+            self.tourn_flush()
+            return f"{sub} {ans}\n"
+        if sub in ("ENTER", "WITHDRAW"):
+            ip = peer[0] if isinstance(peer, tuple) else str(peer)
+            now = time.monotonic()
+            q = [x for x in self.tourn_rate.get(ip, []) if now - x < 3600]
+            if len(q) >= 30:
+                self.tourn_rate[ip] = q
+                return f"{sub} BUSY\n"
+            q.append(now); self.tourn_rate[ip] = q
+            try:
+                tid = int(a[1])
+            except (IndexError, ValueError):
+                return f"{sub} BAD\n"
+            uid, nonce = (a[2] if len(a) > 2 else ""), (a[3] if len(a) > 3 else "")
+            if not await self.tourn_proof(uid, nonce):
+                return f"{sub} PROOF\n"
+            if sub == "WITHDRAW":
+                ans = self.tourn.withdraw(tid, uid)
+            else:
+                ver = a[4] if len(a) > 4 else ""
+                name = clean_label(" ".join(a[5:]))[:23] or "PLAYER"
+                ans = self.tourn.enter(tid, uid, name, ver)
+            if ans == "OK":
+                log(f"tournament {tid}: {sub.lower()} ({'entered' if sub == 'ENTER' else 'withdrawn'})")
+            self.tourn_flush()
+            return f"{sub} {ans}\n"
+        return "ERR\n"
+
+    def tourn_table(self, room, m, came):
+        """a called match's table room: a proved player arriving or leaving"""
+        tag = getattr(room, "tourn", None)
+        if self.tourn is None or not tag or not m.uid:
+            return
+        try:
+            (self.tourn.table_in if came else self.tourn.table_out)(tag[0], tag[1], m.uid)
+        except Exception as e:
+            log(f"tournaments: a table move could not be taken ({type(e).__name__}: {e})")
+        self.tourn_flush()
+
+    def tourn_result(self, room, r, same, o, entry):
+        """a called match's frame, as the two games agreed it (or did not)"""
+        tag = getattr(room, "tourn", None)
+        if self.tourn is None or not tag or r.get("t") != "frame":
+            return
+        try:
+            if same:
+                w = r.get("winner")
+                win = o if o.get("side") == w else entry
+                if win.get("uid"):
+                    self.tourn.frame_agreed(tag[0], tag[1], win["uid"])
+            else:
+                self.tourn.frame_disputed(tag[0], tag[1], r.get("frame", 0))
+        except Exception as e:
+            log(f"tournaments: a result could not be taken ({type(e).__name__}: {e})")
+        self.tourn_flush()
 
     # ---- WHO IS PLAYING, PROVED (7.3) ---------------------------------------
     PROOF_KEEP = 600.0     # seconds a proof Meta has said is good is good again here
@@ -1432,6 +1594,12 @@ class Relay:
         account; if so the member's results carry it. Answered PROOF OK / PROOF
         BAD / PROOF OFF (no key on this relay) / PROOF BUSY (more than 5)."""
         if not self.meta_token:
+            # DESK ONLY (--tourn-trust): the account as given, so a bench's
+            # tournament tables know who is at them
+            tt = raw.split()
+            if getattr(self.args, "tourn_trust", False) and len(tt) >= 2 and tt[1].isdigit() and len(tt[1]) <= 20:
+                m.uid = tt[1]
+                self.tourn_table(room, m, True)
             return "PROOF OFF"
         if m.proofs >= 5:
             return "PROOF BUSY"
@@ -1446,6 +1614,7 @@ class Relay:
             return "PROOF OFF"
         if ok:
             m.uid = t[1]
+            self.tourn_table(room, m, True)
         log(f"nroom {room.gid}/{room.code}: member {m.k} proof {'good' if ok else 'BAD'}")
         return "PROOF OK" if ok else "PROOF BAD"
 
@@ -1639,7 +1808,7 @@ class Relay:
                         nm = clean_label(raw[5:])[:24] or "PLAYER"
                         room.names[m.k] = nm
                         room.control(f"NAME {m.k} {nm}", cap)
-                    elif getattr(room, "club", False) and cmd.startswith("TABLE "):
+                    elif getattr(room, "club", False) and cmd.startswith("TABLE ") and not getattr(room, "tid", None):
                         # TABLE <slot> <text...> | TABLE <slot> -: a table set
                         # up (or freed) by this member, for everyone in the club
                         parts = raw.split(None, 2)
@@ -1702,6 +1871,8 @@ class Relay:
         except (OSError, ConnectionError) as e:
             why = f"net {type(e).__name__}"
         room.drop(m, why)
+        if getattr(room, "tourn", None) and not getattr(room, "club", False):
+            self.tourn_table(room, m, False)
         try:
             self.forfeit_leave(room, m)
         except Exception as e:
@@ -1751,6 +1922,9 @@ class Relay:
         log(f"club {key}: member {k} in ({peer}), {len(club.members)}/{club.maxn}")
         await self.member_reader(club, m)
         self.voice_forget(m)
+        if getattr(club, "tid", None) and self.tourn is not None and m.uid:
+            self.tourn.room_out(club.tid, m.uid)
+            self.tourn_flush()
         await asyncio.gather(m.task, return_exceptions=True)
         if club.done.is_set() and self.nrooms.get(key) is club:
             self.nrooms.pop(key, None)
@@ -1780,6 +1954,9 @@ class Relay:
         """CLUB <GAMEID> JOIN [N]: a place in club N, or with no N the lowest
         numbered club with room, a new one opened when every club is full."""
         sub = a[0].upper() if a else ""
+        if sub == "TOURN":
+            await self.handle_tourn_club(gid, a, reader, writer, peer)
+            return
         if sub != "JOIN":
             writer.write(b"ERR\n"); await writer.drain(); return
         want = 0
@@ -1809,6 +1986,48 @@ class Relay:
             writer.write(b"FULL\n"); await writer.drain(); return
         await self.club_member(key, club, k, reader, writer, peer)
 
+    async def handle_tourn_club(self, gid, a, reader, writer, peer):
+        """CLUB <GAMEID> TOURN <TID> <UID> <NONCE>: an entrant into the
+        tournament's room, proved by their Meta account -- being here is
+        checking in. "SEAT <K> 16 0" then framed as any club, the state first ("TSTATE");
+        "NONE" when the room is not open, "NOTYOU" for an account not entered."""
+        try:
+            tid = int(a[1])
+        except (IndexError, ValueError):
+            writer.write(b"ERR\n"); await writer.drain(); return
+        uid, nonce = (a[2] if len(a) > 2 else ""), (a[3] if len(a) > 3 else "")
+        if self.tourn is None or self.tourn.t.get(tid) is None or self.tourn.t[tid].status not in ("room", "running"):
+            writer.write(b"NONE\n"); await writer.drain(); return
+        if not await self.tourn_proof(uid, nonce) or self.tourn.may_enter_room(tid, uid) != "PLAYER":
+            writer.write(b"NOTYOU\n"); await writer.drain(); return
+        key = rkey(gid, f"TCLUB{tid}")
+        club = self.nrooms.get(key)
+        if club is None or club.closed:
+            club = TournClub(gid, tid)
+            self.nrooms[key] = club
+            log(f"club {key}: opened for tournament {tid}")
+        k = club.free_place()
+        if k < 0:
+            writer.write(b"FULL\n"); await writer.drain(); return
+        m_holder = {}
+
+        async def seat_then_state():
+            # the member exists once club_member has put it in; give it its
+            # account, check it in and send it the whole state
+            for _ in range(50):
+                m = club.members.get(k)
+                if m is not None:
+                    m.uid = uid
+                    self.tourn.room_in(tid, uid)
+                    club.control("TSTATE " + json.dumps(self.tourn.t[tid].view(), separators=(",", ":")),
+                                 self.args.room_backlog, only=k)
+                    self.tourn_flush()
+                    m_holder["m"] = m
+                    return
+                await asyncio.sleep(0.02)
+        asyncio.ensure_future(seat_then_state())
+        await self.club_member(key, club, k, reader, writer, peer)
+
     async def handle_roomn(self, gid, a, reader, writer, peer):
         sub = a[0].upper() if a else ""
         if sub == "HOST":                   # HOST <CODE> <PUB|PRIV> <MAX> [LABEL...]
@@ -1826,6 +2045,10 @@ class Relay:
             label = clean_label(" ".join(a[4:])) if len(a) > 4 else "GAME"
             room = RoomN(gid, code, public, maxn, label)
             self.nrooms[key] = room
+            if self.tourn is not None:
+                tt, _, mt = self.tourn.match_by_code(code)
+                if mt is not None and mt.state != "done":
+                    room.tourn = (tt.tid, mt.mid)       # a called match's table: its results move the draw
             log(f"nroom {key}: hosted, {maxn} places {'(public)' if public else '(private)'} ({peer})")
             await self.nroom_member(key, room, 0, reader, writer, peer)
             return
@@ -1997,6 +2220,10 @@ class Relay:
                 await self.handle_roomn(gid, a, reader, writer, peer)
                 return
 
+            if verb == "TOURN" and t[0] == "MOTE2":     # (7.5) the club's tournaments
+                writer.write((await self.tourn_answer(gid, a, peer)).encode()); await writer.drain()
+                return
+
             if verb == "HONOURS" and t[0] == "MOTE2":   # (7.4) the club's honours boards and trophies
                 writer.write((await self.honours_answer(a)).encode() + b"END\n"); await writer.drain()
                 return
@@ -2009,7 +2236,7 @@ class Relay:
                         if len(out) > 3500: break
                 for k, r in list(self.nrooms.items()):
                     if len(out) > 3500: break
-                    if getattr(r, "club", False):
+                    if getattr(r, "club", False) and not getattr(r, "tid", None):   # a tournament's room is not browsed
                         # A CLUB (7.1): how many are in, how many tables are
                         # set up, and who -- lines a reader from before clubs
                         # skips, as it skips any it does not know
@@ -2096,6 +2323,8 @@ async def main():
     ap.add_argument("--meta-secret-file", default="", help="file holding the Meta app secret: players' account proofs are checked and results kept against the account (7.3)")
     ap.add_argument("--meta-app-id", default="1036582382349280", help="the Meta app the proofs are for (CueVR)")
     ap.add_argument("--meta-verify-url", default="https://graph.oculus.com/user_nonce_validate", help="where proofs are checked (a test points it at a fake)")
+    ap.add_argument("--admin-token-file", default="", help="file holding the admin token that may CREATE and CANCEL tournaments (7.5)")
+    ap.add_argument("--tourn-trust", action="store_true", help="DESK ONLY: take a tournament entrant's account as given, without Meta")
     ap.add_argument("--forfeit-wait", type=float, default=90.0, help="seconds a forfeit waits for the remaining player's report before the relay records it without figures (7.4.x)")
     ap.add_argument("--latest-game", action="append", default=[], help="a current game id ('CUEn', 0x4355456E): older ids of its family are told to update (7.3); also <store>/latest_games")
     ap.add_argument("--store-cap", type=int, default=200000, help="most share codes kept")
@@ -2119,6 +2348,14 @@ async def main():
     asyncio.get_event_loop().create_task(watchdog())
 
     relay = Relay(args)
+
+    async def tourn_clock():
+        """the tournaments' clock: rooms open, draws, calls and walkovers"""
+        while True:
+            await asyncio.sleep(2.0)
+            relay.tourn_tick()
+    if relay.tourn is not None:
+        asyncio.get_event_loop().create_task(tourn_clock())
     if getattr(relay, "results_db", None) is not None:      # the index brought up to date at start, off the loop
         asyncio.get_running_loop().run_in_executor(None, relay.results_db.sync)
     if not args.no_voice:
