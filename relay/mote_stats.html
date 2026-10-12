@@ -21,6 +21,15 @@ h3{font-size:16px;margin:0 0 2px}
 .small{font-size:13px}.tiny{font-size:11.5px}
 .chips{display:flex;gap:6px;margin:4px 16px;flex-wrap:wrap}.chip{border:1px solid var(--line);border-radius:14px;padding:3px 12px;font-size:13px;color:var(--dim);cursor:pointer}
 .chip.on{border-color:var(--acc);color:var(--acc)}
+#tform label{display:flex;flex-direction:column;gap:4px;min-width:0}
+#tform label.tick{flex-direction:row;align-items:center;gap:8px}
+#tform input,#tform select{font:inherit;font-size:15px;background:var(--bg);color:var(--fg);border:1px solid var(--line);border-radius:6px;padding:6px 8px;box-sizing:border-box;max-width:100%}
+#tform input{margin:0}
+#tform input[type=date],#tform input[type=time]{min-width:160px}
+#tf-title{width:100%}
+#tform input[type=checkbox]{padding:0;width:18px;height:18px;accent-color:var(--acc)}
+#tform input[type=color]{padding:0;width:44px;height:30px}
+.card button{font:inherit;font-size:14px;background:transparent;color:var(--acc);border:1px solid var(--acc);border-radius:8px;padding:6px 14px;cursor:pointer}
 .tag{font-size:11px;border:1px solid var(--acc);color:var(--acc);border-radius:6px;padding:0 5px;margin-left:6px;font-weight:400}
 .tag.w{border-color:var(--warn);color:var(--warn)}.tag.d{border-color:var(--dim);color:var(--dim)}
 .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:6px;margin:6px 16px}
@@ -57,7 +66,7 @@ const mins = s => s >= 3600 ? (s/3600).toFixed(1) + ' h' : Math.round(s/60) + ' 
 const empty = t => `<div class="card empty">${t}</div>`;
 let NOW = null, M = null, MT = 0, DP = {}, DM = {}, S = null, H = null, HD = 1, PQ = '', MG = '', MQ = '', SF = false;
 
-const TABS = [['now','Now'],['players','Players'],['ratings','Ratings'],['matches','Matches'],['honours','Honours'],['integrity','Integrity'],['activity','Activity'],['server','Server']];
+const TABS = [['now','Now'],['players','Players'],['ratings','Ratings'],['matches','Matches'],['honours','Honours'],['tourn','Tournaments'],['integrity','Integrity'],['activity','Activity'],['server','Server']];
 function route(){ const h = location.hash.slice(1) || 'now'; const [v, a] = h.split('/'); return {v, a: decodeURIComponent(a || '')}; }
 function nav(){
   const r = route(), base = {player:'players', match:'matches'}[r.v] || r.v;
@@ -69,7 +78,7 @@ function draw(){
   nav();
   const r = route(), V = document.getElementById('view');
   const f = {now:vNow, players:vPlayers, player:vPlayer, ratings:vRatings, matches:vMatches, match:vMatch, honours:vHonours,
-             integrity:vIntegrity, activity:vActivity, server:vServer}[r.v] || vNow;
+             integrity:vIntegrity, activity:vActivity, server:vServer, tourn:vTourn}[r.v] || vNow;
   const y = window.scrollY, keep = V.dataset.v === location.hash;
   V.innerHTML = f(r.a); V.dataset.v = location.hash;
   if (keep) window.scrollTo(0, y);
@@ -77,6 +86,89 @@ function draw(){
   if (inp && SF) { inp.focus(); inp.setSelectionRange(inp.value.length, inp.value.length); }
 }
 window.addEventListener('hashchange', () => { window.scrollTo(0, 0); draw(); load(); });
+
+/* ---- TOURNAMENTS (7.5): the relay runs them; they are made here ------------ */
+let TN = null, TMSG = '';
+const TGAMES = [[0, 'UK 8-ball'], [2, '9-ball'], [6, 'Snooker, 6 reds']];
+const TCLOTH = ["Black","Silver","Taupe","Tan","Gold","Paprika","Nutmeg","Ranger green","Olive","Championship","Sage","Powder blue","Slate","Navy","Royal blue","Teal","Yellow","Purple","Light purple","Tournament blue","Windsor red","Red","Orange","Pink"];
+const TFRAME = ["Walnut","Oak","Mahogany","Wenge","Ebony","Charcoal","Silver","Tournament","Rosewood","Cherry","Teak","Maple","Burgundy","Grey oak","Racing green","Navy"];
+const TBALLS = ["Pro","UK yellow/blue","UK yellow/red","Dyna","Pro tour","Hot pink","Space","Vintage","Pyramid","Bar billiards"];
+function tdefault(){
+  const d = new Date(Date.now() + 2 * 86400000); d.setHours(20, 0, 0, 0);
+  const pad = n => String(n).padStart(2, '0');
+  return {title: '', kind: 0, size: 8, race: 2, frace: 3, day: `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`, time: '20:00',
+          closes: 0, cloth: 9, frame: 7, set: 0, useLeather: false, leather: '#5a2e14', useMetal: false, metal: '#c8a040'};
+}
+let TF = tdefault();
+function tset(k, v){ TF[k] = v; }
+const opts = (list, cur) => list.map(([v, l]) => `<option value="${v}"${+v === +cur ? ' selected' : ''}>${e(l)}</option>`).join('');
+function vTourn(){
+  if (!TN) return empty('Loading...');
+  let h = TN.err ? `<div class="card bad small">The relay did not answer (${e(TN.err)})</div>` : '';
+  const on = (TN.list || []).filter(t => t.status != 'done' && t.status != 'off'), past = (TN.list || []).filter(t => t.status == 'done' || t.status == 'off');
+  const game = k => (TGAMES.find(g => g[0] == k) || [k, 'game ' + k])[1];
+  const card = t => `<div class=card><div class=row><b>${e(t.title)}</b><span class="small ${t.status=='running'?'acc':t.status=='off'?'bad':'dim'}">${e(t.status)}</span></div>
+      <div class="small dim">${new Date(t.start * 1000).toLocaleString([], {weekday:'short', day:'numeric', month:'short', hour:'2-digit', minute:'2-digit'})}
+        &middot; ${e(game(t.kind))} &middot; ${t.size} players &middot; race to ${(t.best_of+1)/2}, final to ${(t.final_best_of+1)/2}</div>
+      <div class=small>${t.nent} entered${t.entrants.length ? ': ' + t.entrants.map(e).join(', ') : ''}</div>
+      ${(t.status == 'open' || t.status == 'room') && TN.can_create ? `<div style="margin-top:6px"><button id="tc${t.tid}" onclick="tcancel(${t.tid})">Call it off</button></div>` : ''}</div>`;
+  h += '<h2>Coming up and on now</h2>' + (on.length ? on.map(card).join('') : empty('None. Make one below.'));
+  if (!TN.can_create) h += '<div class="card warn small">Making tournaments is off on this server: it has no admin token yet.</div>';
+  else {
+    h += `<h2>New tournament</h2><form id=tform class=card onsubmit="tcreate(event)" style="display:grid;gap:10px">
+      <label class=small>Title<input id=tf-title maxlength=40 value="${e(TF.title)}" oninput="tset('title',this.value)" placeholder="Friday knockout"></label>
+      <label class=small>Game<select id=tf-kind onchange="tset('kind',+this.value)">${opts(TGAMES, TF.kind)}</select></label>
+      <div class=row style="gap:12px;flex-wrap:wrap">
+        <label class=small>Players<select id=tf-size onchange="tset('size',+this.value)">${opts([[4,'4'],[8,'8']], TF.size)}</select></label>
+        <label class=small>Race to<select id=tf-race onchange="tset('race',+this.value)">${opts([1,2,3,4,5].map(n => [n, n]), TF.race)}</select></label>
+        <label class=small>Final race to<select id=tf-frace onchange="tset('frace',+this.value)">${opts([1,2,3,4,5,6,7].map(n => [n, n]), TF.frace)}</select></label>
+      </div>
+      <div class=row style="gap:12px;flex-wrap:wrap">
+        <label class=small>Day<input id=tf-day type=date value="${TF.day}" onchange="tset('day',this.value)"></label>
+        <label class=small>Start (your time)<input id=tf-time type=time value="${TF.time}" onchange="tset('time',this.value)"></label>
+        <label class=small>Entries close<select id=tf-closes onchange="tset('closes',+this.value)">${opts([[0,'at the start'],[15,'15 min before'],[60,'1 hour before'],[1440,'the day before']], TF.closes)}</select></label>
+      </div>
+      <div class=row style="gap:12px;flex-wrap:wrap">
+        <label class=small>Cloth<select id=tf-cloth onchange="tset('cloth',+this.value)">${opts(TCLOTH.map((n,i) => [i, n]), TF.cloth)}</select></label>
+        <label class=small>Timber<select id=tf-frame onchange="tset('frame',+this.value)">${opts(TFRAME.map((n,i) => [i, n]), TF.frame)}</select></label>
+        <label class=small>Balls<select id=tf-set onchange="tset('set',+this.value)">${opts(TBALLS.map((n,i) => [i, n]), TF.set)}</select></label>
+      </div>
+      <div class=row style="gap:12px;flex-wrap:wrap">
+        <label class="small tick"><input id=tf-ul type=checkbox ${TF.useLeather?'checked':''} onchange="tset('useLeather',this.checked)"> Leather <input id=tf-leather type=color value="${TF.leather}" onchange="tset('leather',this.value)"></label>
+        <label class="small tick"><input id=tf-um type=checkbox ${TF.useMetal?'checked':''} onchange="tset('useMetal',this.checked)"> Fittings <input id=tf-metal type=color value="${TF.metal}" onchange="tset('metal',this.value)"></label>
+      </div>
+      <div class="tiny dim">The balls are used where the game allows them; otherwise the game's own. Entrants must be on CueVR 7.5.</div>
+      <div><button id=tf-go type=submit>Make it</button> <span id=tf-msg class=small>${e(TMSG)}</span></div>
+    </form>`;
+  }
+  h += '<h2>Finished</h2>' + (past.length ? past.slice(-10).reverse().map(card).join('') : empty('None yet.'));
+  return h;
+}
+async function tpost(path, body){
+  const r = await fetch(q(path), {method: 'POST', body: body ? JSON.stringify(body) : '', cache: 'no-store'});
+  let d = {}; try { d = await r.json(); } catch (x) {}
+  return {ok: r.ok, d};
+}
+async function tcreate(ev){
+  ev.preventDefault();
+  const start = Math.floor(new Date(TF.day + 'T' + TF.time).getTime() / 1000);
+  const style = {cloth: TF.cloth, frame: TF.frame, set: TF.set};
+  if (TF.useLeather) style.leather = TF.leather; if (TF.useMetal) style.metal = TF.metal;
+  const spec = {title: TF.title, kind: TF.kind, rules: 0, size: TF.size, best_of: 2 * TF.race - 1, final_best_of: 2 * TF.frace - 1,
+                start, close: start - 60 * TF.closes - (TF.closes ? 0 : 60), style};
+  document.getElementById('tf-msg').textContent = 'Making it...';
+  const {ok, d} = await tpost('api/tourn', spec);
+  TMSG = ok ? `Made: tournament ${d.tid}. It is on the board in the club now.` : (d.error || 'It did not work.');
+  if (ok) TF = tdefault();
+  document.activeElement && document.activeElement.blur(); await load();
+}
+async function tcancel(tid){
+  const b = document.getElementById('tc' + tid);
+  if (b.dataset.sure != '1') { b.dataset.sure = '1'; b.textContent = 'Tap again to call it off'; return; }
+  const {ok, d} = await tpost('api/tourn/cancel?tid=' + tid);
+  TMSG = ok ? `Tournament ${tid} called off.` : (d.answer || d.error || 'It did not work.');
+  await load();
+}
 
 /* ---- NOW ---------------------------------------------------------------- */
 function vNow(){
@@ -337,13 +429,14 @@ async function load(){
     const jobs = [get('api').then(d => { NOW = d; document.getElementById('at').textContent = lt(d.at); })];
     if (!M || Date.now() - MT > 55000) jobs.push(get('api/model').then(d => { M = d; MT = Date.now(); }));
     if (v == 'server' || v == 'integrity') jobs.push(get('api/server').then(d => S = d));
+    if (v == 'tourn') jobs.push(get('api/tourn').then(d => { TN = d; TN.err = null; }).catch(x => { TN = TN || {list: []}; TN.err = String(x.message); }));
     const a = route().a;
     if (v == 'player' && a) jobs.push(get('api/player?id=' + encodeURIComponent(a)).then(d => DP[a] = d).catch(() => {}));
     if (v == 'match' && a && !DM[a]) jobs.push(get('api/match?id=' + encodeURIComponent(a)).then(d => DM[a] = d).catch(() => {}));
     await Promise.all(jobs);
   } catch (x) { document.getElementById('at').textContent = String(x.message) == '403' ? 'refused' : 'no connection'; }
   busy = false;
-  const a = document.activeElement; if (!(a && a.id == 'srch')) draw();
+  const a = document.activeElement; if (!(a && (a.id == 'srch' || a.closest && a.closest('#tform')))) draw();
 }
 async function hload(){ try { H = await get('api/history?days=' + HD); if (route().v == 'now') draw(); } catch (x) {} }
 draw(); load(); hload();

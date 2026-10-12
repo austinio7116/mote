@@ -20,6 +20,11 @@ asks. The working-out is in mote_stats_model.py, the page in mote_stats.html.
     GET /api/match?t=<token>&id=<id>    one match with its frames
     GET /api/server?t=<token>    the relay's log over 7 days (addresses taken
                                  out), the box's health, the data files
+    GET /api/tourn?t=<token>     the relay's tournaments (its TOURN LIST)
+    POST /api/tourn?t=<token>    a new tournament: the spec as JSON, passed to the
+                                 relay's TOURN CREATE with its admin token
+                                 (--tourn-token-file; without one, 503)
+    POST /api/tourn/cancel?t=<token>&tid=<n>   called off
     GET /api/history?t=<token>&days=1|7|30
                                  people online over time, and each day's peak
                                  and the players seen -- from a sample a minute
@@ -191,6 +196,79 @@ def history(days):
     return {"days": days, "bucket": bucket, "from": t0, "to": now, "series": series, "daily": daily}
 
 
+# ---- TOURNAMENTS (7.5): Mark makes them here, the relay runs them ----------
+def relay_ask(line, body=None, until=b"\n"):
+    host, port = A.relay.rsplit(":", 1)
+    s = socket.create_connection((host, int(port)), timeout=6)
+    s.sendall(line.encode() + b"\n" + ((body.encode() + b"\n") if body is not None else b""))
+    s.settimeout(6)
+    buf = b""
+    try:
+        while until not in buf:
+            d = s.recv(8192)
+            if not d:
+                break
+            buf += d
+    finally:
+        s.close()
+    return buf.decode("utf-8", "replace")
+
+
+def tourn_list():
+    out, by = [], {}
+    for l in relay_ask(f"MOTE2 TOURN {A.tourn_gid} LIST", until=b"END\n").splitlines():
+        p = l.split(" ")
+        if p[0] == "TL" and len(p) >= 12:
+            t = {"tid": int(p[1]), "status": p[2], "start": int(float(p[3])), "close": int(float(p[4])), "kind": int(p[5]),
+                 "rules": int(p[6]), "size": int(p[7]), "best_of": int(p[8]), "final_best_of": int(p[9]),
+                 "nent": int(p[10]), "title": " ".join(p[11:]), "entrants": []}
+            out.append(t); by[t["tid"]] = t
+        elif p[0] == "TE" and len(p) >= 3 and int(p[1]) in by:
+            by[int(p[1])]["entrants"].append(" ".join(p[2:]))
+        elif p[0] == "TS" and len(p) >= 8 and int(p[1]) in by:
+            by[int(p[1])]["style"] = {"cloth": int(p[2]), "frame": int(p[3]), "body": int(p[4]), "set": int(p[5]),
+                                      "leather": p[6], "metal": p[7]}
+    return out
+
+
+def tourn_token():
+    try:
+        with open(A.tourn_token_file) as f:
+            return f.read().strip()
+    except OSError:
+        return ""
+
+
+def tourn_create(spec):
+    tok = tourn_token()
+    if not tok:
+        return 503, {"error": "creating tournaments is off on this server (no admin token)"}
+    try:
+        start = int(spec["start"]); kind = int(spec["kind"]); size = int(spec["size"])
+        bo = int(spec["best_of"]); fbo = int(spec["final_best_of"]); close = int(spec.get("close", start - 60))
+        title = str(spec.get("title", "")).strip()[:48]
+        st = spec.get("style") or {}
+        style = {"cloth": int(st.get("cloth", 9)), "frame": int(st.get("frame", 7)), "body": -1, "set": int(st.get("set", 0))}
+        for k in ("leather", "metal"):
+            v = str(st.get(k, "") or "").lstrip("#")
+            if len(v) == 6 and all(c in "0123456789abcdefABCDEF" for c in v):
+                style[k] = v.upper()
+    except (KeyError, TypeError, ValueError):
+        return 400, {"error": "the form is not complete"}
+    if not title:
+        return 400, {"error": "give it a title"}
+    if start < time.time() + 120:
+        return 400, {"error": "the start must be at least two minutes from now"}
+    body = json.dumps({"start": start, "kind": kind, "rules": int(spec.get("rules", 0)), "size": size, "best_of": bo,
+                       "final_best_of": fbo, "close": close, "title": title, "ver": str(spec.get("ver", A.tourn_ver)),
+                       "gid": str(A.tourn_gid), "style": style})
+    ans = relay_ask(f"MOTE2 TOURN {A.tourn_gid} CREATE {tok}", body).strip()
+    if ans.startswith("CREATE OK"):
+        return 200, {"tid": int(ans.split()[2]), "answer": ans}
+    return 400, {"error": {"CREATE DENIED": "the relay refused the admin token", "CREATE PAST": "that start has passed",
+                           "CREATE BAD": "the relay did not accept those settings"}.get(ans, ans or "no answer from the relay")}
+
+
 def snapshot():
     return {"at": time.strftime("%Y-%m-%d %H:%M:%S", time.gmtime()) + " UTC", "live": live_now()}
 
@@ -218,10 +296,39 @@ class H(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
+    def do_POST(self):
+        u = urlparse(self.path)
+        q = parse_qs(u.query)
+        if u.path not in ("/api/tourn", "/api/tourn/cancel"):
+            return self._send(404, "text/plain", b"not here\n")
+        if not self._ok(q):
+            return self._send(403, "text/plain", b"no\n")
+        try:
+            n = min(int(self.headers.get("Content-Length") or 0), 8192)
+            raw = self.rfile.read(n).decode("utf-8", "replace") if n else ""
+        except (ValueError, OSError):
+            raw = ""
+        if u.path == "/api/tourn":
+            try:
+                spec = json.loads(raw or "{}")
+            except ValueError:
+                spec = {}
+            code, out = tourn_create(spec if isinstance(spec, dict) else {})
+            return self._send(code, "application/json", json.dumps(out).encode())
+        tok = tourn_token()
+        if not tok:
+            return self._send(503, "application/json", b'{"error":"no admin token"}')
+        try:
+            tid = int((q.get("tid") or ["0"])[0])
+        except ValueError:
+            tid = 0
+        ans = relay_ask(f"MOTE2 TOURN {A.tourn_gid} CANCEL {tok} {tid}").strip()
+        return self._send(200 if ans.endswith("OK") else 400, "application/json", json.dumps({"answer": ans}).encode())
+
     def do_GET(self):
         u = urlparse(self.path)
         q = parse_qs(u.query)
-        if u.path not in ("/", "/api", "/api/history", "/api/model", "/api/server", "/api/player", "/api/match"):
+        if u.path not in ("/", "/api", "/api/history", "/api/model", "/api/server", "/api/player", "/api/match", "/api/tourn"):
             return self._send(404, "text/plain", b"not here\n")
         if not self._ok(q):
             return self._send(403, "text/plain", b"no\n")
@@ -238,6 +345,12 @@ class H(BaseHTTPRequestHandler):
             if v is None:
                 return self._send(404, "application/json", b'{"error":"not found"}')
             return self._send(200, "application/json", json.dumps(v, separators=(",", ":")).encode())
+        if u.path == "/api/tourn":
+            try:
+                return self._send(200, "application/json", json.dumps({"now": int(time.time()), "list": tourn_list(),
+                                                                       "can_create": bool(tourn_token())}).encode())
+            except OSError as e:
+                return self._send(502, "application/json", json.dumps({"error": f"the relay did not answer ({e})"}).encode())
         if u.path == "/api/server":
             return self._send(200, "application/json", json.dumps(MODEL.server(), separators=(",", ":")).encode())
         if u.path == "/api/history":
@@ -267,6 +380,9 @@ def main():
     ap.add_argument("--state", default="", help="keep a sample a minute here (history)")
     ap.add_argument("--journal-file", default="", help="read the relay's log from this file, not journalctl (tests)")
     ap.add_argument("--backups", default="", help="the daily snapshots' folder, listed on the Server page")
+    ap.add_argument("--tourn-token-file", default="", help="the relay's tournament admin token (its --admin-token-file): makes the Tournaments form work")
+    ap.add_argument("--tourn-gid", type=int, default=0x43554570, help="the game id tournaments are made for (7.5: CUEp)")
+    ap.add_argument("--tourn-ver", default="7.5", help="the game version entrants must be on")
     A = ap.parse_args()
     MODEL = Model(A.store, A.relay, GID, A.journal_file, A.backups)
     with open(A.token_file, "rb") as f:
