@@ -292,6 +292,7 @@ function vMatch(id){
     const side = i => f.sides[i] || {}, sh = i => side(i).shot || {};
     h += `<div class=card><div class=row><b>Frame ${f.frame}</b><span class="small">${(f.score||[0,0]).some(Boolean)?`<b class=acc>${f.score.join('-')}</b> `:''}${f.winner===0||f.winner===1?e(m.names[f.winner])+' won':''}</span></div>
       <div class="tiny dim">${lt(f.time)}${f.secs?' &middot; '+mins(f.secs):''}${f.golden||(f.winner>=0&&f.winner<2&&(f.sides[f.winner]||{}).shots===1&&(f.sides[1-f.winner]||{}).shots===0)?' &middot; golden break':f.bnr>=0&&f.bnr!==null?' &middot; break-and-run':''}${f.forfeit?' &middot; forfeit':''}${f.figures===false?' &middot; no figures':''}</div>
+      ${f.figures===false ? `<div class="small warn" style="margin-top:6px">${f.forfeit ? e(m.left || 'One player') + ' left after the frame had started: both games had said a shot was played. The game that stayed sent no figures, so this frame\'s shots and pots are not known.' : 'No figures were sent for this frame.'}</div></div>` : `
       <table><tr><th></th><th class=r>${e(m.names[0])}</th><th class=r>${e(m.names[1])}</th></tr>
       ${([18,19,20,21,22].includes(f.kind)
         ? [['Points', i => sh(i).points ?? '-'], ['Cannon success', i => frac(sh(i).scoring||0, sh(i).strokes||0)],
@@ -301,7 +302,7 @@ function vMatch(id){
          ['Potted', i => side(i).potted ?? '-'], ['Pot success', i => frac(sh(i).made||0, sh(i).att||0)], ['Long pots', i => frac(sh(i).long_made||0, sh(i).long_att||0)],
          ['Safeties held', i => frac(sh(i).safe_ok||0, sh(i).safeties||0)], ['Fouls', i => side(i).fouls ?? '-'],
          ['At the table', i => f.time_at && f.time_at[i] ? mins(f.time_at[i]) : '-']])
-        .map(([l, g]) => `<tr><td class=dim>${l}</td><td class=r>${g(0)}</td><td class=r>${g(1)}</td></tr>`).join('')}</table></div>`;
+        .map(([l, g]) => `<tr><td class=dim>${l}</td><td class=r>${g(0)}</td><td class=r>${g(1)}</td></tr>`).join('')}</table></div>`}`;
   }
   if (!m.frame_list.length) h += empty('No frame lines for this match.');
   return h;
