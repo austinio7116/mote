@@ -2378,7 +2378,12 @@ class Relay:
                 for k, v in room.away.items():
                     if v["uid"] == uid:
                         left = max(0, int(wait - (now - v["at"])))
-                        writer.write(f"HELD {room.code} {left}\n".encode()); await writer.drain(); return
+                        # A TOURNAMENT'S MATCH says which: the game goes back
+                        # into that tournament's room and to its table, not to
+                        # a bare match (Mark: "massively confusing")
+                        tt = getattr(room, "tourn", None)
+                        more = f" {tt[0]} {tt[1]}" if tt else ""
+                        writer.write(f"HELD {room.code} {left}{more}\n".encode()); await writer.drain(); return
             writer.write(b"NONE\n"); await writer.drain(); return
         if sub == "REJOIN":                 # REJOIN <CODE> <ACCOUNT> <NONCE>: back to a held place (7.5)
             await self.handle_rejoin(gid, a, reader, writer, peer)

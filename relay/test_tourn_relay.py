@@ -182,7 +182,28 @@ def main():
         for s in socks:
             s.close()
         if fin:
-            socks = play_called(fin[0])
+            # A FINALIST'S LINK DROPS AND THEIR GAME IS STARTED AGAIN: HELD says
+            # which tournament and which match, so the game goes back into the
+            # tournament's room and to the table, not to a bare match
+            _, _, mid, tbl, a, b, code = fin[0].split()
+            ua, ub = uid_of(int(a)), uid_of(int(b))
+            sa, _ = table(port, code, ua, True); time.sleep(0.2)
+            sb, _ = table(port, code, ub, False); time.sleep(0.4)
+            st = lambda me: "STARTED " + json.dumps({"v": 1, "t": "start", "frame": 1, "kind": 0, "me": me, "best_of": 3,
+                                                     "names": ["A", "B"], "game": "UK 8-BALL"})
+            for x, me in ((sa, 0), (sb, 1)):
+                send_frame(x, 0xFE, b"RESUME"); send_frame(x, 0xFE, st(me).encode())
+            time.sleep(0.4)
+            sb.close(); time.sleep(0.5)
+            h = ask(port, f"MOTE2 ROOMN {GID} HELD {ub}")[0].split()
+            check(len(h) == 5 and h[0] == "HELD" and h[1] == code and h[3] == str(tid) and h[4] == mid,
+                  f"the dropped finalist's place is held, and HELD names the tournament and the match: {h}")
+            back = conn(port, f"MOTE2 ROOMN {GID} REJOIN {code} {ub} desknonce{ub}")
+            check(readline(back).startswith("SEAT 1 2 BACK"), "...and they come back to it")
+            for f in (1, 2):
+                result(sa, 0, f, 0); result(back, 1, f, 0)
+                time.sleep(0.3)
+            socks = [sa, back]
             time.sleep(3)
         champ = [l for l in ms[0].lines if l.startswith("T CHAMPION ")]
         check(len(champ) == 1 and ms[0].state["status"] == "done", f"the champion is announced to the room: {champ}")
