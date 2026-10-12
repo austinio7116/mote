@@ -498,6 +498,11 @@ typedef struct {
     int first_hit;
     int first_hit_idx;
     float first_hit_x;   /* where along the table the first ball struck stood (Combined Pyramid's kitchen rule) */
+    /* ...and where across it, and the way it LEFT that contact: its velocity
+     * straight out of the collision, written inside the step so both ends of
+     * a lockstep match hold the same numbers whatever their frame rates.
+     * CueVR's attempt rule follows the object ball's first leg from these. */
+    float first_hit_z, first_hit_vx, first_hit_vz;
     float cue_x_pre;     /* the cue ball's furthest x up the table before that first contact (straight pool 3.11) */
 
     /* ---- WHAT THE ATTEMPT LOOKED LIKE, for the referee ------------------- *
@@ -1053,7 +1058,7 @@ void cue_phys_shot_begin(CueWorld *w);
  * it belongs to. */
 typedef struct {
     int     first_hit, first_hit_idx;
-    float   first_hit_x;
+    float   first_hit_x, first_hit_z, first_hit_vx, first_hit_vz;
     float   cue_x_pre;
     float   att_min[CUE_MAX_BALLS];
     float   att_path;

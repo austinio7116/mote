@@ -328,6 +328,7 @@ void cue_phys_shot_begin(CueWorld *w) {
     if (!w) return;
     w->first_hit = -1;
     w->first_hit_idx = -1;
+    w->first_hit_vx = w->first_hit_vz = 0.0f;
     w->cue_x_pre = -1.0e9f;
     for (int k = 0; k < CUE_MAX_BALLS; k++) w->att_min[k] = 1.0e9f;
     w->att_path = 0.0f;
@@ -366,6 +367,9 @@ void cue_phys_shot_begin(CueWorld *w) {
         A first_hit       = B first_hit;                                      \
         A first_hit_idx   = B first_hit_idx;                                  \
         A first_hit_x     = B first_hit_x;                                    \
+        A first_hit_z     = B first_hit_z;                                    \
+        A first_hit_vx    = B first_hit_vx;                                   \
+        A first_hit_vz    = B first_hit_vz;                                   \
         A cue_x_pre       = B cue_x_pre;                                      \
         A att_path        = B att_path;                                       \
         A att_prev_ok     = B att_prev_ok;                                    \
@@ -3346,7 +3350,8 @@ static CUE_HOT void substep(CueWorld *w, CueBall *balls, int n, float h, uint32_
                 if (i == 0 && j < CUE_MAX_BALLS) w->hit_by_cue[j] = 1;
                 if (i == 0) touch_add(w, CUE_TOUCH_BALL, balls[j].id, (uint8_t)j, balls[0].pos.x);
                 if (w->pev_on) pev_add(w, CUE_PEV_BALL, i, j, pev_frozen(w, &balls[i]), pev_frozen(w, &balls[j]));
-                if (w->first_hit < 0 && i == 0) { w->first_hit = balls[j].id; w->first_hit_idx = j; w->first_hit_x = balls[j].pos.x; }
+                if (w->first_hit < 0 && i == 0) { w->first_hit = balls[j].id; w->first_hit_idx = j; w->first_hit_x = balls[j].pos.x;
+                                                  w->first_hit_z = balls[j].pos.z; w->first_hit_vx = balls[j].vel.x; w->first_hit_vz = balls[j].vel.z; }
                 else if (w->first_hit >= 0 && i == 0) w->jmp_bounced = 1;  /* (c) */
                 /* Did it hit the ball it is in the act of passing over? That is
                  * the whole of exception (b), decided at the landing. */

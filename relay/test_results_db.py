@@ -95,6 +95,7 @@ def main():
     g["result"]["sides"][0]["shots"], g["result"]["sides"][1]["shots"] = 1, 0
     run = frame("2026-09-11 20:00:00", "Ivy", "Hal", 0, 2, "303", "302", bnr=(1, 0))
     run["result"]["sides"][0]["shots"], run["result"]["sides"][1]["shots"] = 6, 0
+    run["result"]["sides"][0]["potted"] = 9        # a real one clears the table
     with open(os.path.join(store, "results.jsonl"), "w") as fh:
         fh.write(json.dumps(g) + "\n" + json.dumps(run) + "\n")
     db, scan = both(store)
@@ -119,6 +120,36 @@ def main():
     a4b = dict(a4); a4b["sides"] = [{"shots": 10, "shot": a4["sides"][0]["shot"]}, a4["sides"][1]]
     check(r.result_key(a3, True) != r.result_key(a4b, True), "...and a different stroke count is still a dispute between versions")
     check(max((a3, a4), key=r.ver_key) is a4 and max((a4, a3), key=r.ver_key) is a4, "the newer game's account is the one kept")
+
+    # 9-BALL AND 10-BALL: A RUN CLEARS THE TABLE (2026-10-12). A frame won
+    # early on the money ball, as a 7.4.4 game counted it, is off the boards;
+    # one where every object ball went down stays on
+    store = tempfile.mkdtemp()
+    early = frame("2026-09-12 20:00:00", "Jo", "Hal", 0, 2, "401", "302", bnr=(1, 0), runs=(1, 0))
+    early["result"]["sides"][0].update(shots=3, potted=3); early["result"]["sides"][1].update(shots=0, potted=0)
+    full = frame("2026-09-13 20:00:00", "Kit", "Hal", 0, 2, "402", "302", bnr=(1, 0))
+    full["result"]["sides"][0].update(shots=8, potted=9); full["result"]["sides"][1].update(shots=0, potted=0)
+    shared = frame("2026-09-14 20:00:00", "Lu", "Hal", 0, 13, "403", "302", runs=(1, 0))
+    shared["result"]["sides"][0].update(shots=7, potted=6); shared["result"]["sides"][1].update(shots=5, potted=4)
+    ten_short = frame("2026-09-15 20:00:00", "Mo", "Hal", 0, 13, "404", "302", runs=(1, 0))
+    ten_short["result"]["sides"][0].update(shots=7, potted=6); ten_short["result"]["sides"][1].update(shots=5, potted=3)
+    snk = frame("2026-09-16 20:00:00", "Ned", "Hal", 0, 4, "405", "302", bnr=(1, 0))
+    snk["result"]["sides"][0].update(shots=20, potted=3); snk["result"]["sides"][1].update(shots=0, potted=0)
+    with open(os.path.join(store, "results.jsonl"), "w") as fh:
+        for x in (early, full, shared, ten_short, snk):
+            fh.write(json.dumps(x) + "\n")
+    db, scan = both(store)
+    hon = lambda b: "".join(l + "\n" for l in db[0].splitlines() if l.startswith("HON %d " % b))
+    check(db == scan, "the index and the file scan agree on 9- and 10-ball runs")
+    check("Jo" not in hon(2) and "Kit" in hon(2), "9-ball: won early on the 9 is no break-and-run; all nine down is one")
+    check("Lu" in hon(3) and "Mo" not in hon(3), "10-ball: ten down between both sides is a clearance; nine is not")
+    check("Ned" in hon(2), "other games keep their runs as they were")
+    shutil.rmtree(store)
+    # ...and two versions that differ only in that agree on the frame; one version still must not
+    v4 = {"t": "frame", "ver": "7.4.4", "kind": 2, "sides": [{"shots": 3, "potted": 3, "shot": {"bnr": 1, "runouts": 0}}, {"shots": 0, "shot": {"bnr": 0}}]}
+    v5 = {"t": "frame", "ver": "7.4.5", "kind": 2, "sides": [{"shots": 3, "potted": 3, "shot": {"bnr": 0, "runouts": 0}}, {"shots": 0, "shot": {"bnr": 0}}]}
+    check(r.result_key(v4, True) == r.result_key(v5, True), "a 7.4.4 and a 7.4.5 account of an early 9 agree")
+    check(r.result_key(v4) != r.result_key(v5), "...but two games of one version that differ still do not")
 
     # a real file, if given (a copy -- this test writes results.db beside it)
     if len(sys.argv) > 1:

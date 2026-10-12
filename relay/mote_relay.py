@@ -686,7 +686,7 @@ class ResultsDB:
     the offset, its first line changed, an older schema -- the index is thrown
     away and built again from the file: it can always be rebuilt, nothing in it
     is only there. Safe from any thread: one lock, a connection per call."""
-    SCHEMA_VERSION = "2"          # 2: a golden break's bnr left out (2026-10-11)
+    SCHEMA_VERSION = "3"          # 2: a golden break's bnr left out (2026-10-11); 3: 9/10-ball runs need every ball down (2026-10-12)
 
     def __init__(self, store, hon_kind):
         self.jsonl = os.path.join(store, "results.jsonl")
@@ -760,9 +760,7 @@ class ResultsDB:
             if not uid or side >= len(names) or side >= len(sides):
                 continue
             sd = sides[side] if isinstance(sides[side], dict) else {}
-            sh = sd.get("shot") if isinstance(sd.get("shot"), dict) else {}
-            if Relay.golden_side(sides, side):          # a golden break is not a break-and-run
-                sh = {k: v for k, v in sh.items() if k != "bnr"}
+            sh = Relay.honours_shot(sides, side, kind)   # no golden break, no early money ball
             name = "".join(ch if 32 < ord(ch) < 127 else "?" for ch in str(names[side]))[:23] or "?"
             c.execute("INSERT INTO hside(result_id, month, uid, name, won, best, board, bnr, clr) VALUES(?,?,?,?,?,?,?,?,?)",
                       (rid, month, uid, name, 1 if r.get("winner") == side else 0, int(sd.get("best") or 0),
@@ -1013,7 +1011,8 @@ class Relay:
     # judge the same strokes differently, so between DIFFERENT versions these
     # are not compared; everything else still is (Mark, 2026-10-11).
     SHOT_JUDGED = ("att", "made", "long_att", "long_made", "safeties", "safe_ok",
-                   "random")      # a fluke is a ball other than the one played FOR, which the judging names
+                   "random",      # a fluke is a ball other than the one played FOR, which the judging names
+                   "bnr", "runouts")  # 7.4.5: at 9- and 10-ball a run must clear the table (an early money ball is not one)
 
     @staticmethod
     def ver_key(r):
@@ -1038,6 +1037,29 @@ class Relay:
             if self.golden_side(r["sides"], i) and isinstance(sd.get("shot"), dict):
                 sd["shot"] = {k: v for k, v in sd["shot"].items() if k != "bnr"}
         return json.dumps(shared, sort_keys=True)
+
+    RUN_CLEARS = {2: 9, 13: 10}   # 9-ball and 10-ball (CueGameKind): the object balls a run must pot
+
+    @classmethod
+    def honours_shot(cls, sides, side, kind):
+        """side's shot figures as the honours count them: a golden break is no
+        break-and-run, and at 9- and 10-ball neither is a frame won early on
+        the money ball -- before 7.4.5 the game counted one (Mark, 2026-10-12:
+        "I just comboed the 9 ball off the 2 ball after a break where I potted
+        the 1 - it counted as a break and run")"""
+        sd = sides[side] if isinstance(sides[side], dict) else {}
+        sh = sd.get("shot") if isinstance(sd.get("shot"), dict) else {}
+        if cls.golden_side(sides, side):
+            sh = {k: v for k, v in sh.items() if k != "bnr"}
+        need = cls.RUN_CLEARS.get(kind)
+        if need:
+            try:
+                down = sum(int((s or {}).get("potted") or 0) for s in sides[:2])
+            except (TypeError, ValueError, AttributeError):
+                down = 0
+            if down < need:
+                sh = {k: v for k, v in sh.items() if k not in ("bnr", "runouts")}
+        return sh
 
     @staticmethod
     def golden_side(sides, i):
@@ -1129,9 +1151,7 @@ class Relay:
                             continue
                         name_of[uid] = "".join(c if 32 < ord(c) < 127 else "?" for c in str(names[side]))[:23] or "?"
                         sd = sides[side] or {}
-                        sh = sd.get("shot") or {}
-                        if self.golden_side(sides, side):          # a golden break is not a break-and-run
-                            sh = {k: v for k, v in sh.items() if k != "bnr"}
+                        sh = self.honours_shot(sides, side, int(r.get("kind", -1)))   # no golden break, no early money ball
                         args = (uid, r.get("winner") == side, sh, int(r.get("kind", -1)), int(sd.get("best") or 0))
                         tally(allp, *args)
                         if month and month < month_now:
