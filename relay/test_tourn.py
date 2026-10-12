@@ -1,0 +1,201 @@
+#!/usr/bin/env python3
+"""test_tourn.py -- the club's tournaments (mote_tourn.py) on a fake clock:
+a whole night of eight to its champion, byes, a night called off, a no-show,
+a late arrival, a drop-out waited for and one walked over, a disputed frame, a
+relay restart in the middle, and the draw made again from the entry list.
+Temp folders only.
+
+    python3 relay/test_tourn.py
+"""
+import os, shutil, sys, tempfile
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, HERE)
+import mote_tourn as T  # noqa: E402
+
+ok = bad = 0
+
+
+def check(cond, what):
+    global ok, bad
+    print(("  [ok ] " if cond else "  [BAD] ") + what)
+    ok += bool(cond); bad += not cond
+
+
+class Clock:
+    def __init__(self, t): self.t = t
+    def __call__(self): return self.t
+
+
+START = 2_000_000_000.0          # a Friday night, as far as anyone here knows
+
+
+def night(n, store=None):
+    """a tournament of n entrants, created a day ahead; returns (org, clock, tid, uids)"""
+    store = store or tempfile.mkdtemp()
+    clock = Clock(START - 86400)
+    org = T.Organiser(store, now=clock)
+    tid, why = org.create({"gid": "4355", "title": "UK 8-BALL KNOCKOUT", "kind": 0, "size": 8,
+                           "best_of": 3, "final_best_of": 5, "start": START, "ver": "7.5"})
+    uids = [f"10{i}" for i in range(1, n + 1)]
+    for i, u in enumerate(uids):
+        org.enter(tid, u, f"PLAYER{i + 1}", "7.5")
+    return org, clock, tid, uids, store
+
+
+def step(org, clock, secs):
+    clock.t += secs
+    org.tick()
+
+
+def play(org, t, m, winner_num, frames_to=None):
+    """both to the table, then the winner takes the frames needed"""
+    ua, ub = t.draw[m.a], t.draw[m.b]
+    org.table_in(t.tid, m.mid, ua); org.table_in(t.tid, m.mid, ub)
+    need = m.best_of // 2 + 1
+    w = t.draw[winner_num]
+    for _ in range(need):
+        org.frame_agreed(t.tid, m.mid, w)
+
+
+def main():
+    # ---- A WHOLE NIGHT OF EIGHT ------------------------------------------
+    org, clock, tid, uids, store = night(8)
+    t = org.t[tid]
+    check(org.enter(tid, "999", "LATE", "7.4.5") == "VERSION", "an entry on another game version is turned away")
+    check(org.enter(tid, "999", "NINTH", "7.5") == "FULL", "a ninth entrant is turned away")
+    check(org.enter(tid, uids[0], "AGAIN", "7.5") == "ALREADY", "an account enters once")
+    clock.t = START - T.OPEN_BEFORE - 1; org.tick()
+    check(t.status == "open", "the room is not open sixteen minutes before")
+    step(org, clock, 2)
+    check(t.status == "room" and ("OPEN" in [l for _, l in org.take()]), "the room opens fifteen minutes before, and says so")
+    check(org.enter(tid, "998", "LATE", "7.5") == "CLOSED", "sign-up has closed once the room is open")
+    for u in uids:
+        org.room_in(tid, u)
+    clock.t = START; org.tick()
+    check(t.status == "running" and len(t.draw) == 8, "at the start the draw is made, all eight in it")
+    out = [l for _, l in org.take()]
+    calls = [l for l in out if l.startswith("CALL ")]
+    check(len(calls) == 4 and sorted(int(c.split()[2]) for c in calls) == [1, 2, 3, 4],
+          f"four first-round matches called to tables 1-4: {calls}")
+    again = T.Organiser.seeded_draw(tid, [e["uid"] for e in t.entrants])
+    check(again == t.draw, "the draw is made again from the entry list alone")
+    r1 = [m for m in t.matches if m.rnd == 1]
+    for m in r1:
+        play(org, t, m, m.a)
+    check(all(m.state == "done" and m.winner == m.a for m in r1), "round one played: the four winners through")
+    org.tick()
+    r2 = [m for m in t.matches if m.rnd == 2]
+    check(all(m.state == "called" for m in r2) and {m.table for m in r2} <= {1, 2, 3, 4}, "the semi-finals are called")
+    for m in r2:
+        play(org, t, m, m.b)
+    org.tick()
+    fin = t.matches[-1]
+    check(fin.state == "called" and fin.table == 1 and fin.best_of == 5, "the final is called to table 1, best of five")
+    play(org, t, fin, fin.a)
+    check(t.status == "done" and t.champion == fin.a, f"the champion is crowned: player {t.champion}")
+    check(any(l.startswith("CHAMPION ") for _, l in org.take()), "...and the room is told")
+
+    # ---- A RESTART TAKES IT UP WHERE IT WAS ------------------------------
+    org2 = T.Organiser(store, now=clock)
+    t2 = org2.t[tid]
+    check(t2.status == "done" and t2.champion == t.champion and [m.view() for m in t2.matches] == [m.view() for m in t.matches],
+          "the record replayed gives the same night, match for match")
+    shutil.rmtree(store)
+
+    # ---- SIX ENTRANTS: TWO BYES, NEVER TOGETHER ---------------------------
+    org, clock, tid, uids, store = night(6)
+    t = org.t[tid]
+    clock.t = START - T.OPEN_BEFORE; org.tick()
+    for u in uids:
+        org.room_in(tid, u)
+    clock.t = START; org.tick()
+    r1 = [m for m in t.matches if m.rnd == 1]
+    byes = [m for m in r1 if m.why == "bye"]
+    check(len(byes) == 2 and all((m.a is None) != (m.b is None) for m in byes), "six in an eight draw: two byes, one to a match")
+    check(len([m for m in r1 if m.state == "called"]) == 2, "only the two real first-round matches are called")
+    shutil.rmtree(store)
+
+    # ---- TOO FEW: CALLED OFF ----------------------------------------------
+    org, clock, tid, uids, store = night(5)
+    t = org.t[tid]
+    clock.t = START - T.OPEN_BEFORE; org.tick()
+    org.room_in(tid, uids[0]); org.room_in(tid, uids[1])
+    clock.t = START; org.tick()
+    check(t.status == "off" and "2" in t.why_off, f"two of five there: the night is called off ({t.why_off})")
+    shutil.rmtree(store)
+
+    # ---- A NO-SHOW, A LATE ARRIVAL ----------------------------------------
+    org, clock, tid, uids, store = night(8)
+    t = org.t[tid]
+    clock.t = START - T.OPEN_BEFORE; org.tick()
+    absent, late = uids[0], uids[1]
+    for u in uids[2:]:
+        org.room_in(tid, u)
+    clock.t = START; org.tick()
+    check(t.status == "running" and len(t.draw) == 8, "six of eight there: the night goes ahead, all eight drawn")
+    na, nl = t.num_of(absent), t.num_of(late)
+    ma = next(m for m in t.matches if na in (m.a, m.b))
+    ml = next(m for m in t.matches if nl in (m.a, m.b))
+    step(org, clock, 5 * 60)
+    if ml is not ma:
+        org.room_in(tid, late)
+        step(org, clock, 1)
+        check(ml.state == "called", "a player five minutes late is still called")
+    step(org, clock, 5 * 60 + 1)
+    if ma is not ml:
+        check(ma.state == "done" and ma.why == "walkover" and ma.winner != na, "ten minutes gone: the absent player is walked over")
+    else:
+        check(ma.state == "done" and ma.why == "default", "both of a match absent: the lower number through by default")
+    shutil.rmtree(store)
+
+    # ---- DROPPING OUT: WAITED FOR, THEN WALKED OVER ------------------------
+    org, clock, tid, uids, store = night(4)
+    t = org.t[tid]
+    clock.t = START - T.OPEN_BEFORE; org.tick()
+    for u in uids:
+        org.room_in(tid, u)
+    clock.t = START; org.tick()
+    m1, m2 = [m for m in t.matches if m.rnd == 1]
+    for m in (m1, m2):
+        org.table_in(tid, m.mid, t.draw[m.a]); org.table_in(tid, m.mid, t.draw[m.b])
+    check(m1.state == "playing" and m2.state == "playing", "both at their tables: the matches are playing")
+    org.frame_agreed(tid, m1.mid, t.draw[m1.a])
+    check(m1.score == [1, 0], "an agreed frame is on the score")
+    org.room_out(tid, t.draw[m1.b])
+    check(m1.state == "paused", "a player drops out: the match is paused, not given to the computer")
+    step(org, clock, 3 * 60)
+    org.room_in(tid, t.draw[m1.b]); org.table_in(tid, m1.mid, t.draw[m1.b])
+    check(m1.state == "playing", "back within five minutes: playing again")
+    org.room_out(tid, t.draw[m2.a])
+    step(org, clock, 4 * 60)
+    check(m2.state == "paused", "four minutes gone: still waited for")
+    step(org, clock, 61)
+    check(m2.state == "done" and m2.why == "walkover" and m2.winner == m2.b, "five minutes gone: the one who stayed goes through")
+    org.frame_disputed(tid, m1.mid, 2)
+    check(any(l == f"REPLAY {m1.mid} 2" for _, l in org.take()), "a disputed frame is sent back to be replayed")
+    # ...and a restart in the middle of the match
+    org2 = T.Organiser(store, now=clock)
+    t2 = org2.t[tid]
+    mm = next(m for m in t2.matches if m.mid == m1.mid)
+    check(mm.state == "paused" and mm.score == [1, 0], "a restart mid-match: the score kept, the match waiting for them")
+    for u in uids:
+        org2.room_in(tid, u)
+    org2.table_in(tid, mm.mid, t2.draw[mm.a]); org2.table_in(tid, mm.mid, t2.draw[mm.b])
+    check(mm.state == "playing", "...and playing again when both are back")
+    shutil.rmtree(store)
+
+    # ---- WITHDRAWING, AND THE LISTING ---------------------------------------
+    org, clock, tid, uids, store = night(3)
+    check(org.withdraw(tid, uids[2]) == "OK" and len(org.t[tid].entrants) == 2, "an entrant withdraws before the start")
+    lst = org.listing("4355")
+    check(len(lst) == 1 and lst[0]["entrants"] == ["PLAYER1", "PLAYER2"] and "101" not in str(lst), "the listing names entrants, never accounts")
+    check(org.create({"kind": 0, "start": clock.t - 10})[1] == "PAST", "a tournament cannot be made in the past")
+    shutil.rmtree(store)
+
+    print(f"{ok} ok, {bad} bad")
+    sys.exit(1 if bad else 0)
+
+
+if __name__ == "__main__":
+    main()
