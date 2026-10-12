@@ -305,6 +305,8 @@ class RoomN:
         self.done = asyncio.Event()
         self.vdropped = 0          # voice packets not queued to a backed-up member
         self.results = {}          # (t, frame) -> results held for the other side's word (7.3)
+        self.away = {}             # k -> {"uid", "at", "side"}: dropped from a frame under way, place held (7.5)
+        self.on_away = None        # the relay's: a place held, its clock started
 
     def free_place(self):
         for k in range(self.maxn):
@@ -401,6 +403,14 @@ class RoomN:
                 continue
             self.send_to(m, data, cap)
 
+    def held_side(self, m):
+        """the frame's side this member plays, when a frame both have started
+        is under way and the member is proved -- a place worth holding"""
+        st = getattr(self, "start", None)
+        if not st or len(st.get("sides", {})) < 2 or not m.uid or m.k >= self.WATCH_BASE:
+            return None
+        return next((sd for sd, v in st["sides"].items() if v["k"] == m.k and v.get("uid") == m.uid), None)
+
     def drop(self, m, why):
         if m.gone:
             return
@@ -409,6 +419,18 @@ class RoomN:
         if self.members.get(m.k) is m:
             del self.members[m.k]
         log(f"nroom {self.gid}/{self.code}: member {m.k} left ({why}), {len(self.members)} remain")
+        # GONE FROM A FRAME UNDER WAY (7.5, Mark): the place is held five
+        # minutes for that account -- a headset that slept, a link that fell
+        # over -- the host's too, and the room stays open. The others are told
+        # AWAY; back in time, BACK; not, GONE and the forfeit is theirs (the
+        # relay's on_away). Switching off to dodge a loss only runs the clock.
+        side = self.held_side(m) if not self.closed else None
+        if side is not None and self.on_away is not None:
+            self.away[m.k] = {"uid": m.uid, "at": time.monotonic(), "side": side}
+            self.control(f"AWAY {m.k} {int(self.on_away(self, m.k))}", 1 << 30)
+            if not self.members and not self.away:
+                self.done.set()
+            return
         if m.k >= self.WATCH_BASE:
             if not self.closed:
                 self.control(f"UNWATCH {m.k}", 1 << 30, only=0)
@@ -1452,7 +1474,13 @@ class Relay:
             r = json.loads(body)
         except ValueError:
             return "RESULT BAD"
-        if not self.result_check(r) or len(room.players()) < 2 or m.k >= room.WATCH_BASE:
+        # BOTH STILL IN THE ROOM -- except the one a forfeit is in favour of,
+        # whose account of the frame is the one kept: their opponent has gone,
+        # so "two players" can never be true for it (2026-10-12: the stayer's
+        # report was refused, the forfeit written bare, a run of 8 lost)
+        f = getattr(room, "forfeit", None)
+        for_me = bool(f) and m.k == f["st"]["sides"][f["winner"]]["k"]
+        if not self.result_check(r) or (len(room.players()) < 2 and not for_me) or m.k >= room.WATCH_BASE:
             return "RESULT BAD"
         side = r["me"]
         entry = {"k": m.k, "side": side, "addr": self.addr_hash(m.peer), "uid": m.uid, "r": r, "at": now}
@@ -1680,6 +1708,76 @@ class Relay:
         except Exception as e:
             log(f"tournaments: a result could not be taken ({type(e).__name__}: {e})")
         self.tourn_flush()
+
+    # ---- COMING BACK TO A FRAME (7.5) ---------------------------------------
+    # A player dropped from a frame under way has RESUME_WAIT to come back to
+    # the same place (REJOIN, by their account). Not back: GONE, and the frame
+    # is forfeited by THEM (Mark: "needs to be A") -- whoever closed last. The
+    # one who stayed is told GONE and reports the frame, kept as the forfeit
+    # with their figures (the forfeit's own wait); none in time, the relay
+    # writes it bare, as before.
+    RESUME_WAIT = 300.0
+
+    def room_away(self, room, k):
+        wait = getattr(self.args, "resume_wait", self.RESUME_WAIT)
+        log(f"nroom {room.gid}/{room.code}: member {k} away from a frame under way; held {int(wait)} s")
+        asyncio.get_event_loop().call_later(wait, self.away_settle, room, k, room.away[k]["at"])
+        return wait
+
+    def away_settle(self, room, k, at):
+        a = room.away.get(k)
+        if a is None or a["at"] != at or room.closed:
+            return                              # back in time, or the room went another way
+        del room.away[k]
+        log(f"nroom {room.gid}/{room.code}: member {k} not back in time: the frame is theirs to lose")
+        stub = Member(k, None, None, ("-", 0))
+        stub.uid = a["uid"]
+        stub.q = None
+        # the frame is theirs to lose as if they had walked out this moment
+        st = getattr(room, "start", None)
+        if st and len(st.get("sides", {})) == 2:
+            try:
+                self.forfeit_leave(room, stub)
+            except Exception as e:
+                log(f"nroom {room.gid}/{room.code}: a forfeit could not be held ({type(e).__name__}: {e})")
+        room.control(f"GONE {k}", 1 << 30)
+        if not room.members and not room.away:
+            room.closed = True
+            room.done.set()
+
+    async def handle_rejoin(self, gid, a, reader, writer, peer):
+        """ROOMN <GAMEID> REJOIN <CODE> <ACCOUNT> <NONCE>: back to a held place"""
+        code = clean_code(a[1]) if len(a) > 1 else ""
+        uid, nonce = (a[2] if len(a) > 2 else ""), (a[3] if len(a) > 3 else "")
+        key = rkey(gid, code)
+        room = self.nrooms.get(key) if code else None
+        if room is None or room.closed:
+            writer.write(b"NONE\n"); await writer.drain(); return
+        k = next((x for x, v in room.away.items() if v["uid"] == uid), None)
+        if k is None:
+            writer.write(b"NOTYOU\n"); await writer.drain(); return
+        if not await self.tourn_proof(uid, nonce):
+            writer.write(b"NOTYOU\n"); await writer.drain(); return
+        if room.away.get(k, {}).get("uid") != uid or k in room.members:
+            writer.write(b"NONE\n"); await writer.drain(); return
+        del room.away[k]
+        log(f"nroom {key}: member {k} back")
+        m = Member(k, reader, writer, peer)
+        m.uid = uid
+        room.members[k] = m
+        writer.write(f"SEAT {k} {room.maxn} BACK\n".encode())
+        m.task = asyncio.create_task(self.member_writer(room, m))
+        cap = self.args.room_backlog
+        room.control("MEMBERS " + " ".join(str(x) for x in sorted(room.players())), cap, only=k)
+        room.control(f"BACK {k}", cap, skip=k)
+        self.tourn_table(room, m, True)
+        await self.member_reader(room, m)
+        self.voice_forget(m)
+        await asyncio.gather(m.task, return_exceptions=True)
+        if room.done.is_set() and self.nrooms.get(key) is room:
+            self.nrooms.pop(key, None)
+            self.results_flush(room)
+            log(f"nroom {key}: closed")
 
     # ---- WHO IS PLAYING, PROVED (7.3) ---------------------------------------
     PROOF_KEEP = 600.0     # seconds a proof Meta has said is good is good again here
@@ -2004,6 +2102,8 @@ class Relay:
         room.drop(m, why)
         if getattr(room, "tourn", None) and not getattr(room, "club", False):
             self.tourn_table(room, m, False)
+        if m.k in getattr(room, "away", {}):
+            return                              # held: forfeited only if not back in time (away_settle)
         try:
             self.forfeit_leave(room, m)
         except Exception as e:
@@ -2219,6 +2319,7 @@ class Relay:
             public = a[2].upper() == "PUB"
             label = clean_label(" ".join(a[4:])) if len(a) > 4 else "GAME"
             room = RoomN(gid, code, public, maxn, label)
+            room.on_away = self.room_away
             self.nrooms[key] = room
             if self.tourn is not None:
                 tt, _, mt = self.tourn.match_by_code(code)
@@ -2239,6 +2340,9 @@ class Relay:
             if k < 0:
                 writer.write(b"FULL\n"); await writer.drain(); return
             await self.nroom_member(key, room, k, reader, writer, peer)
+            return
+        if sub == "REJOIN":                 # REJOIN <CODE> <ACCOUNT> <NONCE>: back to a held place (7.5)
+            await self.handle_rejoin(gid, a, reader, writer, peer)
             return
         if sub == "WATCH":                  # WATCH <CODE>: a room being played, to watch
             code = clean_code(a[1]) if len(a) > 1 else ""
@@ -2272,6 +2376,7 @@ class Relay:
             key = rkey(gid, code)
             label = clean_label(" ".join(a[2:])) if len(a) > 2 else "QUICK"
             room = RoomN(gid, code, True, maxn, label)
+            room.on_away = self.room_away
             self.nrooms[key] = room
             log(f"nroom {key}: quick-hosted, {maxn} places ({peer})")
             await self.nroom_member(key, room, 0, reader, writer, peer)
@@ -2502,6 +2607,7 @@ async def main():
     ap.add_argument("--club-batch-ms", type=float, default=25.0, help="a club's frames written to each member in batches this many ms apart (0 = every frame at once, as before 7.5); 25 halves the relay's work (Mark, 2026-10-12)")
     ap.add_argument("--tourn-watchers", type=int, default=40, help="most watchers in a tournament's room (7.5)")
     ap.add_argument("--tourn-trust", action="store_true", help="DESK ONLY: take a tournament entrant's account as given, without Meta")
+    ap.add_argument("--resume-wait", type=float, default=300.0, help="seconds a player dropped from a frame under way has to come back to it (7.5)")
     ap.add_argument("--forfeit-wait", type=float, default=90.0, help="seconds a forfeit waits for the remaining player's report before the relay records it without figures (7.4.x)")
     ap.add_argument("--latest-game", action="append", default=[], help="a current game id ('CUEn', 0x4355456E): older ids of its family are told to update (7.3); also <store>/latest_games")
     ap.add_argument("--store-cap", type=int, default=200000, help="most share codes kept")
