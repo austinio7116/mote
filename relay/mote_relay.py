@@ -265,10 +265,11 @@ class Room:
 
 class Member:
     __slots__ = ("k", "reader", "writer", "q", "backlog", "task", "gone", "peer",
-                 "vtok", "uaddr", "useen", "vtcp", "vwin", "vcount", "uid", "proofs")
+                 "vtok", "uaddr", "useen", "vtcp", "vwin", "vcount", "uid", "proofs", "pend")
     def __init__(self, k, reader, writer, peer):
         self.k, self.reader, self.writer, self.peer = k, reader, writer, peer
         self.q = asyncio.Queue()
+        self.pend = []             # a batched club's frames, waiting for its flush
         self.backlog = 0
         self.task = None
         self.gone = False
@@ -451,7 +452,27 @@ class ClubRoom(RoomN):
             self.dropped += 1       # behind: this one is not sent, the member stays
             return
         m.backlog += len(data)
+        if self.batch is not None:
+            # BATCHED (--club-batch-ms): held for the room's next flush, which
+            # writes each member's frames in one go -- one write a member a
+            # tick instead of one a frame (7.5, measured: watchers)
+            m.pend.append(data)
+            self.batch_due()
+            return
         m.q.put_nowait(data)
+
+    batch = None                    # seconds between flushes, or None to write every frame at once
+
+    def batch_due(self):
+        if getattr(self, "_flush_at", None) is None:
+            self._flush_at = asyncio.get_event_loop().call_later(self.batch, self.batch_flush)
+
+    def batch_flush(self):
+        self._flush_at = None
+        for m in list(self.members.values()):
+            if m.pend and not m.gone:
+                m.q.put_nowait(b"".join(m.pend))
+                m.pend.clear()
 
     def drop(self, m, why):
         if m.gone:
@@ -477,12 +498,58 @@ class TournClub(ClubRoom):
     here is checking in), and its tables are the relay's to set, never a
     member's. The organiser's news goes to everyone as "T <line>" and the
     whole state as "TSTATE <json>"."""
-    def __init__(self, gid, tid):
+    # WATCHERS (7.5): places 16.. -- anyone may come in and watch, and nobody
+    # in the room knows they are there. They are never announced (no MEMBERS,
+    # JOINED or LEFT names them), nothing they send goes anywhere (a pose, a
+    # name, a table: dropped), and they are sent no voice: they hear the room
+    # and the referee, not the players' talk (Mark, 2026-10-12).
+    WATCH_BASE, WATCH_MAX = 16, 40
+
+    def __init__(self, gid, tid, watch_max=40):
         super().__init__(gid, 0)
         self.code = f"TCLUB{tid}"
         self.label = f"TOURNAMENT {tid}"
         self.tid = tid
         self.public = False
+        self.WATCH_MAX = watch_max
+
+    def free_place(self):
+        for k in range(self.WATCH_BASE):
+            if k not in self.members:
+                return k
+        return -1
+
+    def deliver(self, frm, to, payload, cap):
+        if frm >= self.WATCH_BASE:
+            return                          # a watcher says nothing
+        super().deliver(frm, to, payload, cap)
+
+    def voice(self, frm, pkt, udp, vcap):
+        if frm >= self.WATCH_BASE:
+            return
+        # the players' talk is the players': lent the watchers' tokens away for the length of the call
+        held = {k: o.vtok for k, o in self.members.items() if k >= self.WATCH_BASE}
+        for k in held:
+            self.members[k].vtok = None
+        try:
+            super().voice(frm, pkt, udp, vcap)
+        finally:
+            for k, v in held.items():
+                if k in self.members:
+                    self.members[k].vtok = v
+
+    def drop(self, m, why):
+        if m.k < self.WATCH_BASE:
+            return super().drop(m, why)
+        if m.gone:
+            return
+        m.gone = True                       # a watcher goes as it came: unannounced
+        m.q.put_nowait(None)
+        if self.members.get(m.k) is m:
+            del self.members[m.k]
+        if not self.members:
+            self.closed = True
+            self.done.set()
 
 
 SHARE_ALPHA = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"   # no confusable 0/O/1/I
@@ -1804,7 +1871,7 @@ class Relay:
                         # open to JOIN, and now listed LIVE as well, to WATCH
                         room.playing = True
                         log(f"nroom {room.gid}/{room.code}: playing, open, with {len(room.members)}")
-                    elif getattr(room, "club", False) and cmd.startswith("NAME "):
+                    elif getattr(room, "club", False) and cmd.startswith("NAME ") and m.k < room.WATCH_BASE:
                         nm = clean_label(raw[5:])[:24] or "PLAYER"
                         room.names[m.k] = nm
                         room.control(f"NAME {m.k} {nm}", cap)
@@ -1912,7 +1979,9 @@ class Relay:
         m.task = asyncio.create_task(self.member_writer(club, m))
         cap = self.args.room_backlog
         # who is here, what they are called and which tables are set up
-        club.control("MEMBERS " + " ".join(str(x) for x in sorted(club.members)), cap, only=k)
+        # the players only: a tournament's watchers are nobody's business (an
+        # ordinary club has none, so for it this is everyone, as before)
+        club.control("MEMBERS " + " ".join(str(x) for x in sorted(club.players())), cap, only=k)
         for o, nm in sorted(club.names.items()):
             club.control(f"NAME {o} {nm}", cap, only=k)
         for slot, (o, text) in sorted(club.tables.items()):
@@ -1979,6 +2048,7 @@ class Relay:
         club = self.nrooms.get(key)
         if club is None or club.closed:
             club = ClubRoom(gid, n)
+            club.batch = (self.args.club_batch_ms / 1000.0) if getattr(self.args, "club_batch_ms", 0) else None
             self.nrooms[key] = club
             log(f"club {key}: opened ({peer})")
         k = club.free_place()
@@ -1996,14 +2066,20 @@ class Relay:
         except (IndexError, ValueError):
             writer.write(b"ERR\n"); await writer.drain(); return
         uid, nonce = (a[2] if len(a) > 2 else ""), (a[3] if len(a) > 3 else "")
-        if self.tourn is None or self.tourn.t.get(tid) is None or self.tourn.t[tid].status not in ("room", "running"):
+        if self.tourn is None or self.tourn.t.get(tid) is None or self.tourn.t[tid].status not in ("room", "running", "done"):
+            writer.write(b"NONE\n"); await writer.drain(); return
+        if uid.upper() == "WATCH":
+            await self.tourn_watcher(gid, tid, reader, writer, peer)
+            return
+        if self.tourn.t[tid].status == "done":
             writer.write(b"NONE\n"); await writer.drain(); return
         if not await self.tourn_proof(uid, nonce) or self.tourn.may_enter_room(tid, uid) != "PLAYER":
             writer.write(b"NOTYOU\n"); await writer.drain(); return
         key = rkey(gid, f"TCLUB{tid}")
         club = self.nrooms.get(key)
         if club is None or club.closed:
-            club = TournClub(gid, tid)
+            club = TournClub(gid, tid, getattr(self.args, "tourn_watchers", 40))
+            club.batch = (self.args.club_batch_ms / 1000.0) if getattr(self.args, "club_batch_ms", 0) else None
             self.nrooms[key] = club
             log(f"club {key}: opened for tournament {tid}")
         k = club.free_place()
@@ -2027,6 +2103,38 @@ class Relay:
                 await asyncio.sleep(0.02)
         asyncio.ensure_future(seat_then_state())
         await self.club_member(key, club, k, reader, writer, peer)
+
+    async def tourn_watcher(self, gid, tid, reader, writer, peer):
+        """CLUB <GAMEID> TOURN <TID> WATCH: a watcher into the tournament's
+        room -- no account asked, nobody told. "SEAT <K> 16 0 WATCH" then
+        framed: the players (MEMBERS), their names, the state, and everything
+        the room sends from then on."""
+        key = rkey(gid, f"TCLUB{tid}")
+        club = self.nrooms.get(key)
+        if club is None or club.closed:
+            club = TournClub(gid, tid, getattr(self.args, "tourn_watchers", 40))
+            club.batch = (self.args.club_batch_ms / 1000.0) if getattr(self.args, "club_batch_ms", 0) else None
+            self.nrooms[key] = club
+            log(f"club {key}: opened for tournament {tid} (by a watcher)")
+        k = next((x for x in range(club.WATCH_BASE, club.WATCH_BASE + club.WATCH_MAX) if x not in club.members), -1)
+        if k < 0:
+            writer.write(b"FULL\n"); await writer.drain(); return
+        m = Member(k, reader, writer, peer)
+        club.members[k] = m
+        writer.write(f"SEAT {k} {club.maxn} 0 WATCH\n".encode())
+        m.task = asyncio.create_task(self.member_writer(club, m))
+        cap = self.args.room_backlog
+        club.control("MEMBERS " + " ".join(str(x) for x in sorted(club.players())), cap, only=k)
+        for o, nm in sorted(club.names.items()):
+            club.control(f"NAME {o} {nm}", cap, only=k)
+        club.control("TSTATE " + json.dumps(self.tourn.t[tid].view(), separators=(",", ":")), cap, only=k)
+        log(f"club {key}: a watcher in ({len(club.watchers())} watching)")
+        await self.member_reader(club, m)
+        self.voice_forget(m)
+        await asyncio.gather(m.task, return_exceptions=True)
+        if club.done.is_set() and self.nrooms.get(key) is club:
+            self.nrooms.pop(key, None)
+            log(f"club {key}: closed")
 
     async def handle_roomn(self, gid, a, reader, writer, peer):
         sub = a[0].upper() if a else ""
@@ -2324,6 +2432,8 @@ async def main():
     ap.add_argument("--meta-app-id", default="1036582382349280", help="the Meta app the proofs are for (CueVR)")
     ap.add_argument("--meta-verify-url", default="https://graph.oculus.com/user_nonce_validate", help="where proofs are checked (a test points it at a fake)")
     ap.add_argument("--admin-token-file", default="", help="file holding the admin token that may CREATE and CANCEL tournaments (7.5)")
+    ap.add_argument("--club-batch-ms", type=float, default=0.0, help="a club's frames written to each member in batches this many ms apart (0 = every frame at once, as before)")
+    ap.add_argument("--tourn-watchers", type=int, default=40, help="most watchers in a tournament's room (7.5)")
     ap.add_argument("--tourn-trust", action="store_true", help="DESK ONLY: take a tournament entrant's account as given, without Meta")
     ap.add_argument("--forfeit-wait", type=float, default=90.0, help="seconds a forfeit waits for the remaining player's report before the relay records it without figures (7.4.x)")
     ap.add_argument("--latest-game", action="append", default=[], help="a current game id ('CUEn', 0x4355456E): older ids of its family are told to update (7.3); also <store>/latest_games")
