@@ -33,7 +33,7 @@ def ask(port, line):
     while True:
         l = readline(s)
         out.append(l)
-        if l in ("END", "") or not l.startswith(("NOW", "T ")):
+        if l in ("END", "") or not l.startswith(("NOW", "T ", "TL ", "TE ", "TS ", "MINE ")):
             break
     s.close()
     return out
@@ -128,10 +128,11 @@ def main():
             a = ask(port, f"MOTE2 TOURN {GID} ENTER {tid} {u} desknonce{u} 7.5 DESK{i + 1}")[0]
             check(a == "ENTER OK", f"entrant {i + 1} signs up: {a}")
         check(ask(port, f"MOTE2 TOURN {GID} ENTER {tid} 299 desknonce299 7.4.5 OLDGAME")[0] == "ENTER VERSION", "an entrant on 7.4.5 is turned away")
-        lst = ask(port, f"MOTE2 TOURN {GID} LIST")
-        t = json.loads(lst[1][2:])
-        check(lst[0].startswith("NOW ") and t["entrants"] == ["DESK1", "DESK2", "DESK3", "DESK4"] and "201" not in lst[1],
-              "the listing shows the four names, no accounts")
+        lst = ask(port, f"MOTE2 TOURN {GID} LIST 201")
+        check(lst[0].startswith("NOW ") and lst[1].startswith(f"TL {tid} open ") and lst[1].endswith("DESK KNOCKOUT")
+              and [l[len(f"TE {tid} "):] for l in lst if l.startswith("TE ")] == ["DESK1", "DESK2", "DESK3", "DESK4"]
+              and f"MINE {tid}" in lst and not any("201" in l.split() for l in lst[1:] if not l.startswith("MINE")),
+              f"the listing shows the tournament, its four names and that 201 entered it -- no accounts: {lst}")
         time.sleep(2.5)                       # the clock opens the room (the start is under 15 minutes away)
         stranger = conn(port, f"MOTE2 CLUB {GID} TOURN {tid} 298 desknonce298")
         check(readline(stranger) == "NOTYOU", "an account not entered is not let in")

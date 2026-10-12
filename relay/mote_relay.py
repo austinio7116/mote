@@ -1563,9 +1563,19 @@ class Relay:
             return "OFF\n"
         sub = a[0].upper() if a else ""
         if sub == "LIST":
+            # LINES, NOT JSON (the game has no JSON reader): per tournament
+            # "TL <tid> <status> <start> <close> <kind> <rules> <size> <best_of>
+            # <final_best_of> <entrants> <title...>", then "TE <tid> <name>" for
+            # each entrant and its style as "TS <tid> <cloth> <frame> <body>
+            # <set> <leather|-> <metal|->"
             out = f"NOW {int(time.time())}\n"
             for v in self.tourn.listing(gid):
-                out += "T " + json.dumps(v, separators=(",", ":")) + "\n"
+                out += (f"TL {v['tid']} {v['status']} {v['start']} {v['close']} {v['kind']} {v['rules']} {v['size']} "
+                        f"{v['best_of']} {v['final_best_of']} {len(v['entrants'])} {mote_tourn.word(v['title'])}\n")
+                for nm in v["entrants"]:
+                    out += f"TE {v['tid']} {mote_tourn.word(nm)}\n"
+                s = v["style"]
+                out += f"TS {v['tid']} {s['cloth']} {s['frame']} {s['body']} {s['set']} {s['leather'] or '-'} {s['metal'] or '-'}\n"
             uid = a[1] if len(a) > 1 and a[1].isdigit() else ""
             if uid:
                 for tid, t in sorted(self.tourn.t.items()):
