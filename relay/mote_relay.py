@@ -496,8 +496,9 @@ class TournClub(ClubRoom):
     """A TOURNAMENT'S ROOM (CueVR 7.5): a club the relay opens for one
     tournament. Its places are the entrants (in by their Meta account; being
     here is checking in), and its tables are the relay's to set, never a
-    member's. The organiser's news goes to everyone as "T <line>" and the
-    whole state as "TSTATE <json>"."""
+    member's. The organiser's news goes to everyone as "T <line>", then the
+    whole state as "TS ..." lines (mote_tourn.state_lines) and each player
+    their own draw number, "T YOU <n>" (0 before the draw)."""
     # WATCHERS (7.5): places 16.. -- anyone may come in and watch, and nobody
     # in the room knows they are there. They are never announced (no MEMBERS,
     # JOINED or LEFT names them), nothing they send goes anywhere (a pose, a
@@ -1510,7 +1511,16 @@ class Relay:
                 continue
             for _, line in [x for x in news if x[0] == tid]:
                 club.control(f"T {line}", cap)
-            club.control("TSTATE " + json.dumps(t.view(), separators=(",", ":")), cap)
+            self.tourn_state_to(club, t)
+
+    def tourn_state_to(self, club, t, only=None):
+        """the state's lines to the room (or one member), then each player's own number"""
+        cap = self.args.room_backlog
+        for l in mote_tourn.state_lines(t):
+            club.control(l, cap, only=only)
+        for k, m in list(club.members.items()):
+            if k < club.WATCH_BASE and m.uid and (only is None or only == k):
+                club.control(f"T YOU {t.num_of(m.uid) or 0}", cap, only=k)
 
     def tourn_tick(self):
         if self.tourn is None:
@@ -2059,7 +2069,7 @@ class Relay:
     async def handle_tourn_club(self, gid, a, reader, writer, peer):
         """CLUB <GAMEID> TOURN <TID> <UID> <NONCE>: an entrant into the
         tournament's room, proved by their Meta account -- being here is
-        checking in. "SEAT <K> 16 0" then framed as any club, the state first ("TSTATE");
+        checking in. "SEAT <K> 16 0" then framed as any club, the state first ("TS ...");
         "NONE" when the room is not open, "NOTYOU" for an account not entered."""
         try:
             tid = int(a[1])
@@ -2095,8 +2105,7 @@ class Relay:
                 if m is not None:
                     m.uid = uid
                     self.tourn.room_in(tid, uid)
-                    club.control("TSTATE " + json.dumps(self.tourn.t[tid].view(), separators=(",", ":")),
-                                 self.args.room_backlog, only=k)
+                    self.tourn_state_to(club, self.tourn.t[tid], only=k)
                     self.tourn_flush()
                     m_holder["m"] = m
                     return
@@ -2127,7 +2136,7 @@ class Relay:
         club.control("MEMBERS " + " ".join(str(x) for x in sorted(club.players())), cap, only=k)
         for o, nm in sorted(club.names.items()):
             club.control(f"NAME {o} {nm}", cap, only=k)
-        club.control("TSTATE " + json.dumps(self.tourn.t[tid].view(), separators=(",", ":")), cap, only=k)
+        self.tourn_state_to(club, self.tourn.t[tid], only=k)
         log(f"club {key}: a watcher in ({len(club.watchers())} watching)")
         await self.member_reader(club, m)
         self.voice_forget(m)

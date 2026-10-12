@@ -39,6 +39,20 @@ def ask(port, line):
     return out
 
 
+def parse_state(lines):
+    """the TS lines back into the few things the test asks of them"""
+    st = {"draw": {}, "matches": []}
+    for l in lines:
+        w = l.split(" ")
+        if w[1] == "BEGIN":
+            st["status"] = w[3]
+        elif w[1] == "DRAW":
+            st["draw"][w[2]] = " ".join(w[4:])
+        elif w[1] == "M":
+            st["matches"].append({"mid": w[2], "state": w[7]})
+    return st
+
+
 class Member:
     """one entrant in the tournament's room, collecting its control lines"""
     def __init__(self, port, tid, uid):
@@ -47,6 +61,7 @@ class Member:
         self.seat = readline(self.s)
         self.lines = []
         self.state = None
+        self.ts = []
         self.s.settimeout(None)
         if self.seat.startswith("SEAT"):
             threading.Thread(target=self.read, daemon=True).start()
@@ -57,8 +72,10 @@ class Member:
                 frm, _, payload = recv_frame(self.s)
                 if frm == 0xFE:
                     l = payload.decode("ascii", "replace")
-                    if l.startswith("TSTATE "):
-                        self.state = json.loads(l[7:])
+                    if l.startswith("TS "):
+                        self.ts.append(l)
+                        if l == "TS END":
+                            self.state, self.ts = parse_state(self.ts), []
                     else:
                         self.lines.append(l)
         except Exception:
@@ -128,6 +145,11 @@ def main():
         draw = {int(n): nm for n, nm in state["draw"].items()}
         num = {f"DESK{i + 1}": u for i, u in enumerate(uids)}
         uid_of = lambda n: num[draw[n]]
+        yous = {}
+        for i, m in enumerate(ms):
+            y = [l for l in m.lines if l.startswith("T YOU ")]
+            yous[i] = int(y[-1].split()[2]) if y else 0
+        check(all(draw.get(yous[i]) == f"DESK{i + 1}" for i in range(4)), f"each player is told their own draw number: {yous}")
 
         def play_called(call):
             _, _, mid, tbl, a, b, code = call.split()

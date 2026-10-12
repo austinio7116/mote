@@ -118,6 +118,34 @@ class Tournament:
                 "matches": [m.view() for m in self.matches], "champion": self.champion, "why_off": self.why_off}
 
 
+def word(s):
+    """a name or reason as one line's tail, printable and never empty"""
+    s = "".join(ch if 32 <= ord(ch) < 127 else "?" for ch in str(s)).strip()
+    return s or "-"
+
+
+def state_lines(t):
+    """THE STATE FOR THE GAME, as short lines it reads with sscanf (it has no
+    JSON reader, and the club cuts a line at 200 characters): BEGIN, the
+    title, the entrants (before the draw) or the draw, every match, END.
+    Numbers are 0 where there is none; a reason is one word."""
+    v = t.view()
+    out = [f"TS BEGIN {t.tid} {t.status} {t.kind} {t.rules} {t.size} {t.best_of} {t.final_best_of} "
+           f"{int(t.start)} {t.champion or 0} {word(t.why_off).replace(' ', '_')}",
+           f"TS TITLE {word(t.title)}"]
+    if t.draw:
+        for n, u in sorted(t.draw.items()):
+            out.append(f"TS DRAW {n} {1 if u in t.present else 0} {word(t.name_of(u))[:23]}")
+    else:
+        for e in t.entrants:
+            out.append(f"TS ENT {1 if e['uid'] in t.present else 0} {word(e['name'])[:23]}")
+    for m in v["matches"]:
+        out.append(f"TS M {m['mid']} {m['rnd']} {m['a'] or 0} {m['b'] or 0} {m['table']} {m['state']} "
+                   f"{m['score'][0]} {m['score'][1]} {m['winner'] or 0} {m['why'] or '-'} {m['best_of']}")
+    out.append("TS END")
+    return out
+
+
 class Organiser:
     def __init__(self, store, now=time.time, log=lambda *a: None):
         self.path = os.path.join(store, "tournaments.jsonl") if store else None

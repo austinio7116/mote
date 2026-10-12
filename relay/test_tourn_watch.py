@@ -99,7 +99,7 @@ def main():
         time.sleep(0.4)
         check(w.seat.endswith("WATCH") and w.k >= 16, f"a watcher comes in, at a watcher's place: {w.seat}")
         check(any(l.startswith("MEMBERS ") and str(w.k) not in l.split()[1:] for l in w.ctrl) and
-              any(l == "NAME 0 ALICE" for l in w.ctrl) and any(l.startswith("TSTATE ") for l in w.ctrl),
+              any(l == "NAME 0 ALICE" for l in w.ctrl) and any(l.startswith("TS BEGIN ") for l in w.ctrl) and "TS END" in w.ctrl,
               "the watcher is told the players, their names and the state")
         check(not any(f" {w.k}" in l for l in a.ctrl + b.ctrl), f"no player hears of the watcher: {a.ctrl[-3:]}")
         c = Seat(port, tid, "303")
