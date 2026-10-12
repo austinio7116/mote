@@ -307,6 +307,7 @@ class RoomN:
         self.vdropped = 0          # voice packets not queued to a backed-up member
         self.results = {}          # (t, frame) -> results held for the other side's word (7.3)
         self.away = {}             # k -> {"uid", "at", "side"}: dropped from a frame under way, place held (7.5)
+        self.resumed = {}          # frame -> the side that dropped from it (its account gives way, 7.5)
         self.on_away = None        # the relay's: a place held, its clock started
 
     def free_place(self):
@@ -433,6 +434,7 @@ class RoomN:
         side = self.held_side(m) if not self.closed else None
         if side is not None and self.on_away is not None:
             self.away[m.k] = {"uid": m.uid, "at": time.monotonic(), "side": side}
+            self.resumed.setdefault(self.start["frame"], side)
             self.control(f"AWAY {m.k} {int(self.on_away(self, m.k))}", 1 << 30)
             if not self.members and not self.away:
                 self.done.set()
@@ -1524,16 +1526,29 @@ class Relay:
                         "agreed": same, "a": {k: v for k, v in o.items() if k != "at"}, "b": entry_out,
                         # both players' Meta accounts proved: the result is theirs, not a name's
                         "verified": bool(o.get("uid")) and bool(entry.get("uid")) and o.get("uid") != entry.get("uid")}
+                # A FRAME SOMEBODY CAME BACK TO (7.5): a stroke played as their link
+                # fell never reached the other end, and the table the one who
+                # stayed sent back undid it -- but the dropper's own figures
+                # counted it. The one who stayed saw every stroke that counted:
+                # theirs is kept, marked, never a dispute
+                drop_side = room.resumed.get(r["frame"])
+                if not same and drop_side is not None:
+                    keep = o if o["side"] != drop_side else entry
+                    rk = keep["r"]
+                    same = True
+                    line["agreed"] = False
+                    line["resumed"] = {"dropped": drop_side, "kept": keep["side"]}
                 if same:
                     line["result"] = {k: rk.get(k) for k in self.RES_SHARED}
                     line["result"]["names"] = rk.get("names")
                     line["result"]["sides"] = [{k: sd.get(k) for k in self.RES_SIDE} for sd in rk["sides"]]
                 self.result_write("results.jsonl" if same else "results_disputed.jsonl", line)
-                self.tourn_result(room, r, same, o, entry)
+                self.tourn_result(room, rk if same else r, same, o, entry)
                 st = getattr(room, "start", None)
                 if st and st["frame"] == r["frame"]:
                     room.start = None              # the frame is over: nobody leaving now forfeits it
-                log(f"nroom {room.gid}/{room.code}: {r['t']} {r['frame']} {'agreed' if same else 'DISPUTED'}")
+                log(f"nroom {room.gid}/{room.code}: {r['t']} {r['frame']} "
+                    f"{('kept from the one who stayed' if line.get('resumed') else 'agreed') if same else 'DISPUTED'}")
                 return "RESULT KEPT" if same else "RESULT DISPUTED"
         if len(pend) < 8:
             pend.append(entry)
