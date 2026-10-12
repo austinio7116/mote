@@ -119,7 +119,7 @@ function vTourn(){
       <label class=small>Title<input id=tf-title maxlength=40 value="${e(TF.title)}" oninput="tset('title',this.value)" placeholder="Friday knockout"></label>
       <label class=small>Game<select id=tf-kind onchange="tset('kind',+this.value)">${opts(TGAMES, TF.kind)}</select></label>
       <div class=row style="gap:12px;flex-wrap:wrap">
-        <label class=small>Players<select id=tf-size onchange="tset('size',+this.value)">${opts([[4,'4'],[8,'8']], TF.size)}</select></label>
+        <label class=small>Players<select id=tf-size onchange="tset('size',+this.value)">${opts([[4,'4'],[8,'8'],[16,'16']], TF.size)}</select></label>
         <label class=small>Race to<select id=tf-race onchange="tset('race',+this.value)">${opts([1,2,3,4,5].map(n => [n, n]), TF.race)}</select></label>
         <label class=small>Final race to<select id=tf-frace onchange="tset('frace',+this.value)">${opts([1,2,3,4,5,6,7].map(n => [n, n]), TF.frace)}</select></label>
       </div>

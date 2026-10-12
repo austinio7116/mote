@@ -16,7 +16,7 @@ No sockets here and no clock of its own: the relay passes the time in and turns
 the returned announcements into lines to the tournament's room. That is what
 lets relay/test_tourn.py run a whole night in a fraction of a second.
 
-THE DECISIONS (Mark's, 2026-10-12): knockout, 4 or 8; a race to 2, the final
+THE DECISIONS (Mark's, 2026-10-12): knockout, 4, 8 or 16 (16 added the same night); a race to 2, the final
 to 3 (the tournament's own numbers when it says otherwise); a random draw from a
 seed every entrant can check; at least 3 present or the night is called off; a
 no-show has 10 minutes; a player who drops out of a match is waited for 5, then
@@ -33,7 +33,7 @@ NO_SHOW = 10 * 60           # an entrant not there this long after the start (or
 PAUSE = 5 * 60              # a player gone from a match in play is waited for this long
 MIN_PRESENT = 3             # fewer at the start and the night is called off
 TABLES = 4
-MAX_ENTRANTS = 8
+MAX_ENTRANTS = 16         # (Mark, 10-12: "we might find we have more than 8 players on our first night")
 # A TABLE'S ROOM CODE: four characters from the game's own alphabet
 # (CueVR's CUEVR_CODE_ALPHABET, CUEVR_CODE_LEN 4) -- the game keeps no more,
 # and "T1R1M1" cut to "T1R1" would have put every first-round match in one room
@@ -41,7 +41,7 @@ CODE_ALPHA = "23456789BCDFGHJKLMNPQRSTVWXYZ"
 
 
 def bracket_size(n):
-    return 4 if n <= 4 else 8
+    return 4 if n <= 4 else 8 if n <= 8 else 16
 
 
 class Match:
@@ -298,7 +298,7 @@ class Organiser:
     def build(self, t, at):
         """the empty bracket for the draw, then the first round from it"""
         size = max(t.draw) if t.draw else 0
-        size = 4 if size <= 4 else 8
+        size = 4 if size <= 4 else 8 if size <= 8 else 16
         t.matches = []
         r, n = 1, size // 2
         while n >= 1:
@@ -363,7 +363,7 @@ class Organiser:
             bo, fbo = int(spec.get("best_of", 3)), int(spec.get("final_best_of", 5))
         except (KeyError, TypeError, ValueError):
             return None, "BAD"
-        if size not in (4, 8) or not (1 <= bo <= 35 and bo % 2) or not (1 <= fbo <= 35 and fbo % 2):
+        if size not in (4, 8, 16) or not (1 <= bo <= 35 and bo % 2) or not (1 <= fbo <= 35 and fbo % 2):
             return None, "BAD"
         if start < self.now() + 60:
             return None, "PAST"

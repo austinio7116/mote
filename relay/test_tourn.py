@@ -30,12 +30,12 @@ class Clock:
 START = 2_000_000_000.0          # a Friday night, as far as anyone here knows
 
 
-def night(n, store=None):
+def night(n, store=None, size=8):
     """a tournament of n entrants, created a day ahead; returns (org, clock, tid, uids)"""
     store = store or tempfile.mkdtemp()
     clock = Clock(START - 86400)
     org = T.Organiser(store, now=clock)
-    tid, why = org.create({"gid": "4355", "title": "UK 8-BALL KNOCKOUT", "kind": 0, "size": 8,
+    tid, why = org.create({"gid": "4355", "title": "UK 8-BALL KNOCKOUT", "kind": 0, "size": size,
                            "best_of": 3, "final_best_of": 5, "start": START, "ver": "7.5"})
     uids = [f"10{i}" for i in range(1, n + 1)]
     for i, u in enumerate(uids):
@@ -101,6 +101,49 @@ def main():
     t2 = org2.t[tid]
     check(t2.status == "done" and t2.champion == t.champion and [m.view() for m in t2.matches] == [m.view() for m in t.matches],
           "the record replayed gives the same night, match for match")
+    shutil.rmtree(store)
+
+    # ---- A NIGHT OF SIXTEEN, ON FOUR TABLES ------------------------------
+    # (Mark, 10-12: "we might find we have more than 8 players on our first
+    # night"): eight first-round matches and four tables, so they are called
+    # as tables come free, and the night still runs to its champion
+    org, clock, tid, uids, store = night(16, size=16)
+    t = org.t[tid]
+    check(org.enter(tid, "997", "SEVENTEENTH", "7.5") == "FULL", "a seventeenth entrant is turned away")
+    clock.t = START - T.OPEN_BEFORE; org.tick()
+    for u in uids:
+        org.room_in(tid, u)
+    clock.t = START; org.tick()
+    check(t.status == "running" and len(t.draw) == 16 and len(t.matches) == 15, "sixteen in the draw, fifteen matches in the bracket")
+    out = [l for _, l in org.take()]
+    calls = [l for l in out if l.startswith("CALL ")]
+    check(len(calls) == 4 and sorted(int(c.split()[2]) for c in calls) == [1, 2, 3, 4], f"four of the eight first-round matches called, one a table: {calls}")
+    played, rounds = 0, 0
+    while t.status == "running" and played < 40:
+        live = [m for m in t.matches if m.state == "called"]
+        if not live:
+            org.tick(); live = [m for m in t.matches if m.state == "called"]
+            if not live:
+                break
+        for m in live:
+            play(org, t, m, m.a); played += 1
+        org.tick()
+        check(len([m for m in t.matches if m.state == "called"]) <= 4, "never more matches called than there are tables")
+    check(played == 15 and t.status == "done" and t.champion is not None, f"all fifteen matches played, a champion: player {t.champion}")
+    again = T.Organiser.seeded_draw(tid, [e["uid"] for e in t.entrants])
+    check(again == t.draw, "the draw of sixteen is made again from the entry list alone")
+    shutil.rmtree(store)
+
+    # ---- TWELVE ENTRANTS: A DRAW OF SIXTEEN, FOUR BYES ------------------
+    org, clock, tid, uids, store = night(12, size=16)
+    t = org.t[tid]
+    clock.t = START - T.OPEN_BEFORE; org.tick()
+    for u in uids:
+        org.room_in(tid, u)
+    clock.t = START; org.tick()
+    r1 = [m for m in t.matches if m.rnd == 1]
+    byes = [m for m in r1 if m.why == "bye"]
+    check(len(r1) == 8 and len(byes) == 4 and all((m.a is None) != (m.b is None) for m in byes), "twelve in a draw of sixteen: four byes, one to a match")
     shutil.rmtree(store)
 
     # ---- SIX ENTRANTS: TWO BYES, NEVER TOGETHER ---------------------------
