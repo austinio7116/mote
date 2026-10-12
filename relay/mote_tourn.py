@@ -34,6 +34,10 @@ PAUSE = 5 * 60              # a player gone from a match in play is waited for t
 MIN_PRESENT = 3             # fewer at the start and the night is called off
 TABLES = 4
 MAX_ENTRANTS = 8
+# A TABLE'S ROOM CODE: four characters from the game's own alphabet
+# (CueVR's CUEVR_CODE_ALPHABET, CUEVR_CODE_LEN 4) -- the game keeps no more,
+# and "T1R1M1" cut to "T1R1" would have put every first-round match in one room
+CODE_ALPHA = "23456789BCDFGHJKLMNPQRSTVWXYZ"
 
 
 def bracket_size(n):
@@ -147,10 +151,12 @@ def state_lines(t):
 
 
 class Organiser:
-    def __init__(self, store, now=time.time, log=lambda *a: None):
+    def __init__(self, store, now=time.time, log=lambda *a: None, taken=lambda code: False):
         self.path = os.path.join(store, "tournaments.jsonl") if store else None
         self.now = now
         self.log = log
+        self.taken = taken      # is this code a room already (the relay's own rooms)
+        self.rng = random.SystemRandom()
         self.t = {}             # tid -> Tournament
         self.out = []           # announcements waiting for the relay: (tid, line)
         self.replaying = False
@@ -450,6 +456,15 @@ class Organiser:
             return
         self.record({"e": "replay", "tid": tid, "mi": t.matches.index(m), "frame": frame})
 
+    def new_code(self):
+        """a room code no other match of any tournament holds and no room has"""
+        held = {m.code for x in self.t.values() for m in x.matches if m.code and m.state != "done"}
+        for _ in range(200):
+            code = "".join(self.rng.choice(CODE_ALPHA) for _ in range(4))
+            if code not in held and not self.taken(code):
+                return code
+        return "".join(self.rng.choice(CODE_ALPHA) for _ in range(4))
+
     # ---- THE CLOCK ---------------------------------------------------------
     def tick(self):
         now = self.now()
@@ -511,5 +526,5 @@ class Organiser:
                 if free:
                     table = free[0]
                     busy.add(table)
-                    code = f"T{t.tid}{m.mid}"[:8]
+                    code = self.new_code()
                     self.record({"e": "called", "tid": t.tid, "mi": i, "table": table, "code": code})

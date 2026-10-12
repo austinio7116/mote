@@ -956,7 +956,9 @@ class Relay:
         self.result_rate = {}      # ip -> [times] (RESULT, 7.3)
         # THE CLUB'S TOURNAMENTS (7.5): the organiser, and the admin's key
         # for making them (read once, never logged)
-        self.tourn = mote_tourn.Organiser(args.store, log=log) if (mote_tourn and args.store) else None
+        self.tourn = mote_tourn.Organiser(args.store, log=log,
+                                          taken=lambda code: any(k.endswith("/" + code) for k in list(self.rooms) + list(self.nrooms))
+                                          ) if (mote_tourn and args.store) else None
         self.tourn_rate = {}       # ip -> [times] (ENTER / WITHDRAW)
         self.admin_token = None
         if getattr(args, "admin_token_file", ""):
