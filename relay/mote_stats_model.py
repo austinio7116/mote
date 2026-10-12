@@ -548,6 +548,31 @@ class Model:
                                "players": sum(1 for p in players if p["frames"] and not p["team"]),
                                "accounts": sum(1 for p in players if p["proved"] and p["frames"]), "since": self.since}}
 
+        # REPEAT WALK-OUTS (Mark, 10-12: forfeits are kept, to stop anyone
+        # walking out of a losing frame to keep it off the record -- "if we
+        # see a lot of these by the same players it is worth flagging"): over
+        # the last 30 days, who keeps leaving frames under way, who keeps
+        # winning that way, and the same pair again and again (a friend
+        # walking out to hand someone wins). Three or more, or a pair twice.
+        cut30 = time.strftime("%Y-%m-%d", time.gmtime(time.time() - 30 * 86400))
+        lv, wn, pr = {}, {}, {}
+        for m in matches:
+            if not m["forfeit"] or not m["left"] or str(m["time"])[:10] < cut30:
+                continue
+            li = next((i for i in (0, 1) if m["names"][i] == m["left"]), None)
+            if li is None:
+                continue
+            wi = 1 - li
+            a = lv.setdefault(m["ids"][li], {"id": m["ids"][li], "name": m["names"][li], "n": 0, "bare": 0, "last": ""})
+            a["n"] += 1; a["bare"] += 0 if m["figures"] else 1; a["last"] = max(a["last"], str(m["time"]))
+            b = wn.setdefault(m["ids"][wi], {"id": m["ids"][wi], "name": m["names"][wi], "n": 0, "last": ""})
+            b["n"] += 1; b["last"] = max(b["last"], str(m["time"]))
+            c = pr.setdefault((m["ids"][li], m["ids"][wi]), {"left": m["names"][li], "won": m["names"][wi], "n": 0, "last": ""})
+            c["n"] += 1; c["last"] = max(c["last"], str(m["time"]))
+        walkout_flags = {"leavers": sorted([x for x in lv.values() if x["n"] >= 3], key=lambda x: -x["n"]),
+                         "winners": sorted([x for x in wn.values() if x["n"] >= 3], key=lambda x: -x["n"]),
+                         "pairs": sorted([x for x in pr.values() if x["n"] >= 2], key=lambda x: -x["n"])}
+
         return {"built": time.strftime("%Y-%m-%d %H:%M:%S", time.gmtime()) + " UTC",
                 "players": players, "matches": matches[:1000], "activity": activity,
                 "integrity": {"disputed": dlist, "unconfirmed": ulist,
@@ -555,7 +580,8 @@ class Model:
                               "unverified": [m for m in matches if not m["verified"]][:200],
                               "same_addr": list(reversed(self.same_addr)), "lopsided": lopsided[:100],
                               "notable": list(reversed(self.notable))[:100], "reports": list(reversed(reports)),
-                              "left_counts": sorted([(p["name"], p["left"]) for p in players if p["left"]], key=lambda x: -x[1])},
+                              "left_counts": sorted([(p["name"], p["left"]) for p in players if p["left"]], key=lambda x: -x[1]),
+                              "walkout_flags": walkout_flags},
                 "month_race": self._month_race(time.strftime("%Y-%m", time.gmtime())),
                 "pot_board": self._pot_board(time.strftime("%Y-%m", time.gmtime())),
                 "ratings": self._ratings()}

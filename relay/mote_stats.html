@@ -70,7 +70,9 @@ const TABS = [['now','Now'],['players','Players'],['ratings','Ratings'],['matche
 function route(){ const h = location.hash.slice(1) || 'now'; const [v, a] = h.split('/'); return {v, a: decodeURIComponent(a || '')}; }
 function nav(){
   const r = route(), base = {player:'players', match:'matches'}[r.v] || r.v;
-  const flags = M ? M.integrity.disputed.filter(d => !d.repaired).length + M.integrity.unconfirmed.length + M.integrity.same_addr.length + M.integrity.lopsided.length : 0;
+  const W = M && M.integrity.walkout_flags || {leavers: [], winners: [], pairs: []};
+  const flags = M ? M.integrity.disputed.filter(d => !d.repaired).length + M.integrity.unconfirmed.length + M.integrity.same_addr.length + M.integrity.lopsided.length
+                    + W.leavers.length + W.winners.length + W.pairs.length : 0;
   document.getElementById('nav').innerHTML = TABS.map(([k,l]) =>
     `<a href="#${k}" class="${base==k?'on':''}">${l}${k=='integrity'&&flags?`<span class=n>${flags}</span>`:''}</a>`).join('');
 }
@@ -361,6 +363,15 @@ function vIntegrity(){
       <pre>${d.diff.length ? d.diff.map(e).join('\n') : 'no difference in the compared fields'}</pre></div>`, 'No disputes.');
   h += sect('Unconfirmed', I.unconfirmed, u => `<div class=card><div class=row><span>${e(u.names[0])} v ${e(u.names[1])}</span><span class="dim small">${lt(u.time,true)}</span></div>
       <div class="small dim">${e(u.game)} &middot; ${e(u.t)} ${e(u.frame)} &middot; sent by ${e(u.sender)} only &middot; ${u.strokes} strokes${u.stale?' &middot; held too long':''}</div></div>`, 'None.');
+  {   const W = I.walkout_flags || {leavers: [], winners: [], pairs: []}, pl = x => `<span class=tap onclick="location.hash='player/${encodeURIComponent(x.id)}'">${e(x.name)} &rsaquo;</span>`;
+      h += `<h2>Repeat walk-outs <span class=dim>(last 30 days)</span></h2>`;
+      if (!W.leavers.length && !W.winners.length && !W.pairs.length) h += empty('Nobody has walked out of three frames, won three by walk-out, or walked out on the same player twice.');
+      else {
+        if (W.leavers.length) h += `<div class=card><b class=small>Left three or more frames under way</b><table>${W.leavers.map(x => `<tr><td>${pl(x)}</td><td class="r warn">${x.n} left</td><td class="r dim small">${x.bare ? x.bare + ' without figures' : ''}</td><td class="r dim small">${lt(x.last,true)}</td></tr>`).join('')}</table></div>`;
+        if (W.winners.length) h += `<div class=card><b class=small>Won three or more by walk-out</b><table>${W.winners.map(x => `<tr><td>${pl(x)}</td><td class="r warn">${x.n} won</td><td class="r dim small">${lt(x.last,true)}</td></tr>`).join('')}</table></div>`;
+        if (W.pairs.length) h += `<div class=card><b class=small>The same player walking out on the same opponent</b><table>${W.pairs.map(x => `<tr><td>${e(x.left)} &rarr; ${e(x.won)}</td><td class="r warn">${x.n} times</td><td class="r dim small">${lt(x.last,true)}</td></tr>`).join('')}</table><div class="tiny dim">A pair like this can be one friend handing another wins.</div></div>`;
+      }
+  }
   h += `<h2>Walk-outs <span class=dim>(${I.forfeits.length})</span></h2>`;
   if (I.left_counts.length) h += `<div class="card small">${I.left_counts.map(([n,c]) => `<span class=${c>=3?'warn':''}>${e(n)} ${c}</span>`).join(' &middot; ')}</div>`;
   h += I.forfeits.length ? I.forfeits.map(mCard).join('') : empty('Nobody has left a frame under way.');

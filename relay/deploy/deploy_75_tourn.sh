@@ -6,7 +6,7 @@
 #   relay/deploy/deploy_75_tourn.sh
 #
 # What it does, and how to undo it:
-#   * backs up /opt/mote-relay/{mote_relay.py,mote_tourn.py,mote_stats.py,mote_stats.html}
+#   * backs up /opt/mote-relay/{mote_relay.py,mote_tourn.py,mote_stats.py,mote_stats_model.py,mote_stats.html}
 #     as *.bak-<stamp>                    undo: copy them back, restart
 #   * makes /etc/mote-relay/admin.token (root, 600) if there is none -- never printed
 #   * adds drop-ins /etc/systemd/system/mote-{relay,stats}.service.d/tourn.conf:
@@ -19,12 +19,12 @@ STAMP=$(date -u +%Y%m%d-%H%M)
 H=mote-relay
 n=$(ssh $H 'ss -tn state established "( sport = :443 )" | tail -n +2 | wc -l')
 [ "$n" = "0" ] || { echo "not quiet: $n connections -- not deploying"; exit 1; }
-scp -q mote_relay.py mote_tourn.py mote_stats.py mote_stats.html $H:/tmp/
+scp -q mote_relay.py mote_tourn.py mote_stats.py mote_stats_model.py mote_stats.html $H:/tmp/
 ssh $H "set -e
 sudo mkdir -p /etc/mote-relay
 [ -f /etc/mote-relay/admin.token ] || (umask 077; openssl rand -hex 24 | sudo tee /etc/mote-relay/admin.token >/dev/null)
 sudo chmod 600 /etc/mote-relay/admin.token
-for f in mote_relay.py mote_tourn.py mote_stats.py mote_stats.html; do sudo cp -p /opt/mote-relay/\$f /opt/mote-relay/\$f.bak-$STAMP; done
+for f in mote_relay.py mote_tourn.py mote_stats.py mote_stats_model.py mote_stats.html; do sudo cp -p /opt/mote-relay/\$f /opt/mote-relay/\$f.bak-$STAMP; done
 sudo mkdir -p /etc/systemd/system/mote-relay.service.d /etc/systemd/system/mote-stats.service.d
 sudo tee /etc/systemd/system/mote-relay.service.d/tourn.conf >/dev/null <<'EOF'
 [Service]
@@ -38,7 +38,7 @@ LoadCredential=tourn:/etc/mote-relay/admin.token
 ExecStart=
 ExecStart=/usr/bin/python3 /opt/mote-relay/mote_stats.py --store /data --port 8443 --relay 127.0.0.1:443 --state /var/lib/mote-stats --backups /backups --token-file \${CREDENTIALS_DIRECTORY}/token --cert \${CREDENTIALS_DIRECTORY}/cert.pem --key \${CREDENTIALS_DIRECTORY}/key.pem --tourn-token-file \${CREDENTIALS_DIRECTORY}/tourn
 EOF
-for f in mote_relay.py mote_tourn.py mote_stats.py mote_stats.html; do sudo install -m 644 /tmp/\$f /opt/mote-relay/\$f; rm /tmp/\$f; done
+for f in mote_relay.py mote_tourn.py mote_stats.py mote_stats_model.py mote_stats.html; do sudo install -m 644 /tmp/\$f /opt/mote-relay/\$f; rm /tmp/\$f; done
 sudo systemctl daemon-reload
 sudo systemctl restart mote-relay mote-stats
 sleep 3
