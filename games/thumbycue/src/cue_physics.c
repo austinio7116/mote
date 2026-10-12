@@ -1533,6 +1533,16 @@ static CUE_HOT int collide_cushions(const CueWorld *w, CueBall *b, uint32_t *ev,
                 hit = 1;
                 if (cn) *cn = N;
                 if (ev) *ev |= CUE_EV_JAW;
+                /* THE KNUCKLE IS CUSHION: the jaw is the cushion's rubber, and
+                 * a ball that touches only its point after the contact has
+                 * reached a cushion as surely as one that meets the nose (CueVR
+                 * 7.5: "a foul for not hitting cushions when cushions were hit
+                 * -- around the jaws"; tools: 36 knuckle-only strokes in
+                 * CueVR's test_railjaw on the US tables, none of them heard as
+                 * a cushion). The flag the no-rail rule reads, and only that --
+                 * CUE_EV_CUSHION drives the cushion's thump, and the jaw has
+                 * its own sound. */
+                if (ev && w->first_hit >= 0) *ev |= CUE_EV_CUSH_AFTER;
                 if (jvn > s_jaw_vn) s_jaw_vn = jvn;   /* hardest knuckle this step */
             } }
         }
