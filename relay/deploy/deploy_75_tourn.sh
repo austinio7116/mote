@@ -18,7 +18,10 @@ cd "$(dirname "$0")/.."
 STAMP=$(date -u +%Y%m%d-%H%M)
 H=mote-relay
 n=$(ssh $H 'ss -tn state established "( sport = :443 )" | tail -n +2 | wc -l')
-[ "$n" = "0" ] || { echo "not quiet: $n connections -- not deploying"; exit 1; }
+# DEPLOY_ANYWAY=1: only with Mark's go for this deploy (10-12: "push the relay
+# updates now even though people are on - no matches and they know")
+[ "$n" = "0" ] || [ "${DEPLOY_ANYWAY:-}" = "1" ] || { echo "not quiet: $n connections -- not deploying"; exit 1; }
+echo "connections now: $n"
 scp -q mote_relay.py mote_tourn.py mote_stats.py mote_stats_model.py mote_stats.html $H:/tmp/
 ssh $H "set -e
 sudo mkdir -p /etc/mote-relay
