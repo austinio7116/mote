@@ -75,9 +75,11 @@ def result_msg(me, winner):
     return "RESULT " + json.dumps(r)
 
 
-def room(port, code, started=True, guest_reads=True):
+def room(port, code, started=True, guest_reads=True, resume=True):
     h = P(port, f"MOTE2 ROOMN {GID} HOST {code} PRIV 2 TEST", "711")
     g = P(port, f"MOTE2 ROOMN {GID} JOIN {code}", "722", read=guest_reads)
+    if resume:
+        h.say("RESUME"); g.say("RESUME")
     h.say("START"); time.sleep(0.2)
     h.say("PROOF 711 desk711"); g.say("PROOF 722 desk722"); time.sleep(0.3)
     if started:
@@ -139,6 +141,11 @@ def main():
               f"the forfeit is the one who went, the stayer's report kept with its run of 8: {[(x.get('left'), x['result'].get('winner'), x['result']['sides'][0].get('best')) for x in f]}")
         h.cut(); time.sleep(0.3)
 
+        # ---- a game from before 7.5 (no RESUME): LEFT, as it always was
+        h, g = room(port, "RJE", resume=False)
+        g.cut(); time.sleep(0.4)
+        check("LEFT 1" in h.ctrl and not any(l.startswith("AWAY") for l in h.ctrl), f"a game that never said RESUME: LEFT, as before: {h.ctrl[-2:]}")
+        h.cut(); time.sleep(0.3)
         # ---- before the frame was under way: LEFT, as it always was
         h, g = room(port, "RJD", started=False)
         g.cut(); time.sleep(0.4)

@@ -265,11 +265,12 @@ class Room:
 
 class Member:
     __slots__ = ("k", "reader", "writer", "q", "backlog", "task", "gone", "peer",
-                 "vtok", "uaddr", "useen", "vtcp", "vwin", "vcount", "uid", "proofs", "pend")
+                 "vtok", "uaddr", "useen", "vtcp", "vwin", "vcount", "uid", "proofs", "pend", "resume")
     def __init__(self, k, reader, writer, peer):
         self.k, self.reader, self.writer, self.peer = k, reader, writer, peer
         self.q = asyncio.Queue()
         self.pend = []             # a batched club's frames, waiting for its flush
+        self.resume = False        # its game said RESUME: it knows AWAY/BACK/GONE (7.5)
         self.backlog = 0
         self.task = None
         self.gone = False
@@ -408,6 +409,11 @@ class RoomN:
         is under way and the member is proved -- a place worth holding"""
         st = getattr(self, "start", None)
         if not st or len(st.get("sides", {})) < 2 or not m.uid or m.k >= self.WATCH_BASE:
+            return None
+        # ONLY WHERE EVERY PLAYER'S GAME KNOWS IT: a game from before 7.5 hears
+        # no AWAY and would wait on a frame nobody can finish -- it gets LEFT,
+        # as it always did (it says RESUME when it comes in)
+        if not m.resume or any(not o.resume for o in self.players().values()):
             return None
         return next((sd for sd, v in st["sides"].items() if v["k"] == m.k and v.get("uid") == m.uid), None)
 
@@ -1764,6 +1770,7 @@ class Relay:
         log(f"nroom {key}: member {k} back")
         m = Member(k, reader, writer, peer)
         m.uid = uid
+        m.resume = True                         # only a game that knows it rejoins
         room.members[k] = m
         writer.write(f"SEAT {k} {room.maxn} BACK\n".encode())
         m.task = asyncio.create_task(self.member_writer(room, m))
@@ -2019,6 +2026,8 @@ class Relay:
                         room.started = True
                         log(f"nroom {room.gid}/{room.code}: started with {len(room.members)}")
                         room.control("START", cap)
+                    elif cmd == "RESUME":
+                        m.resume = True             # this game knows AWAY/BACK/GONE (7.5)
                     elif cmd == "PLAYING" and m.k == 0 and not room.playing:
                         # an OPEN room under way (CueVR's winner stays on): still
                         # open to JOIN, and now listed LIVE as well, to WATCH
