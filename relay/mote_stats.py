@@ -242,6 +242,10 @@ def tourn_list():
     return out
 
 
+# each game's rulesets (CueVR rules_stops): UK 8-ball 5, 9-ball 1, snooker 5
+TOURN_RULES_N = {0: 5, 2: 1, 6: 5}
+
+
 def tourn_token():
     try:
         with open(A.tourn_token_file) as f:
@@ -266,6 +270,8 @@ def tourn_create(spec):
                 style[k] = v.upper()
     except (KeyError, TypeError, ValueError):
         return 400, {"error": "the form is not complete"}
+    if not 0 <= int(spec.get("rules", 0)) < TOURN_RULES_N.get(kind, 1):
+        return 400, {"error": "that game has no such rules"}
     if not title:
         return 400, {"error": "give it a title"}
     if start < time.time() + 120:
@@ -310,7 +316,7 @@ class H(BaseHTTPRequestHandler):
     def do_POST(self):
         u = urlparse(self.path)
         q = parse_qs(u.query)
-        if u.path not in ("/api/tourn", "/api/tourn/cancel"):
+        if u.path not in ("/api/tourn", "/api/tourn/cancel", "/api/tourn/edit"):
             return self._send(404, "text/plain", b"not here\n")
         if not self._ok(q):
             return self._send(403, "text/plain", b"no\n")
@@ -333,6 +339,25 @@ class H(BaseHTTPRequestHandler):
             tid = int((q.get("tid") or ["0"])[0])
         except ValueError:
             tid = 0
+        if u.path == "/api/tourn/edit":
+            # CHANGED while it takes entries: the rules and the number of places
+            try:
+                spec = json.loads(raw or "{}")
+                kind = next(t["kind"] for t in tourn_list() if t["tid"] == tid)
+                ed = {"tid": tid}
+                if "rules" in spec:
+                    ed["rules"] = int(spec["rules"])
+                    if not 0 <= ed["rules"] < TOURN_RULES_N.get(kind, 1):
+                        return self._send(400, "application/json", b'{"error":"that game has no such rules"}')
+                if "size" in spec:
+                    ed["size"] = int(spec["size"])
+            except (StopIteration, KeyError, TypeError, ValueError, OSError):
+                return self._send(400, "application/json", b'{"error":"the change is not complete"}')
+            ans = relay_ask(f"MOTE2 TOURN {A.tourn_gid} ADMIN {tok} EDIT", json.dumps(ed)).strip()
+            why = {"ADMIN OK": "", "ADMIN TOOSMALL": "more have signed up than that",
+                   "ADMIN NOTOPEN": "it has stopped taking entries", "ADMIN BAD": "the change is not complete"}
+            return self._send(200 if ans == "ADMIN OK" else 400, "application/json",
+                              json.dumps({"answer": ans, "error": why.get(ans, ans)}).encode())
         ans = relay_ask(f"MOTE2 TOURN {A.tourn_gid} CANCEL {tok} {tid}").strip()
         return self._send(200 if ans.endswith("OK") else 400, "application/json", json.dumps({"answer": ans}).encode())
 

@@ -128,6 +128,12 @@ def main():
         for i, u in enumerate(uids):
             a = ask(port, f"MOTE2 TOURN {GID} ENTER {tid} {u} desknonce{u} 7.5 DESK{i + 1}")[0]
             check(a == "ENTER OK", f"entrant {i + 1} signs up: {a}")
+        # ADMIN EDIT: the rules changed by the admin, its spec on the next line
+        check(ask(port, f"MOTE2 TOURN {GID} ADMIN wrong-token EDIT\n" + json.dumps({"tid": tid, "rules": 1}))[0] == "ADMIN DENIED",
+              "an edit needs the admin token")
+        check(ask(port, f"MOTE2 TOURN {GID} ADMIN {TOKEN} EDIT\n" + json.dumps({"tid": tid, "rules": 1}))[0] == "ADMIN OK",
+              "the admin changes the tournament's rules")
+        check(ask(port, f"MOTE2 TOURN {GID} LIST")[1].split()[6] == "1", "the listing has the new rules")
         # NO VERSION AT SIGN-UP (2026-10-13): an older game's entry gets as far as FULL
         check(ask(port, f"MOTE2 TOURN {GID} ENTER {tid} 299 desknonce299 7.4.5 OLDGAME")[0] == "ENTER FULL",
               "an entrant on another version is not turned away for it (here: full)")

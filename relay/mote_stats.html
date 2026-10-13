@@ -21,9 +21,9 @@ h3{font-size:16px;margin:0 0 2px}
 .small{font-size:13px}.tiny{font-size:11.5px}
 .chips{display:flex;gap:6px;margin:4px 16px;flex-wrap:wrap}.chip{border:1px solid var(--line);border-radius:14px;padding:3px 12px;font-size:13px;color:var(--dim);cursor:pointer}
 .chip.on{border-color:var(--acc);color:var(--acc)}
-#tform label{display:flex;flex-direction:column;gap:4px;min-width:0}
+#tform label,.tedit label{display:flex;flex-direction:column;gap:4px;min-width:0}
 #tform label.tick{flex-direction:row;align-items:center;gap:8px}
-#tform input,#tform select{font:inherit;font-size:15px;background:var(--bg);color:var(--fg);border:1px solid var(--line);border-radius:6px;padding:6px 8px;box-sizing:border-box;max-width:100%}
+#tform input,#tform select,.tedit select{font:inherit;font-size:15px;background:var(--bg);color:var(--fg);border:1px solid var(--line);border-radius:6px;padding:6px 8px;box-sizing:border-box;max-width:100%}
 #tform input{margin:0}
 #tform input[type=date],#tform input[type=time]{min-width:160px}
 #tf-title{width:100%}
@@ -95,13 +95,22 @@ window.addEventListener('hashchange', () => { window.scrollTo(0, 0); draw(); loa
 /* ---- TOURNAMENTS (7.5): the relay runs them; they are made here ------------ */
 let TN = null, TMSG = '';
 const TGAMES = [[0, 'UK 8-ball'], [2, '9-ball'], [6, 'Snooker, 6 reds']];
+// each game's rulesets, in the game's own order (CueVR rules_stops): the
+// tournament's "rules" is the index, set on both ends of every match
+const TRULES = {0: ['Pub (2 shots)', 'International', 'Ultimate Pool', 'Blackball (WPA)', 'Killer'],
+                2: ['WPA 9-ball'],
+                6: ['Miss: amateur', 'Miss: club', 'Miss: pro', 'Shootout', 'The 900']};
+const ruleName = (k, r) => (TRULES[k] || [])[r] || ('rules ' + r);
+function tkind(k){ TF.kind = k; TF.rules = 0;
+  const el = document.getElementById('tf-rules');
+  if (el) el.innerHTML = opts((TRULES[k] || ['-']).map((n, i) => [i, n]), 0); }
 const TCLOTH = ["Black","Silver","Taupe","Tan","Gold","Paprika","Nutmeg","Ranger green","Olive","Championship","Sage","Powder blue","Slate","Navy","Royal blue","Teal","Yellow","Purple","Light purple","Tournament blue","Windsor red","Red","Orange","Pink"];
 const TFRAME = ["Walnut","Oak","Mahogany","Wenge","Ebony","Charcoal","Silver","Tournament","Rosewood","Cherry","Teak","Maple","Burgundy","Grey oak","Racing green","Navy"];
 const TBALLS = ["Pro","UK yellow/blue","UK yellow/red","Dyna","Pro tour","Hot pink","Space","Vintage","Pyramid","Bar billiards"];
 function tdefault(){
   const d = new Date(Date.now() + 2 * 86400000); d.setHours(20, 0, 0, 0);
   const pad = n => String(n).padStart(2, '0');
-  return {title: '', kind: 0, size: 8, race: 2, frace: 3, day: `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`, time: '20:00',
+  return {title: '', kind: 0, rules: 0, size: 8, race: 2, frace: 3, day: `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`, time: '20:00',
           closes: 0, cloth: 9, frame: 7, set: 0, useLeather: false, leather: '#5a2e14', useMetal: false, metal: '#c8a040'};
 }
 let TF = tdefault();
@@ -114,16 +123,23 @@ function vTourn(){
   const game = k => (TGAMES.find(g => g[0] == k) || [k, 'game ' + k])[1];
   const card = t => `<div class=card><div class=row><b>${e(t.title)}</b><span class="small ${t.status=='running'?'acc':t.status=='off'?'bad':'dim'}">${e(t.status)}</span></div>
       <div class="small dim">${new Date(t.start * 1000).toLocaleString([], {weekday:'short', day:'numeric', month:'short', hour:'2-digit', minute:'2-digit'})}
-        &middot; ${e(game(t.kind))} &middot; ${t.size} players &middot; race to ${(t.best_of+1)/2}, final to ${(t.final_best_of+1)/2}</div>
+        &middot; ${e(game(t.kind))}, ${e(ruleName(t.kind, t.rules))} &middot; ${t.size} players &middot; race to ${(t.best_of+1)/2}, final to ${(t.final_best_of+1)/2}</div>
       <div class=small>${t.nent} entered${t.entrants.length ? ': ' + t.entrants.map(e).join(', ') : ''}</div>
       ${t.refused && Object.keys(t.refused).length ? `<div class="small bad">Sign-ups turned away: ${Object.entries(t.refused).map(([w, n]) => `${n} ${e(REFUSED_WHY[w] || w)}`).join(', ')}</div>` : ''}
+      ${t.status == 'open' && TN.can_create ? `<div class="row tedit" style="gap:12px;flex-wrap:wrap;margin-top:8px;justify-content:flex-start;align-items:flex-end">
+        <label class=small>Rules<select id="te-rules${t.tid}">${opts((TRULES[t.kind] || ['-']).map((n, i) => [i, n]), t.rules)}</select></label>
+        <label class=small>Players<select id="te-size${t.tid}">${opts([[4,'4'],[8,'8'],[16,'16']], t.size)}</select></label>
+        <button id="te${t.tid}" onclick="tedit(${t.tid})">Change</button></div>` : ''}
       ${(t.status == 'open' || t.status == 'room') && TN.can_create ? `<div style="margin-top:6px"><button id="tc${t.tid}" onclick="tcancel(${t.tid})">Call it off</button></div>` : ''}</div>`;
-  h += '<h2>Coming up and on now</h2>' + (on.length ? on.map(card).join('') : empty('None. Make one below.'));
+  h += '<h2>Coming up and on now</h2>' + (TMSG ? `<div class="card small">${e(TMSG)}</div>` : '') + (on.length ? on.map(card).join('') : empty('None. Make one below.'));
   if (!TN.can_create) h += '<div class="card warn small">Making tournaments is off on this server: it has no admin token yet.</div>';
   else {
     h += `<h2>New tournament</h2><form id=tform class=card onsubmit="tcreate(event)" style="display:grid;gap:10px">
       <label class=small>Title<input id=tf-title maxlength=40 value="${e(TF.title)}" oninput="tset('title',this.value)" placeholder="Friday knockout"></label>
-      <label class=small>Game<select id=tf-kind onchange="tset('kind',+this.value)">${opts(TGAMES, TF.kind)}</select></label>
+      <div class=row style="gap:12px;flex-wrap:wrap">
+        <label class=small>Game<select id=tf-kind onchange="tkind(+this.value)">${opts(TGAMES, TF.kind)}</select></label>
+        <label class=small>Rules<select id=tf-rules onchange="tset('rules',+this.value)">${opts((TRULES[TF.kind] || ['-']).map((n, i) => [i, n]), TF.rules)}</select></label>
+      </div>
       <div class=row style="gap:12px;flex-wrap:wrap">
         <label class=small>Players<select id=tf-size onchange="tset('size',+this.value)">${opts([[4,'4'],[8,'8'],[16,'16']], TF.size)}</select></label>
         <label class=small>Race to<select id=tf-race onchange="tset('race',+this.value)">${opts([1,2,3,4,5].map(n => [n, n]), TF.race)}</select></label>
@@ -160,13 +176,19 @@ async function tcreate(ev){
   const start = Math.floor(new Date(TF.day + 'T' + TF.time).getTime() / 1000);
   const style = {cloth: TF.cloth, frame: TF.frame, set: TF.set};
   if (TF.useLeather) style.leather = TF.leather; if (TF.useMetal) style.metal = TF.metal;
-  const spec = {title: TF.title, kind: TF.kind, rules: 0, size: TF.size, best_of: 2 * TF.race - 1, final_best_of: 2 * TF.frace - 1,
+  const spec = {title: TF.title, kind: TF.kind, rules: TF.rules, size: TF.size, best_of: 2 * TF.race - 1, final_best_of: 2 * TF.frace - 1,
                 start, close: start - 60 * TF.closes - (TF.closes ? 0 : 60), style};
   document.getElementById('tf-msg').textContent = 'Making it...';
   const {ok, d} = await tpost('api/tourn', spec);
   TMSG = ok ? `Made: tournament ${d.tid}. It is on the board in the club now.` : (d.error || 'It did not work.');
   if (ok) TF = tdefault();
   document.activeElement && document.activeElement.blur(); await load();
+}
+async function tedit(tid){
+  const rules = +document.getElementById('te-rules' + tid).value, size = +document.getElementById('te-size' + tid).value;
+  const {ok, d} = await tpost('api/tourn/edit?tid=' + tid, {rules, size});
+  TMSG = ok ? `Tournament ${tid} changed.` : `Not changed: ${d.error || d.answer || 'it did not work'}.`;
+  await load();
 }
 async function tcancel(tid){
   const b = document.getElementById('tc' + tid);

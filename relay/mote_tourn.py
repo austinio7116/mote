@@ -258,6 +258,15 @@ class Organiser:
         t = self.t.get(ev.get("tid"))
         if t is None:
             return
+        if e == "edited":
+            # CHANGED BY THE ADMIN while it takes entries (Mark, 2026-10-13: "update the
+            # current tournament to use ultimate pool rules and to increase the max player count to 16")
+            for k in ("title", "rules", "size", "best_of", "final_best_of"):
+                if k in ev:
+                    setattr(t, k, ev[k])
+            if "style" in ev:
+                t.style = clean_style(ev["style"])
+            return
         if e == "entered":
             if not t.entered(ev["uid"]):
                 t.entrants.append({"uid": ev["uid"], "name": ev["name"]})
@@ -386,6 +395,53 @@ class Organiser:
         self.record(ev)
         self.log(f"tournament {tid}: created, {ev['title']!r} kind {kind} size {size} at {time.strftime('%Y-%m-%d %H:%M', time.gmtime(start))} UTC")
         return tid, "OK"
+
+    # ---- THE ADMIN'S OWN REQUESTS (TOURN ADMIN <token> <verb>, the spec as
+    # JSON on the next line): here and not in the relay, so a new one goes
+    # out by RELOAD with nobody dropped
+    def admin(self, verb, spec):
+        if verb == "EDIT":
+            return self.edit(spec)
+        return "UNKNOWN"
+
+    def edit(self, spec):
+        """a tournament still taking entries changed: title, rules, size, the
+        races and the style; never fewer places than have entered"""
+        try:
+            tid = int(spec["tid"])
+        except (KeyError, TypeError, ValueError):
+            return "BAD"
+        t = self.t.get(tid)
+        if t is None or t.status != "open":
+            return "NOTOPEN"
+        ev = {"e": "edited", "tid": tid}
+        try:
+            if "title" in spec:
+                ev["title"] = str(spec["title"])[:48]
+            if "rules" in spec:
+                ev["rules"] = int(spec["rules"])
+                if not 0 <= ev["rules"] < 32:
+                    return "BAD"
+            if "size" in spec:
+                ev["size"] = int(spec["size"])
+                if ev["size"] not in (4, 8, 16):
+                    return "BAD"
+                if ev["size"] < len(t.entrants):
+                    return "TOOSMALL"
+            for k in ("best_of", "final_best_of"):
+                if k in spec:
+                    ev[k] = int(spec[k])
+                    if not (1 <= ev[k] <= 35 and ev[k] % 2):
+                        return "BAD"
+            if "style" in spec:
+                ev["style"] = clean_style(spec["style"])
+        except (TypeError, ValueError):
+            return "BAD"
+        if len(ev) == 2:
+            return "BAD"
+        self.record(ev)
+        self.log(f"tournament {tid}: edited ({', '.join(k for k in ev if k not in ('e', 'tid'))})")
+        return "OK"
 
     def cancel(self, tid, why="cancelled"):
         t = self.t.get(tid)

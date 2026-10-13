@@ -1716,6 +1716,21 @@ class Relay:
                     if t.entered(uid) and t.status not in ("done", "off"):
                         out += f"MINE {tid}\n"
             return out + "END\n"
+        if sub == "ADMIN":
+            # ADMIN <token> <verb>, the spec as JSON on the next line: handed
+            # to mote_tourn.py whole, so a new admin request goes out by RELOAD
+            if not self.admin_token or len(a) < 3 or not hmac.compare_digest(a[1], self.admin_token):
+                return "ADMIN DENIED\n"
+            try:
+                body = (await asyncio.wait_for(read_line(reader, 4000), timeout=10)).decode("ascii", "replace")
+                spec = json.loads(body)
+                if not isinstance(spec, dict):
+                    raise ValueError
+                ans = self.tourn.admin(a[2].upper(), spec) if hasattr(self.tourn, "admin") else "UNKNOWN"
+            except (asyncio.TimeoutError, TypeError, ValueError):
+                ans = "BAD"
+            self.tourn_flush()
+            return f"ADMIN {ans}\n"
         if sub in ("REFUSED", "RELOAD"):
             if not self.admin_token or len(a) < 2 or not hmac.compare_digest(a[1], self.admin_token):
                 return f"{sub} DENIED\n"

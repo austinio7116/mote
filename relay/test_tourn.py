@@ -58,7 +58,28 @@ def play(org, t, m, winner_num, frames_to=None):
         org.frame_agreed(t.tid, m.mid, w)
 
 
+def edits():
+    # ---- CHANGED WHILE IT TAKES ENTRIES (2026-10-13: Ultimate Pool, 16 places)
+    org, clock, tid, uids, store = night(5)
+    check(org.admin("EDIT", {"tid": tid, "rules": 2, "size": 16}) == "OK", "the admin changes the rules and the size")
+    t = org.t[tid]
+    check(t.rules == 2 and t.size == 16 and len(t.entrants) == 5, "the rules and size changed, the entrants kept")
+    check(org.admin("EDIT", {"tid": tid, "size": 4}) == "TOOSMALL", "never fewer places than have entered")
+    check(org.admin("EDIT", {"tid": tid, "size": 12}) == "BAD", "a size that is not a draw is refused")
+    check(org.admin("EDIT", {"tid": tid}) == "BAD", "an edit that changes nothing is refused")
+    check(org.admin("SHRUG", {"tid": tid}) == "UNKNOWN", "an admin verb it does not know")
+    again = T.Organiser(store, now=clock)
+    check(again.t[tid].rules == 2 and again.t[tid].size == 16 and len(again.t[tid].entrants) == 5,
+          "the change is in the record: a restarted relay has it")
+    for i in range(5, 12):
+        org.enter(tid, f"20{i}", f"MORE{i}", "7.5.1")
+    check(len(t.entrants) == 12, "more than eight sign up once it takes sixteen")
+    clock.t = START - T.OPEN_BEFORE + 1; org.tick()
+    check(org.admin("EDIT", {"tid": tid, "rules": 0}) == "NOTOPEN", "no changes once the room has opened")
+
+
 def main():
+    edits()
     # ---- A WHOLE NIGHT OF EIGHT ------------------------------------------
     org, clock, tid, uids, store = night(8)
     t = org.t[tid]
