@@ -396,7 +396,11 @@ class Organiser:
         # that window takes entries up to the close it was given
         if self.now() > t.close or t.status not in ("open", "room"):
             return "CLOSED"
-        if t.ver and ver != t.ver:
+        # THE TOURNAMENT'S VERSION AND ITS POINT RELEASES: a "7.5" tournament
+        # takes 7.5.1 and 7.5.2 as well -- they play each other online. It was
+        # an exact match, and every 7.5.1 game was refused (Mark, 2026-10-13:
+        # "Some users tried signing up but nothing happened")
+        if t.ver and ver != t.ver and not ver.startswith(t.ver + "."):
             return "VERSION"
         if len(t.entrants) >= min(t.size, MAX_ENTRANTS):
             return "FULL"

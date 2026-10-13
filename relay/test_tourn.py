@@ -63,6 +63,8 @@ def main():
     org, clock, tid, uids, store = night(8)
     t = org.t[tid]
     check(org.enter(tid, "999", "LATE", "7.4.5") == "VERSION", "an entry on another game version is turned away")
+    check(org.enter(tid, "998", "POINT", "7.5.1") == "FULL", "a 7.5 tournament takes a 7.5.1 game (past the version, to FULL)")
+    check(org.enter(tid, "997", "NOTSEVENFIFTY", "7.50") == "VERSION", "...but not a 7.50 one")
     check(org.enter(tid, "999", "NINTH", "7.5") == "FULL", "a ninth entrant is turned away")
     check(org.enter(tid, uids[0], "AGAIN", "7.5") == "ALREADY", "an account enters once")
     clock.t = START - T.OPEN_BEFORE - 1; org.tick()
