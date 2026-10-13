@@ -242,6 +242,20 @@ def tourn_list():
     return out
 
 
+def tourn_accounts():
+    """every proved account the results know (by the app's short hash of it,
+    never the number), by the name it last played under -- who the admin can enter by hand (an account, so the room's door
+    knows them on the night)"""
+    try:
+        with LOCK:
+            m = MODEL.get()
+        return sorted(({"acct": p["id"][2:], "name": p["name"]} for p in m["players"]
+                       if p.get("proved") and str(p["id"]).startswith("a:")),
+                      key=lambda a: a["name"].lower())
+    except Exception:
+        return []
+
+
 # each game's rulesets (CueVR rules_stops): UK 8-ball 5, 9-ball 1, snooker 5
 TOURN_RULES_N = {0: 5, 2: 1, 6: 5}
 
@@ -316,7 +330,7 @@ class H(BaseHTTPRequestHandler):
     def do_POST(self):
         u = urlparse(self.path)
         q = parse_qs(u.query)
-        if u.path not in ("/api/tourn", "/api/tourn/cancel", "/api/tourn/edit"):
+        if u.path not in ("/api/tourn", "/api/tourn/cancel", "/api/tourn/edit", "/api/tourn/add", "/api/tourn/remove"):
             return self._send(404, "text/plain", b"not here\n")
         if not self._ok(q):
             return self._send(403, "text/plain", b"no\n")
@@ -339,6 +353,25 @@ class H(BaseHTTPRequestHandler):
             tid = int((q.get("tid") or ["0"])[0])
         except ValueError:
             tid = 0
+        if u.path in ("/api/tourn/add", "/api/tourn/remove"):
+            # A PLAYER ENTERED OR TAKEN OFF BY HAND: added by account (its
+            # name the results' latest), taken off by place and name
+            try:
+                spec = json.loads(raw or "{}")
+                if u.path.endswith("add"):
+                    acct = str(spec["acct"])
+                    acc = next(a for a in tourn_accounts() if a["acct"] == acct)
+                    verb, ed = "ADD", {"tid": tid, "acct": acct, "name": acc["name"]}
+                else:
+                    verb, ed = "REMOVE", {"tid": tid, "n": int(spec["n"]), "name": str(spec["name"])}
+            except (StopIteration, KeyError, TypeError, ValueError):
+                return self._send(400, "application/json", b'{"error":"pick a player"}')
+            ans = relay_ask(f"MOTE2 TOURN {A.tourn_gid} ADMIN {tok} {verb}", json.dumps(ed)).strip()
+            why = {"ADMIN OK": "", "ADMIN ALREADY": "they are already in it", "ADMIN FULL": "it is full",
+                   "ADMIN NOTOPEN": "the draw has been made", "ADMIN CHANGED": "the list changed: look again",
+                   "ADMIN BAD": "that did not make sense", "ADMIN NOACCOUNT": "the server cannot find their account"}
+            return self._send(200 if ans == "ADMIN OK" else 400, "application/json",
+                              json.dumps({"answer": ans, "error": why.get(ans, ans)}).encode())
         if u.path == "/api/tourn/edit":
             # CHANGED while it takes entries: the rules and the number of places
             try:
@@ -384,7 +417,8 @@ class H(BaseHTTPRequestHandler):
         if u.path == "/api/tourn":
             try:
                 return self._send(200, "application/json", json.dumps({"now": int(time.time()), "list": tourn_list(),
-                                                                       "can_create": bool(tourn_token())}).encode())
+                                                                       "can_create": bool(tourn_token()),
+                                                                       "accounts": tourn_accounts()}).encode())
             except OSError as e:
                 return self._send(502, "application/json", json.dumps({"error": f"the relay did not answer ({e})"}).encode())
         if u.path == "/api/server":

@@ -130,6 +130,12 @@ function vTourn(){
         <label class=small>Rules<select id="te-rules${t.tid}">${opts((TRULES[t.kind] || ['-']).map((n, i) => [i, n]), t.rules)}</select></label>
         <label class=small>Players<select id="te-size${t.tid}">${opts([[4,'4'],[8,'8'],[16,'16']], t.size)}</select></label>
         <button id="te${t.tid}" onclick="tedit(${t.tid})">Change</button></div>` : ''}
+      ${(t.status == 'open' || t.status == 'room') && TN.can_create ? `<div class="row tedit" style="gap:12px;flex-wrap:wrap;margin-top:8px;justify-content:flex-start;align-items:flex-end">
+        <label class=small>Add a player<select id="ta-uid${t.tid}"><option value="">choose...</option>${(TN.accounts || []).filter(a => !t.entrants.includes(a.name)).map(a => `<option value="${e(a.acct)}">${e(a.name)}</option>`).join('')}</select></label>
+        <button id="ta${t.tid}" onclick="tadd(${t.tid})">Add</button>
+        ${t.entrants.length ? `<label class=small>Take off<select id="tr-n${t.tid}">${t.entrants.map((n, i) => `<option value="${i}">${e(n)}</option>`).join('')}</select></label>
+        <button id="tr${t.tid}" onclick="tremove(${t.tid})">Take off</button>` : ''}</div>
+        <div class="tiny dim">Players who have played a verified online frame are listed; anyone new needs to play one first, or sign up at the board.</div>` : ''}
       ${(t.status == 'open' || t.status == 'room') && TN.can_create ? `<div style="margin-top:6px"><button id="tc${t.tid}" onclick="tcancel(${t.tid})">Call it off</button></div>` : ''}</div>`;
   h += '<h2>Coming up and on now</h2>' + (TMSG ? `<div class="card small">${e(TMSG)}</div>` : '') + (on.length ? on.map(card).join('') : empty('None. Make one below.'));
   if (!TN.can_create) h += '<div class="card warn small">Making tournaments is off on this server: it has no admin token yet.</div>';
@@ -188,6 +194,21 @@ async function tedit(tid){
   const rules = +document.getElementById('te-rules' + tid).value, size = +document.getElementById('te-size' + tid).value;
   const {ok, d} = await tpost('api/tourn/edit?tid=' + tid, {rules, size});
   TMSG = ok ? `Tournament ${tid} changed.` : `Not changed: ${d.error || d.answer || 'it did not work'}.`;
+  await load();
+}
+async function tadd(tid){
+  const acct = document.getElementById('ta-uid' + tid).value;
+  if (!acct) { TMSG = 'Choose a player to add.'; draw(); return; }
+  const {ok, d} = await tpost('api/tourn/add?tid=' + tid, {acct});
+  TMSG = ok ? `Added to tournament ${tid}.` : `Not added: ${d.error || d.answer || 'it did not work'}.`;
+  await load();
+}
+async function tremove(tid){
+  const sel = document.getElementById('tr-n' + tid), b = document.getElementById('tr' + tid);
+  const n = +sel.value, name = sel.options[sel.selectedIndex].text;
+  if (b.dataset.sure != '1') { b.dataset.sure = '1'; b.textContent = `Tap again to take off ${name}`; return; }
+  const {ok, d} = await tpost('api/tourn/remove?tid=' + tid, {n, name});
+  TMSG = ok ? `${name} taken off tournament ${tid}.` : `Not taken off: ${d.error || d.answer || 'it did not work'}.`;
   await load();
 }
 async function tcancel(tid){

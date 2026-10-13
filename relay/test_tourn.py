@@ -74,8 +74,19 @@ def edits():
     for i in range(5, 12):
         org.enter(tid, f"20{i}", f"MORE{i}", "7.5.1")
     check(len(t.entrants) == 12, "more than eight sign up once it takes sixteen")
+    # ADDED AND TAKEN OFF BY THE ADMIN (2026-10-13)
+    check(org.admin("ADD", {"tid": tid, "uid": "777", "name": "MESSAGED"}) == "OK", "the admin adds a player by account")
+    check(t.entered("777") and t.entrants[-1]["name"] == "MESSAGED", "...who is entered under their name")
+    check(org.admin("ADD", {"tid": tid, "uid": "777", "name": "MESSAGED"}) == "ALREADY", "...once")
+    check(org.admin("ADD", {"tid": tid, "uid": "not-a-number", "name": "X"}) == "BAD", "an account is a number")
+    check(org.admin("ADD", {"tid": tid, "acct": "0123456789ab", "name": "X"}) == "NOACCOUNT", "an account hash nobody has is not found")
+    n = len(t.entrants) - 1
+    check(org.admin("REMOVE", {"tid": tid, "n": n, "name": "SOMEONE ELSE"}) == "CHANGED", "a remove that names the wrong player does nothing")
+    check(org.admin("REMOVE", {"tid": tid, "n": n, "name": "MESSAGED"}) == "OK" and not t.entered("777"), "the admin takes a player off")
     clock.t = START - T.OPEN_BEFORE + 1; org.tick()
     check(org.admin("EDIT", {"tid": tid, "rules": 0}) == "NOTOPEN", "no changes once the room has opened")
+    check(org.admin("ADD", {"tid": tid, "uid": "778", "name": "LATE"}) == "OK", "...but a player can still be added up to the draw")
+    check(T.Organiser(store, now=clock).t[tid].entered("778"), "an added player is in the record")
 
 
 def main():

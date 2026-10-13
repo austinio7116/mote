@@ -23,6 +23,7 @@ no-show has 10 minutes; a player who drops out of a match is waited for 5, then
 walked over -- never handed to the computer; a disputed frame is replayed; the
 times are UTC here and each headset shows its own.
 """
+import hashlib
 import json
 import os
 import random
@@ -402,7 +403,94 @@ class Organiser:
     def admin(self, verb, spec):
         if verb == "EDIT":
             return self.edit(spec)
+        if verb == "ADD":
+            return self.admin_add(spec)
+        if verb == "REMOVE":
+            return self.admin_remove(spec)
         return "UNKNOWN"
+
+    # ENTERED BY THE ADMIN (Mark, 2026-10-13: "add players in the admin app in
+    # case they cannot make it to the blackboard and message me directly"):
+    # by account, as a sign-up is, so the room's door knows them on the night.
+    # Up to the draw -- after sign-up closes too -- and never past the size.
+    def account_of(self, acct):
+        """the Meta account behind the stats app's short hash of it ("a:" +
+        sha256(account)[:12] -- the app never holds the number): looked for in
+        the relay's results index, read-only, then its results file"""
+        acct = str(acct).lower()
+        if not (len(acct) == 12 and all(c in "0123456789abcdef" for c in acct)) or not self.path:
+            return None
+        h = lambda u: hashlib.sha256(str(u).encode()).hexdigest()[:12]
+        store = os.path.dirname(self.path)
+        for t in self.t.values():
+            for e in t.entrants:
+                if h(e["uid"]) == acct:
+                    return e["uid"]
+        try:
+            import sqlite3
+            c = sqlite3.connect(f"file:{os.path.join(store, 'results.db')}?mode=ro", uri=True, timeout=5)
+            try:
+                for (u,) in c.execute("SELECT DISTINCT uid FROM hside"):
+                    if u and h(u) == acct:
+                        return str(u)
+            finally:
+                c.close()
+        except Exception:
+            pass
+        try:
+            with open(os.path.join(store, "results.jsonl"), encoding="utf-8", errors="replace") as f:
+                for line in f:
+                    if '"uid' not in line:
+                        continue
+                    try:
+                        r = json.loads(line)
+                    except ValueError:
+                        continue
+                    us = [x.get("uid") for x in (r.get("a"), r.get("b")) if isinstance(x, dict)] + list(r.get("uids") or [])
+                    for u in us:
+                        if u and h(u) == acct:
+                            return str(u)
+        except OSError:
+            pass
+        return None
+
+    def admin_add(self, spec):
+        try:
+            tid = int(spec["tid"])
+            uid = str(spec["uid"]) if "uid" in spec else self.account_of(spec.get("acct", ""))
+            name = str(spec.get("name", ""))[:23] or "PLAYER"
+        except (KeyError, TypeError, ValueError):
+            return "BAD"
+        if uid is None:
+            return "NOACCOUNT"
+        if not (uid.isdigit() and len(uid) <= 20):
+            return "BAD"
+        t = self.t.get(tid)
+        if t is None or t.status not in ("open", "room"):
+            return "NOTOPEN"
+        if t.entered(uid):
+            return "ALREADY"
+        if len(t.entrants) >= min(t.size, MAX_ENTRANTS):
+            return "FULL"
+        self.record({"e": "entered", "tid": tid, "uid": uid, "name": name, "by": "admin"})
+        self.log(f"tournament {tid}: entered by the admin")
+        return "OK"
+
+    # ...and taken off: by place in the list AND name, so a list that changed
+    # under the admin's finger never takes off the wrong player
+    def admin_remove(self, spec):
+        try:
+            tid, n, name = int(spec["tid"]), int(spec["n"]), str(spec["name"])
+        except (KeyError, TypeError, ValueError):
+            return "BAD"
+        t = self.t.get(tid)
+        if t is None or t.status not in ("open", "room"):
+            return "NOTOPEN"
+        if not (0 <= n < len(t.entrants)) or t.entrants[n]["name"] != name:
+            return "CHANGED"
+        self.record({"e": "withdrawn", "tid": tid, "uid": t.entrants[n]["uid"], "by": "admin"})
+        self.log(f"tournament {tid}: an entrant taken off by the admin")
+        return "OK"
 
     def edit(self, spec):
         """a tournament still taking entries changed: title, rules, size, the
