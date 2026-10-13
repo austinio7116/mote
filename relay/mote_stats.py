@@ -120,6 +120,28 @@ def count_list(v):
     return {"club": club, "match": mp, "watch": mw, "matches": len(v["live"]), "rooms": rooms, "names": sorted(names)}
 
 
+def seeder():
+    """THE OVERALL RATINGS TO THE RELAY, every two minutes, for seeding a
+    tournament's draw (Mark, 2026-10-13: "secretly use the overall ELO rating
+    to seed players"): each proved account's by the short hash the relay can
+    match, in pieces small enough for one request; kept by the relay in memory
+    only. Nothing on any page says so."""
+    time.sleep(15)
+    while True:
+        try:
+            tok = tourn_token()
+            if tok:
+                with LOCK:
+                    m = MODEL.get()
+                r = {row["id"][2:]: row["r"] for row in m["ratings"]["all"] if str(row["id"]).startswith("a:")}
+                items = list(r.items())
+                for i in range(0, len(items), 100):
+                    relay_ask(f"MOTE2 TOURN {A.tourn_gid} ADMIN {tok} SEEDS", json.dumps({"r": dict(items[i:i + 100])}))
+        except Exception as e:                  # a bad turn is skipped, never the end of it
+            print(f"seeder: {type(e).__name__}: {e}", flush=True)
+        time.sleep(120)
+
+
 def sampler():
     """a sample a minute, on the minute, into the history"""
     hdir = os.path.join(A.state, "history")
@@ -466,6 +488,7 @@ def main():
     srv.socket = ctx.wrap_socket(srv.socket, server_side=True)
     if A.state:
         threading.Thread(target=sampler, daemon=True).start()
+    threading.Thread(target=seeder, daemon=True).start()
     print(f"mote-stats on {A.bind}:{A.port}, results from {A.store}, relay {A.relay}, history {A.state or 'off'}", flush=True)
     srv.serve_forever()
 

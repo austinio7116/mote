@@ -354,24 +354,47 @@ class Organiser:
             to.ready_at = at
 
     @staticmethod
-    def seeded_draw(tid, uids):
-        """the draw: the entrants shuffled by a generator seeded from the
-        tournament's id, so anyone holding the entry list can make it again.
-        Byes go one to a match, never two together."""
+    def seeded_draw(tid, uids, rating=None):
+        """the draw: SEEDED by rating (Mark, 2026-10-13: "secretly use the
+        overall ELO rating to seed players ... using 1500 for players that have
+        not yet played"). The entrants ranked by rating, equal ratings in a
+        random order (never the order they signed up in); seeds placed as a
+        knockout seeds them -- 1 and 2 can meet only in the final, the top four
+        only in the semi-finals -- so the byes of a short field go to the top
+        seeds, one to a match. And SECRETLY: the halves, the quarters and the
+        two sides of every match flipped at random, so a draw number says
+        nothing about a seed. Random from a generator seeded by the
+        tournament's id, so the same entries and ratings make the same draw."""
+        rating = rating or (lambda u: 1500.0)
         size = bracket_size(len(uids))
-        order = list(uids)
         rng = random.Random(f"cuevr-tournament-{tid}")
-        rng.shuffle(order)
-        byes = size - len(order)
-        matches = list(range(size // 2))
-        rng.shuffle(matches)
-        bye_m = set(matches[:byes])
-        draw, it = {}, iter(order)
-        for i in range(size // 2):
-            draw[2 * i + 1] = next(it)
-            if i not in bye_m:
-                draw[2 * i + 2] = next(it)
+        order = list(uids)
+        rng.shuffle(order)                                  # equal ratings: a random order
+        order.sort(key=lambda u: -float(rating(u)))         # stable: the shuffle stands between equals
+        seeds = [1, 2]
+        while len(seeds) < size:                            # 1 v 4, 2 v 3; then 1 v 8, 4 v 5, 2 v 7, 3 v 6 ...
+            n = 2 * len(seeds)
+            seeds = [x for sd in seeds for x in (sd, n + 1 - sd)]
+        seeds = seeds[:size]
+
+        def flip(lst):
+            if len(lst) == 1:
+                return lst
+            h = len(lst) // 2
+            a, b = flip(lst[:h]), flip(lst[h:])
+            return b + a if rng.random() < 0.5 else a + b
+        seeds = flip(seeds)
+        draw = {}
+        for pos, sd in enumerate(seeds, start=1):
+            if sd <= len(order):
+                draw[pos] = order[sd - 1]
         return draw
+
+    def rating_of(self, uid):
+        """the overall rating the stats app last sent for this account (by its
+        short hash, as the app knows it); 1500 for one it has none for"""
+        h = hashlib.sha256(str(uid).encode()).hexdigest()[:12]
+        return getattr(self, "ratings", {}).get(h, 1500.0)
 
     # ---- WHAT PLAYERS AND ADMINS ASK --------------------------------------
     def create(self, spec):
@@ -405,6 +428,21 @@ class Organiser:
             return self.edit(spec)
         if verb == "ADD":
             return self.admin_add(spec)
+        if verb == "SEEDS":
+            # THE OVERALL RATINGS, from the stats app every few minutes: kept
+            # in memory for the draw, never written, never shown
+            try:
+                r = {str(k).lower(): float(v) for k, v in dict(spec["r"]).items()
+                     if len(str(k)) == 12 and all(c in "0123456789abcdef" for c in str(k).lower()) and 0 < float(v) < 5000}
+            except (KeyError, TypeError, ValueError):
+                return "BAD"
+            if not hasattr(self, "ratings"):
+                self.ratings = {}
+            n0 = len(self.ratings)
+            self.ratings.update(r)
+            if len(self.ratings) != n0:
+                self.log(f"tournaments: ratings for {len(self.ratings)} accounts, for seeding")
+            return f"OK {len(self.ratings)}"
         if verb == "REMOVE":
             return self.admin_remove(spec)
         return "UNKNOWN"
@@ -673,7 +711,7 @@ class Organiser:
             return
         # EVERY ENTRANT IS DRAWN: one who is late has NO_SHOW from the start
         # to come in before their first match is walked over
-        draw = self.seeded_draw(t.tid, [e["uid"] for e in t.entrants])
+        draw = self.seeded_draw(t.tid, [e["uid"] for e in t.entrants], self.rating_of)
         self.record({"e": "drawn", "tid": t.tid, "draw": {str(n): u for n, u in draw.items()}})
 
     def run(self, t, now):

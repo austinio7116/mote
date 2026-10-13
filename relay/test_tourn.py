@@ -89,7 +89,40 @@ def edits():
     check(T.Organiser(store, now=clock).t[tid].entered("778"), "an added player is in the record")
 
 
+def seeding():
+    # ---- SEEDED BY RATING, SECRETLY (2026-10-13) -------------------------
+    import hashlib
+    h = lambda u: hashlib.sha256(u.encode()).hexdigest()[:12]
+    org = T.Organiser(tempfile.mkdtemp())
+    uids = [f"30{i:02d}" for i in range(16)]
+    rate = {u: 2000 - 25 * i for i, u in enumerate(uids)}          # 2000 the best, then down
+    check(org.admin("SEEDS", {"r": {h(u): r for u, r in rate.items()}}) == "OK 16", "the stats app's ratings are taken")
+    check(org.rating_of("nobody") == 1500.0, "a player with no rating counts as 1500")
+    seed_pos = lambda d, u: next(p for p, x in d.items() if x == u)
+    half = lambda p, size: (p - 1) * 2 // size
+    quarter = lambda p, size: (p - 1) * 4 // size
+    ok_h = ok_q = True; firsts = set()
+    for tid in range(1, 41):
+        d = T.Organiser.seeded_draw(tid, list(reversed(uids)), org.rating_of)
+        p = [seed_pos(d, u) for u in uids[:4]]
+        ok_h &= half(p[0], 16) != half(p[1], 16)
+        ok_q &= len({quarter(x, 16) for x in p}) == 4
+        firsts.add(p[0])
+    check(ok_h, "the top two seeds are always in different halves")
+    check(ok_q, "the top four always in different quarters")
+    check(len(firsts) >= 8, f"the top seed's draw number gives nothing away ({len(firsts)} different places in 40 draws)")
+    # twelve in a draw of sixteen: the four byes are the top four seeds'
+    d = T.Organiser.seeded_draw(7, uids[:12], org.rating_of)
+    byes = [u for u in uids[:12] if (seed_pos(d, u) % 2 and seed_pos(d, u) + 1 not in d) or (seed_pos(d, u) % 2 == 0 and seed_pos(d, u) - 1 not in d)]
+    check(sorted(byes) == sorted(uids[:4]), f"the byes go to the top four seeds: {byes}")
+    # the unrated, all 1500, are not drawn in the order they signed up
+    new = [f"40{i:02d}" for i in range(8)]
+    orders = {tuple(sorted(T.Organiser.seeded_draw(tid, new, org.rating_of).items())) for tid in range(1, 6)}
+    check(len(orders) > 1, "players with equal ratings are drawn in a random order")
+
+
 def main():
+    seeding()
     edits()
     # ---- A WHOLE NIGHT OF EIGHT ------------------------------------------
     org, clock, tid, uids, store = night(8)
@@ -114,7 +147,7 @@ def main():
     calls = [l for l in out if l.startswith("CALL ")]
     check(len(calls) == 4 and sorted(int(c.split()[2]) for c in calls) == [1, 2, 3, 4],
           f"four first-round matches called to tables 1-4: {calls}")
-    again = T.Organiser.seeded_draw(tid, [e["uid"] for e in t.entrants])
+    again = T.Organiser.seeded_draw(tid, [e["uid"] for e in t.entrants], org.rating_of)
     check(again == t.draw, "the draw is made again from the entry list alone")
     r1 = [m for m in t.matches if m.rnd == 1]
     for m in r1:
@@ -166,7 +199,7 @@ def main():
         org.tick()
         check(len([m for m in t.matches if m.state == "called"]) <= 4, "never more matches called than there are tables")
     check(played == 15 and t.status == "done" and t.champion is not None, f"all fifteen matches played, a champion: player {t.champion}")
-    again = T.Organiser.seeded_draw(tid, [e["uid"] for e in t.entrants])
+    again = T.Organiser.seeded_draw(tid, [e["uid"] for e in t.entrants], org.rating_of)
     check(again == t.draw, "the draw of sixteen is made again from the entry list alone")
     shutil.rmtree(store)
 
