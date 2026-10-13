@@ -66,6 +66,9 @@ const mins = s => s >= 3600 ? (s/3600).toFixed(1) + ' h' : Math.round(s/60) + ' 
 const empty = t => `<div class="card empty">${t}</div>`;
 let NOW = null, M = null, MT = 0, DP = {}, DM = {}, S = null, H = null, HD = 1, PQ = '', MG = '', MQ = '', SF = false;
 
+// why the relay turned a sign-up away
+const REFUSED_WHY = {PROOF: "could not check their Meta account", FULL: "full", CLOSED: "after sign-up closed",
+                     NONE: "not taking entries", ALREADY: "already in", BUSY: "too many tries", VERSION: "old version"};
 const TABS = [['now','Now'],['players','Players'],['ratings','Ratings'],['matches','Matches'],['honours','Honours'],['tourn','Tournaments'],['integrity','Integrity'],['activity','Activity'],['server','Server']];
 function route(){ const h = location.hash.slice(1) || 'now'; const [v, a] = h.split('/'); return {v, a: decodeURIComponent(a || '')}; }
 function nav(){
@@ -113,6 +116,7 @@ function vTourn(){
       <div class="small dim">${new Date(t.start * 1000).toLocaleString([], {weekday:'short', day:'numeric', month:'short', hour:'2-digit', minute:'2-digit'})}
         &middot; ${e(game(t.kind))} &middot; ${t.size} players &middot; race to ${(t.best_of+1)/2}, final to ${(t.final_best_of+1)/2}</div>
       <div class=small>${t.nent} entered${t.entrants.length ? ': ' + t.entrants.map(e).join(', ') : ''}</div>
+      ${t.refused && Object.keys(t.refused).length ? `<div class="small bad">Sign-ups turned away: ${Object.entries(t.refused).map(([w, n]) => `${n} ${e(REFUSED_WHY[w] || w)}`).join(', ')}</div>` : ''}
       ${(t.status == 'open' || t.status == 'room') && TN.can_create ? `<div style="margin-top:6px"><button id="tc${t.tid}" onclick="tcancel(${t.tid})">Call it off</button></div>` : ''}</div>`;
   h += '<h2>Coming up and on now</h2>' + (on.length ? on.map(card).join('') : empty('None. Make one below.'));
   if (!TN.can_create) h += '<div class="card warn small">Making tournaments is off on this server: it has no admin token yet.</div>';
@@ -139,7 +143,7 @@ function vTourn(){
         <label class="small tick"><input id=tf-ul type=checkbox ${TF.useLeather?'checked':''} onchange="tset('useLeather',this.checked)"> Leather <input id=tf-leather type=color value="${TF.leather}" onchange="tset('leather',this.value)"></label>
         <label class="small tick"><input id=tf-um type=checkbox ${TF.useMetal?'checked':''} onchange="tset('useMetal',this.checked)"> Fittings <input id=tf-metal type=color value="${TF.metal}" onchange="tset('metal',this.value)"></label>
       </div>
-      <div class="tiny dim">The balls are used where the game allows them; otherwise the game's own. Entrants must be on CueVR 7.5.</div>
+      <div class="tiny dim">The balls are used where the game allows them; otherwise the game's own. Anyone can sign up; on the night, players need the current CueVR.</div>
       <div><button id=tf-go type=submit>Make it</button> <span id=tf-msg class=small>${e(TMSG)}</span></div>
     </form>`;
   }

@@ -62,9 +62,11 @@ def main():
     # ---- A WHOLE NIGHT OF EIGHT ------------------------------------------
     org, clock, tid, uids, store = night(8)
     t = org.t[tid]
-    check(org.enter(tid, "999", "LATE", "7.4.5") == "VERSION", "an entry on another game version is turned away")
-    check(org.enter(tid, "998", "POINT", "7.5.1") == "FULL", "a 7.5 tournament takes a 7.5.1 game (past the version, to FULL)")
-    check(org.enter(tid, "997", "NOTSEVENFIFTY", "7.50") == "VERSION", "...but not a 7.50 one")
+    # NO VERSION AT SIGN-UP (2026-10-13): any version gets as far as FULL
+    check(org.enter(tid, "999", "LATE", "7.4.5") == "FULL", "an entry on another game version is not turned away for it")
+    check(org.enter(tid, "998", "POINT", "7.5.1") == "FULL", "...nor a point release")
+    check(T.same_game("1129661808", "1129661809") and not T.same_game("1129661808", "1297109760"),
+          "a tournament is shown to every version of its game, and no other game")
     check(org.enter(tid, "999", "NINTH", "7.5") == "FULL", "a ninth entrant is turned away")
     check(org.enter(tid, uids[0], "AGAIN", "7.5") == "ALREADY", "an account enters once")
     clock.t = START - T.OPEN_BEFORE - 1; org.tick()

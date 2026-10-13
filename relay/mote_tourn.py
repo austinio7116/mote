@@ -130,6 +130,15 @@ class Tournament:
                 "matches": [m.view() for m in self.matches], "champion": self.champion, "why_off": self.why_off}
 
 
+def same_game(a, b):
+    """the same game across its versions: a tournament made under one CueVR
+    is shown to every later one (the game number's family, its top 24 bits)"""
+    try:
+        return (int(a) >> 8) == (int(b) >> 8)
+    except (TypeError, ValueError):
+        return str(a) == str(b)
+
+
 def hexcol(v):
     """a colour as RRGGBB, from "RRGGBB"/"#RRGGBB" or [r, g, b] 0..1; "" for none (the body's own)"""
     if isinstance(v, (list, tuple)) and len(v) == 3:
@@ -396,12 +405,11 @@ class Organiser:
         # that window takes entries up to the close it was given
         if self.now() > t.close or t.status not in ("open", "room"):
             return "CLOSED"
-        # THE TOURNAMENT'S VERSION AND ITS POINT RELEASES: a "7.5" tournament
-        # takes 7.5.1 and 7.5.2 as well -- they play each other online. It was
-        # an exact match, and every 7.5.1 game was refused (Mark, 2026-10-13:
-        # "Some users tried signing up but nothing happened")
-        if t.ver and ver != t.ver and not ver.startswith(t.ver + "."):
-            return "VERSION"
+        # NO VERSION AT SIGN-UP (Mark, 2026-10-13: "we might have multiple
+        # game updates between signup and the tournament so the check doesn't
+        # even make sense"). It was an exact match on the version's name, and
+        # every 7.5.1 game was refused a 7.5 tournament. Which game can play is
+        # asked on the night, at the room's door (the relay: the current one)
         if len(t.entrants) >= min(t.size, MAX_ENTRANTS):
             return "FULL"
         self.record({"e": "entered", "tid": tid, "uid": uid, "name": name[:23]})
@@ -420,7 +428,7 @@ class Organiser:
         """the tournaments a board shows: not finished more than a day ago"""
         now = self.now()
         return [t.view() for t in sorted(self.t.values(), key=lambda t: t.start)
-                if (not gid or t.gid == gid) and (t.status not in ("done", "off") or now - t.start < 86400)]
+                if (not gid or same_game(t.gid, gid)) and (t.status not in ("done", "off") or now - t.start < 86400)]
 
     def may_enter_room(self, tid, uid):
         """PLAYER: an entrant, the room open; WATCH: anyone, the room open; else None"""

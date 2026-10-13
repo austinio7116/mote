@@ -1031,6 +1031,7 @@ class Relay:
                                           taken=lambda code: any(k.endswith("/" + code) for k in list(self.rooms) + list(self.nrooms))
                                           ) if (mote_tourn and args.store) else None
         self.tourn_rate = {}       # ip -> [times] (ENTER / WITHDRAW)
+        self.tourn_refused = {}    # (tid, reason) -> count, since the relay started (the stats app reads it)
         self.admin_token = None
         if getattr(args, "admin_token_file", ""):
             try:
@@ -1602,6 +1603,40 @@ class Relay:
             room.results.clear()
 
     # ---- THE CLUB'S TOURNAMENTS (7.5) ----------------------------------------
+    # ---- RELOAD (Mark, 2026-10-13: "We really need to find a way to update
+    # the server without killing games or requiring we empty the club") ----
+    # mote_tourn.py read again from disk and put under the live tournaments:
+    # every connection, club, room and match carries on. The new file is run
+    # in a module of its own first, so one that does not load leaves the
+    # running code exactly as it was. Only mote_tourn.py: a change to this
+    # file still needs a restart.
+    def tourn_reload(self):
+        global mote_tourn
+        if self.tourn is None:
+            return "NONE"
+        import importlib, importlib.util
+        path = mote_tourn.__file__
+        try:
+            spec = importlib.util.spec_from_file_location("mote_tourn_trial", path)
+            trial = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(trial)
+            for name in ("Organiser", "Tournament", "Match", "state_lines", "word", "OPEN_BEFORE"):
+                getattr(trial, name)
+        except Exception as e:
+            log(f"reload: mote_tourn.py did not load ({type(e).__name__}: {e}) -- the running code is unchanged")
+            return f"FAILED {type(e).__name__}"
+        mote_tourn = importlib.reload(mote_tourn)
+        self.tourn.__class__ = mote_tourn.Organiser
+        n = 0
+        for t in self.tourn.t.values():
+            t.__class__ = mote_tourn.Tournament
+            for m in t.matches:
+                m.__class__ = mote_tourn.Match
+            n += 1
+        h = hashlib.sha256(open(path, "rb").read()).hexdigest()[:12]
+        log(f"reload: mote_tourn.py {h} in place ({n} tournaments carried over)")
+        return f"OK {h}"
+
     # mote_tourn.py decides; this is its post. tourn_flush hands what it has
     # announced to the tournament's room, and the whole state after it, so a
     # board never has to piece the night together from the lines.
@@ -1681,6 +1716,14 @@ class Relay:
                     if t.entered(uid) and t.status not in ("done", "off"):
                         out += f"MINE {tid}\n"
             return out + "END\n"
+        if sub in ("REFUSED", "RELOAD"):
+            if not self.admin_token or len(a) < 2 or not hmac.compare_digest(a[1], self.admin_token):
+                return f"{sub} DENIED\n"
+            if sub == "REFUSED":
+                # REFUSED <token>: every sign-up turned away since the relay
+                # started, by tournament and reason ("TR <tid> <reason> <n>")
+                return "".join(f"TR {tid} {why} {n}\n" for (tid, why), n in sorted(self.tourn_refused.items())) + "END\n"
+            return f"RELOAD {self.tourn_reload()}\n"
         if sub in ("CREATE", "CANCEL"):
             if not self.admin_token or len(a) < (3 if sub == "CANCEL" else 2) or not hmac.compare_digest(a[1], self.admin_token):
                 return f"{sub} DENIED\n"
@@ -1725,6 +1768,8 @@ class Relay:
                 return f"{sub} BAD\n"
             uid, nonce = (a[2] if len(a) > 2 else ""), (a[3] if len(a) > 3 else "")
             if not await self.tourn_proof(uid, nonce):
+                self.tourn_refused[(tid, "PROOF")] = self.tourn_refused.get((tid, "PROOF"), 0) + 1
+                log(f"tournament {tid}: {sub.lower()} refused PROOF (game {gid})")
                 return f"{sub} PROOF\n"
             if sub == "WITHDRAW":
                 ans = self.tourn.withdraw(tid, uid)
@@ -1734,6 +1779,11 @@ class Relay:
                 ans = self.tourn.enter(tid, uid, name, ver)
             if ans == "OK":
                 log(f"tournament {tid}: {sub.lower()} ({'entered' if sub == 'ENTER' else 'withdrawn'})")
+            else:
+                # REFUSED, AND SAID SO (2026-10-13: a night's refusals went
+                # unseen) -- the reason and the version, never the account
+                self.tourn_refused[(tid, ans)] = self.tourn_refused.get((tid, ans), 0) + 1
+                log(f"tournament {tid}: {sub.lower()} refused {ans} (game {gid}, version {a[4] if sub == 'ENTER' and len(a) > 4 else '-'})")
             self.tourn_flush()
             return f"{sub} {ans}\n"
         return "ERR\n"
@@ -2322,6 +2372,16 @@ class Relay:
         uid, nonce = (a[2] if len(a) > 2 else ""), (a[3] if len(a) > 3 else "")
         if self.tourn is None or self.tourn.t.get(tid) is None or self.tourn.t[tid].status not in ("room", "running", "done"):
             writer.write(b"NONE\n"); await writer.drain(); return
+        # THE GAME'S VERSION IS ASKED HERE, ON THE NIGHT, not at sign-up
+        # (Mark, 2026-10-13): only the current CueVR comes in, player or
+        # watcher, so every match is between two games that pair. "OLD": this
+        # version is out of date -- update to play
+        if self.newer(gid):
+            log(f"tournament {tid}: an out-of-date game turned away at the door ({gid})")
+            writer.write(b"OLD\n"); await writer.drain(); return
+        # ...and the room is the TOURNAMENT'S, whichever game number made it:
+        # keyed by the one it was created under, as tourn_flush looks for it
+        gid = self.tourn.t[tid].gid or gid
         if uid.upper() == "WATCH":
             await self.tourn_watcher(gid, tid, reader, writer, peer)
             return

@@ -33,7 +33,7 @@ def ask(port, line):
     while True:
         l = readline(s)
         out.append(l)
-        if l in ("END", "") or not l.startswith(("NOW", "T ", "TL ", "TE ", "TS ", "MINE ")):
+        if l in ("END", "") or not l.startswith(("NOW", "T ", "TL ", "TE ", "TS ", "MINE ", "TR ")):
             break
     s.close()
     return out
@@ -107,7 +107,8 @@ def main():
     open(tokf, "w").write(TOKEN + "\n")
     port = free_port()
     relay = subprocess.Popen([sys.executable, os.path.join(HERE, "mote_relay.py"), "--addr", "127.0.0.1", "--port", str(port),
-                              "--store", store, "--admin-token-file", tokf, "--tourn-trust", "--no-voice"],
+                              "--store", store, "--admin-token-file", tokf, "--tourn-trust", "--no-voice",
+                              "--latest-game", GID],
                              stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
     try:
         for _ in range(100):
@@ -127,18 +128,32 @@ def main():
         for i, u in enumerate(uids):
             a = ask(port, f"MOTE2 TOURN {GID} ENTER {tid} {u} desknonce{u} 7.5 DESK{i + 1}")[0]
             check(a == "ENTER OK", f"entrant {i + 1} signs up: {a}")
-        check(ask(port, f"MOTE2 TOURN {GID} ENTER {tid} 299 desknonce299 7.4.5 OLDGAME")[0] == "ENTER VERSION", "an entrant on 7.4.5 is turned away")
+        # NO VERSION AT SIGN-UP (2026-10-13): an older game's entry gets as far as FULL
+        check(ask(port, f"MOTE2 TOURN {GID} ENTER {tid} 299 desknonce299 7.4.5 OLDGAME")[0] == "ENTER FULL",
+              "an entrant on another version is not turned away for it (here: full)")
+        check(ask(port, f"MOTE2 TOURN {GID} REFUSED wrong-token")[0] == "REFUSED DENIED", "the refusals need the admin token")
+        check(ask(port, f"MOTE2 TOURN {GID} REFUSED {TOKEN}")[:2] == [f"TR {tid} FULL 1", "END"], "the refusal is counted, with its reason")
+        # ...and a later game number still sees the tournament
+        check(any(l.startswith(f"TL {tid} ") for l in ask(port, f"MOTE2 TOURN {int(GID) + 1} LIST")), "a later CueVR is shown the tournament")
         lst = ask(port, f"MOTE2 TOURN {GID} LIST 201")
         check(lst[0].startswith("NOW ") and lst[1].startswith(f"TL {tid} open ") and lst[1].endswith("DESK KNOCKOUT")
               and [l[len(f"TE {tid} "):] for l in lst if l.startswith("TE ")] == ["DESK1", "DESK2", "DESK3", "DESK4"]
               and f"MINE {tid}" in lst and not any("201" in l.split() for l in lst[1:] if not l.startswith("MINE")),
               f"the listing shows the tournament, its four names and that 201 entered it -- no accounts: {lst}")
         time.sleep(2.5)                       # the clock opens the room (the start is under 15 minutes away)
+        # THE VERSION IS ASKED AT THE DOOR: an out-of-date game is turned away
+        old = conn(port, f"MOTE2 CLUB {int(GID) - 1} TOURN {tid} 201 desknonce201")
+        check(readline(old) == "OLD", "an out-of-date game is turned away at the room's door")
+        old.close()
         stranger = conn(port, f"MOTE2 CLUB {GID} TOURN {tid} 298 desknonce298")
         check(readline(stranger) == "NOTYOU", "an account not entered is not let in")
         stranger.close()
         ms = [Member(port, tid, u) for u in uids]
         check(all(m.seat.startswith("SEAT") for m in ms), f"all four walk into the room: {[m.seat for m in ms]}")
+        # RELOAD: mote_tourn.py again, under the night, nobody dropped
+        check(ask(port, f"MOTE2 TOURN {GID} RELOAD wrong-token")[0] == "RELOAD DENIED", "a reload needs the admin token")
+        ans = ask(port, f"MOTE2 TOURN {GID} RELOAD {TOKEN}")[0]
+        check(ans.startswith("RELOAD OK"), f"the tournaments' code is reloaded in place: {ans}")
         clubs = ask(port, f"MOTE2 LIST {GID}")
         check(not any("TOURNAMENT" in l or "CLUB 0" in l for l in clubs), "the tournament's room is not in the club listing")
         print(f"         waiting for the start ({start - int(time.time())} s)...")

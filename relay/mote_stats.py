@@ -228,6 +228,17 @@ def tourn_list():
         elif p[0] == "TS" and len(p) >= 8 and int(p[1]) in by:
             by[int(p[1])]["style"] = {"cloth": int(p[2]), "frame": int(p[3]), "body": int(p[4]), "set": int(p[5]),
                                       "leather": p[6], "metal": p[7]}
+    # SIGN-UPS TURNED AWAY, and why (2026-10-13: a night's refusals went
+    # unseen) -- the relay's count since it started; it needs the admin token
+    tok = tourn_token()
+    if tok and out:
+        try:
+            for l in relay_ask(f"MOTE2 TOURN {A.tourn_gid} REFUSED {tok}", until=b"END\n").splitlines():
+                p = l.split(" ")
+                if p[0] == "TR" and len(p) == 4 and int(p[1]) in by:
+                    by[int(p[1])].setdefault("refused", {})[p[2]] = int(p[3])
+        except (OSError, ValueError):
+            pass
     return out
 
 
