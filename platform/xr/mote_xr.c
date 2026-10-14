@@ -508,7 +508,7 @@ static void hp_frame(XrTime t, MoteVrTracking *track) {
     if (say) said = t;
     for (int h = 0; h < 2; h++) {
         MoteVrHand *H = &track->hand[h];
-        H->joints_from = 0;
+        H->joints_from = 0; H->joints_tracked = 0;
         if (!S.hp_tracker[h]) continue;
         XrHandJointLocationEXT j[XR_HAND_JOINT_COUNT_EXT];
         XrHandJointLocationsEXT jl = { XR_TYPE_HAND_JOINT_LOCATIONS_EXT };
@@ -518,7 +518,10 @@ static void hp_frame(XrTime t, MoteVrTracking *track) {
         XrHandJointsLocateInfoEXT li = { XR_TYPE_HAND_JOINTS_LOCATE_INFO_EXT };
         li.baseSpace = S.space; li.time = t;
         if (!XR_SUCCEEDED(S.hp_locate(S.hp_tracker[h], &li, &jl)) || !jl.isActive) continue;
+        H->joints_tracked = 0;
         for (int k = 0; k < XR_HAND_JOINT_COUNT_EXT; k++) {
+            if ((j[k].locationFlags & XR_SPACE_LOCATION_POSITION_TRACKED_BIT) && (j[k].locationFlags & XR_SPACE_LOCATION_ORIENTATION_TRACKED_BIT))
+                H->joints_tracked++;
             memcpy(&H->joint[k].q, &j[k].pose.orientation, sizeof H->joint[k].q);
             memcpy(&H->joint[k].p, &j[k].pose.position, sizeof H->joint[k].p);
             H->joint_r[k] = j[k].radius;

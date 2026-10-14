@@ -139,6 +139,7 @@ typedef struct {
      * controller is being held (its touch sensors and buttons). joints_from:
      * 0 none, 1 the cameras, 2 the controller. Only after mote_xr_set_hands(1, ..). */
     int        joints_from;
+    int        joints_tracked;   /* of the 26, how many the runtime says it SAW (position and orientation tracked), not inferred */
     MoteVrPose joint[26];
     float      joint_r[26];
     /* THIS HAND'S CONTROLLER IS NOT IN THE HAND: with hands and controllers
