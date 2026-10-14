@@ -149,6 +149,8 @@ static struct {
     int hp_hand, hp_source, hp_mesh, hp_simul, hp_detached;
     XrHandTrackerEXT hp_tracker[2];
     PFN_xrLocateHandJointsEXT hp_locate;
+    PFN_xrCreateHandTrackerEXT hp_create;      /* kept: a refused tracker is made again later */
+    PFN_xrGetHandMeshFB hp_meshfn;
     int hands_on, mm_on, mm_want, prefer_det;
     int mm_wait, mm_reassert;     /* frames before asking again after a refusal; ask again on regaining focus */
     volatile int cue_held[2];    /* the cue's controller counted as held this frame (for the sampler) */
@@ -460,6 +462,7 @@ static void hp_mesh(int h, PFN_xrGetHandMeshFB mesh) {
     xrlog("[handprobe] %s hand mesh: %s -- %u joints, %u vertices, %u indices", h ? "right" : "left",
           s_hmesh[h].ok ? "kept" : "NOT had", nj, nv, ni);
 }
+static void hp_make_trackers(void);
 static void hp_start(void) {
     if (!S.hp_hand) { xrlog("[handprobe] no hand tracking"); return; }
     PFN_xrCreateHandTrackerEXT create = NULL;
@@ -468,7 +471,20 @@ static void hp_start(void) {
     if (!create || !S.hp_locate) { xrlog("[handprobe] hand tracking functions missing"); S.hp_hand = 0; return; }
     PFN_xrGetHandMeshFB mesh = NULL;
     if (S.hp_mesh) xrGetInstanceProcAddr(S.instance, "xrGetHandMeshFB", (PFN_xrVoidFunction *)&mesh);
+    S.hp_create = create; S.hp_meshfn = mesh;
+    hp_make_trackers();
+}
+/* EACH HAND'S TRACKER, MADE -- and made again later if the runtime refused
+ * (CueVR 7.6: after a restore made Mark reopen the game there were no hands
+ * at all, in any mode, for the whole session: the trackers are made once at
+ * start-up, and a refusal then was for good). hp_frame asks again for any
+ * that is missing, every few seconds. */
+static void hp_make_trackers(void) {
+    PFN_xrCreateHandTrackerEXT create = S.hp_create;
+    PFN_xrGetHandMeshFB mesh = S.hp_meshfn;
+    if (!create) return;
     for (int h = 0; h < 2; h++) {
+        if (S.hp_tracker[h]) continue;
         XrHandTrackerCreateInfoEXT ci = { XR_TYPE_HAND_TRACKER_CREATE_INFO_EXT };
         ci.hand = h ? XR_HAND_RIGHT_EXT : XR_HAND_LEFT_EXT;
         ci.handJointSet = XR_HAND_JOINT_SET_DEFAULT_EXT;
@@ -480,7 +496,7 @@ static void hp_start(void) {
         xrlog("[handprobe] %s hand tracker (sources: %s): %s", h ? "right" : "left",
               S.hp_source ? "cameras + controllers" : "cameras only", XR_SUCCEEDED(r) ? "made" : "REFUSED");
         if (!XR_SUCCEEDED(r)) { S.hp_tracker[h] = XR_NULL_HANDLE; continue; }
-        if (mesh) hp_mesh(h, mesh);
+        if (mesh && !s_hmesh[h].ok) hp_mesh(h, mesh);
     }
 }
 /* multimodal on or off, as the app last asked: only when it changes */
@@ -516,6 +532,11 @@ static void hp_multimodal(void) {
 }
 static void hp_frame(XrTime t, MoteVrTracking *track) {
     hp_multimodal();
+    /* a hand whose tracker the runtime refused: asked again every ~3 s */
+    if (S.hp_hand && S.hp_create && S.running && (!S.hp_tracker[0] || !S.hp_tracker[1])) {
+        static int wait;
+        if (--wait <= 0) { wait = 216; hp_make_trackers(); }
+    }
     if (!S.hp_locate || !S.hands_on || !track) return;
     static XrTime said;
     const int say = !said || t - said > 2000000000LL;
