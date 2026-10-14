@@ -57,6 +57,7 @@
  * the app's EXTERNAL data directory — which SideQuest can browse straight off
  * the headset. Getting a log should not require adb, a cable and a shell. */
 static FILE *s_logf;
+static char s_log_dir[512];        /* where the log goes (and, in a log build, the hand mesh) */
 
 /* LOGGING IS OFF unless somebody asks for it.
  *
@@ -75,6 +76,7 @@ void mote_xr_log_file(const char *dir) {
     if (!MOTE_LOG) return;              /* no file, not even opened */
     if (!dir || !dir[0]) return;
     mkdir(dir, 0777);                   /* Android usually makes it; not always */
+    snprintf(s_log_dir, sizeof s_log_dir, "%s", dir);
     snprintf(path, sizeof path, "%s/mote-log.txt", dir);
     if (s_logf) fclose(s_logf);
     s_logf = fopen(path, "w");          /* fresh each launch: the last run is
@@ -142,11 +144,15 @@ static struct {
     XrInstance  instance;
     XrSystemId  system;
     XrSession   session;
-#if MOTE_LOG
-    int hp_hand, hp_source, hp_mesh, hp_simul;            /* the hand probe (7.6) */
+    /* HANDS (CueVR 7.6): what the runtime offers, a tracker per hand, its
+     * mesh, and whether the app wants them read and multimodal on */
+    int hp_hand, hp_source, hp_mesh, hp_simul, hp_detached;
     XrHandTrackerEXT hp_tracker[2];
     PFN_xrLocateHandJointsEXT hp_locate;
-#endif
+    int hands_on, mm_on, mm_want, prefer_det;
+    volatile int cue_held[2];    /* the cue's controller counted as held this frame (for the sampler) */
+    XrPath det_path[2];
+    XrSpace det_space[2], det_aim[2];
     XrSpace     space;          /* LOCAL: the seated origin */
     XrSessionState state;
     int         running;        /* between xrBeginSession and xrEndSession */
@@ -173,6 +179,7 @@ static struct {
     int   has_perf;
     int   has_stylus;
     XrPath mx_ink_path;
+    XrPath touch_path;           /* /interaction_profiles/oculus/touch_controller: "a controller is in this hand" */
     int   stylus_tier;       /* which binding tier took, -1 none -- see below */
     int   has_refresh;
     PFN_xrEnumerateRenderModelPathsFB xrEnumerateRenderModelPathsFB_;
@@ -315,10 +322,12 @@ static int make_instance(JavaVM *vm, jobject activity) {
         want[nw++] = XR_FB_FOVEATION_CONFIGURATION_EXTENSION_NAME;
         want[nw++] = XR_FB_SWAPCHAIN_UPDATE_STATE_EXTENSION_NAME;
     }
-#if MOTE_LOG
-    /* THE HAND PROBE (CueVR 7.6, Mark: "lets try everything and see what works
-     * best - even multimodal"): every hand- or body-flavoured extension the
-     * runtime offers, logged; the four that matter asked for where they exist */
+    /* HANDS (CueVR 7.6; Mark: "hand tracked models in all control modes"):
+     * every hand- or body-flavoured extension the runtime offers, logged; the
+     * ones that matter asked for where they exist -- hand tracking, hands
+     * worked out from the controllers, the runtime's hand mesh, hands and
+     * controllers together, and detached controllers (a controller strapped
+     * to a cue is not "held", and must not vanish) */
     for (uint32_t i = 0; i < n; i++)
         if (strstr(ext[i].extensionName, "hand") || strstr(ext[i].extensionName, "simultaneous") ||
             strstr(ext[i].extensionName, "detached") || strstr(ext[i].extensionName, "body") ||
@@ -332,9 +341,10 @@ static int make_instance(JavaVM *vm, jobject activity) {
     if (S.hp_hand && S.hp_source) want[nw++] = XR_EXT_HAND_TRACKING_DATA_SOURCE_EXTENSION_NAME;
     if (S.hp_hand && S.hp_mesh) want[nw++] = XR_FB_HAND_TRACKING_MESH_EXTENSION_NAME;
     if (S.hp_simul) want[nw++] = XR_META_SIMULTANEOUS_HANDS_AND_CONTROLLERS_EXTENSION_NAME;
-    xrlog("[handprobe] hand tracking %d, data source (controller hands) %d, hand mesh %d, simultaneous hands+controllers %d",
-          S.hp_hand, S.hp_source, S.hp_mesh, S.hp_simul);
-#endif
+    S.hp_detached = S.hp_simul && have_ext(ext, n, XR_META_DETACHED_CONTROLLERS_EXTENSION_NAME);
+    if (S.hp_detached) want[nw++] = XR_META_DETACHED_CONTROLLERS_EXTENSION_NAME;
+    xrlog("[handprobe] hand tracking %d, data source (controller hands) %d, hand mesh %d, simultaneous hands+controllers %d, detached controllers %d",
+          S.hp_hand, S.hp_source, S.hp_mesh, S.hp_simul, S.hp_detached);
     for (uint32_t i = 0; i < nw; i++)
         if (!have_ext(ext, n, want[i])) {
             xrlog("[mote-xr] runtime lacks %s", want[i]);
@@ -367,34 +377,96 @@ static int make_instance(JavaVM *vm, jobject activity) {
     if (failed(xrGetSystem(S.instance, &sgi, &S.system), "xrGetSystem")) return -1;
 
     XrSystemProperties sp = { XR_TYPE_SYSTEM_PROPERTIES };
-#if MOTE_LOG
     XrSystemHandTrackingPropertiesEXT hp = { XR_TYPE_SYSTEM_HAND_TRACKING_PROPERTIES_EXT };
     XrSystemSimultaneousHandsAndControllersPropertiesMETA mp = { XR_TYPE_SYSTEM_SIMULTANEOUS_HANDS_AND_CONTROLLERS_PROPERTIES_META };
     if (S.hp_hand) { hp.next = sp.next; sp.next = &hp; }
     if (S.hp_simul) { mp.next = sp.next; sp.next = &mp; }
-#endif
     if (XR_SUCCEEDED(xrGetSystemProperties(S.instance, S.system, &sp)))
         xrlog("[mote-xr] %s", sp.systemName);
-#if MOTE_LOG
     xrlog("[handprobe] system says: hand tracking supported %d, simultaneous hands and controllers supported %d",
           S.hp_hand ? (int)hp.supportsHandTracking : -1, S.hp_simul ? (int)mp.supportsSimultaneousHandsAndControllers : -1);
     S.hp_hand = S.hp_hand && hp.supportsHandTracking;
     S.hp_simul = S.hp_simul && mp.supportsSimultaneousHandsAndControllers;
-#endif
+    S.hp_detached = S.hp_detached && S.hp_simul;
     return 0;
 }
 
+/* ---- HANDS, once the session is up (CueVR 7.6) --------------------------
+ * A tracker per hand asking for BOTH sources -- the cameras, and the hand the
+ * runtime works out from how a controller is held -- and each hand's mesh,
+ * kept for the app. Read every frame once the app asks (mote_xr_set_hands);
+ * multimodal resumed or paused as it asks too. */
+static struct {
+    MoteXrHandMesh m;
+    MoteVrPose bind[XR_HAND_JOINT_COUNT_EXT];
+    int parent[XR_HAND_JOINT_COUNT_EXT];
+    float *pos, *nrm, *uv, *bw; short *bidx, *idx;
+    int ok;
+} s_hmesh[2];
+static void hp_mesh(int h, PFN_xrGetHandMeshFB mesh) {
+    XrHandTrackingMeshFB m = { XR_TYPE_HAND_TRACKING_MESH_FB };
+    if (!mesh || !XR_SUCCEEDED(mesh(S.hp_tracker[h], &m)) || !m.vertexCountOutput || !m.indexCountOutput) return;
+    const uint32_t nj = m.jointCountOutput, nv = m.vertexCountOutput, ni = m.indexCountOutput;
+    if (nj > XR_HAND_JOINT_COUNT_EXT) return;
+    XrPosef *bp = calloc(nj, sizeof *bp); float *jr = calloc(nj, sizeof *jr); XrHandJointEXT *par = calloc(nj, sizeof *par);
+    XrVector3f *vp = calloc(nv, sizeof *vp), *vn = calloc(nv, sizeof *vn); XrVector2f *vu = calloc(nv, sizeof *vu);
+    XrVector4sFB *bi = calloc(nv, sizeof *bi); XrVector4f *bw = calloc(nv, sizeof *bw); int16_t *ix = calloc(ni, sizeof *ix);
+    m.jointCapacityInput = nj; m.jointBindPoses = bp; m.jointRadii = jr; m.jointParents = par;
+    m.vertexCapacityInput = nv; m.vertexPositions = vp; m.vertexNormals = vn; m.vertexUVs = vu;
+    m.vertexBlendIndices = bi; m.vertexBlendWeights = bw;
+    m.indexCapacityInput = ni; m.indices = ix;
+    if (bp && jr && par && vp && vn && vu && bi && bw && ix && XR_SUCCEEDED(mesh(S.hp_tracker[h], &m))) {
+        typeof(s_hmesh[0]) *H = &s_hmesh[h];
+        H->pos = malloc(nv * 3 * sizeof(float)); H->nrm = malloc(nv * 3 * sizeof(float)); H->uv = malloc(nv * 2 * sizeof(float));
+        H->bidx = malloc(nv * 4 * sizeof(short)); H->bw = malloc(nv * 4 * sizeof(float)); H->idx = malloc(ni * sizeof(short));
+        if (H->pos && H->nrm && H->uv && H->bidx && H->bw && H->idx) {
+            for (uint32_t i = 0; i < nv; i++) {
+                H->pos[3*i] = vp[i].x; H->pos[3*i+1] = vp[i].y; H->pos[3*i+2] = vp[i].z;
+                H->nrm[3*i] = vn[i].x; H->nrm[3*i+1] = vn[i].y; H->nrm[3*i+2] = vn[i].z;
+                H->uv[2*i] = vu[i].x; H->uv[2*i+1] = vu[i].y;
+                H->bidx[4*i] = bi[i].x; H->bidx[4*i+1] = bi[i].y; H->bidx[4*i+2] = bi[i].z; H->bidx[4*i+3] = bi[i].w;
+                H->bw[4*i] = bw[i].x; H->bw[4*i+1] = bw[i].y; H->bw[4*i+2] = bw[i].z; H->bw[4*i+3] = bw[i].w;
+            }
+            for (uint32_t i = 0; i < ni; i++) H->idx[i] = ix[i];
+            for (uint32_t j = 0; j < nj; j++) {
+                memcpy(&H->bind[j].q, &bp[j].orientation, sizeof H->bind[j].q);
+                memcpy(&H->bind[j].p, &bp[j].position, sizeof H->bind[j].p);
+                H->parent[j] = par[j] >= nj ? -1 : (int)par[j];
+            }
+            H->m.nj = (int)nj; H->m.nv = (int)nv; H->m.ni = (int)ni;
+            H->m.bind = H->bind; H->m.parent = H->parent;
+            H->m.pos = H->pos; H->m.nrm = H->nrm; H->m.uv = H->uv; H->m.bidx = H->bidx; H->m.bw = H->bw; H->m.idx = H->idx;
+            H->ok = 1;
 #if MOTE_LOG
-/* ---- THE HAND PROBE, once the session is up: a tracker per hand asking for
- * BOTH sources (the cameras, and the controllers' touch sensors), the mesh's
- * size, multimodal switched on where offered; then every two seconds what each
- * hand's data is, where it came from, and how curled the index finger is */
+            /* the mesh as a file beside the log, for the desk (which has no
+             * runtime to ask): "MXHM" nj nv ni, then the arrays as above */
+            if (s_logf) {
+                char fp[600]; snprintf(fp, sizeof fp, "%s/handmesh_%s.bin", s_log_dir, h ? "right" : "left");
+                FILE *f = fopen(fp, "wb");
+                if (f) {
+                    fwrite("MXHM", 1, 4, f); fwrite(&H->m.nj, 4, 1, f); fwrite(&H->m.nv, 4, 1, f); fwrite(&H->m.ni, 4, 1, f);
+                    fwrite(H->bind, sizeof(MoteVrPose), nj, f); fwrite(H->parent, sizeof(int), nj, f);
+                    fwrite(H->pos, 4, nv * 3, f); fwrite(H->nrm, 4, nv * 3, f); fwrite(H->uv, 4, nv * 2, f);
+                    fwrite(H->bidx, 2, nv * 4, f); fwrite(H->bw, 4, nv * 4, f); fwrite(H->idx, 2, ni, f);
+                    fclose(f);
+                    xrlog("[handprobe] mesh written to %s", fp);
+                }
+            }
+#endif
+        }
+    }
+    free(bp); free(jr); free(par); free(vp); free(vn); free(vu); free(bi); free(bw); free(ix);
+    xrlog("[handprobe] %s hand mesh: %s -- %u joints, %u vertices, %u indices", h ? "right" : "left",
+          s_hmesh[h].ok ? "kept" : "NOT had", nj, nv, ni);
+}
 static void hp_start(void) {
-    if (!S.hp_hand) { xrlog("[handprobe] no hand tracking: nothing more to try"); return; }
+    if (!S.hp_hand) { xrlog("[handprobe] no hand tracking"); return; }
     PFN_xrCreateHandTrackerEXT create = NULL;
     xrGetInstanceProcAddr(S.instance, "xrCreateHandTrackerEXT", (PFN_xrVoidFunction *)&create);
     xrGetInstanceProcAddr(S.instance, "xrLocateHandJointsEXT", (PFN_xrVoidFunction *)&S.hp_locate);
-    if (!create || !S.hp_locate) { xrlog("[handprobe] hand tracking functions missing"); return; }
+    if (!create || !S.hp_locate) { xrlog("[handprobe] hand tracking functions missing"); S.hp_hand = 0; return; }
+    PFN_xrGetHandMeshFB mesh = NULL;
+    if (S.hp_mesh) xrGetInstanceProcAddr(S.instance, "xrGetHandMeshFB", (PFN_xrVoidFunction *)&mesh);
     for (int h = 0; h < 2; h++) {
         XrHandTrackerCreateInfoEXT ci = { XR_TYPE_HAND_TRACKER_CREATE_INFO_EXT };
         ci.hand = h ? XR_HAND_RIGHT_EXT : XR_HAND_LEFT_EXT;
@@ -407,28 +479,36 @@ static void hp_start(void) {
         xrlog("[handprobe] %s hand tracker (sources: %s): %s", h ? "right" : "left",
               S.hp_source ? "cameras + controllers" : "cameras only", XR_SUCCEEDED(r) ? "made" : "REFUSED");
         if (!XR_SUCCEEDED(r)) { S.hp_tracker[h] = XR_NULL_HANDLE; continue; }
-        if (S.hp_mesh && h == 1) {
-            PFN_xrGetHandMeshFB mesh = NULL;
-            xrGetInstanceProcAddr(S.instance, "xrGetHandMeshFB", (PFN_xrVoidFunction *)&mesh);
-            XrHandTrackingMeshFB m = { XR_TYPE_HAND_TRACKING_MESH_FB };
-            const XrResult mr = mesh ? mesh(S.hp_tracker[h], &m) : XR_ERROR_FUNCTION_UNSUPPORTED;
-            xrlog("[handprobe] the runtime's hand mesh: %s -- %u joints, %u vertices, %u indices",
-                  XR_SUCCEEDED(mr) ? "offered" : "NOT offered", m.jointCountOutput, m.vertexCountOutput, m.indexCountOutput);
-        }
-    }
-    if (S.hp_simul) {
-        PFN_xrResumeSimultaneousHandsAndControllersTrackingMETA resume = NULL;
-        xrGetInstanceProcAddr(S.instance, "xrResumeSimultaneousHandsAndControllersTrackingMETA", (PFN_xrVoidFunction *)&resume);
-        XrSimultaneousHandsAndControllersTrackingResumeInfoMETA ri = { XR_TYPE_SIMULTANEOUS_HANDS_AND_CONTROLLERS_TRACKING_RESUME_INFO_META };
-        const XrResult r = resume ? resume(S.session, &ri) : XR_ERROR_FUNCTION_UNSUPPORTED;
-        xrlog("[handprobe] multimodal (hands and controllers together) switched on: %s (%d)", XR_SUCCEEDED(r) ? "yes" : "NO", (int)r);
+        if (mesh) hp_mesh(h, mesh);
     }
 }
-static void hp_frame(XrTime t, const MoteVrTracking *track) {
-    static XrTime last;
-    if (!S.hp_locate || (last && t - last < 2000000000LL)) return;
-    last = t;
+/* multimodal on or off, as the app last asked: only when it changes */
+static void hp_multimodal(void) {
+    if (!S.hp_simul || !S.session || S.mm_on == S.mm_want) return;
+    XrResult r;
+    if (S.mm_want) {
+        PFN_xrResumeSimultaneousHandsAndControllersTrackingMETA f = NULL;
+        xrGetInstanceProcAddr(S.instance, "xrResumeSimultaneousHandsAndControllersTrackingMETA", (PFN_xrVoidFunction *)&f);
+        XrSimultaneousHandsAndControllersTrackingResumeInfoMETA ri = { XR_TYPE_SIMULTANEOUS_HANDS_AND_CONTROLLERS_TRACKING_RESUME_INFO_META };
+        r = f ? f(S.session, &ri) : XR_ERROR_FUNCTION_UNSUPPORTED;
+    } else {
+        PFN_xrPauseSimultaneousHandsAndControllersTrackingMETA f = NULL;
+        xrGetInstanceProcAddr(S.instance, "xrPauseSimultaneousHandsAndControllersTrackingMETA", (PFN_xrVoidFunction *)&f);
+        XrSimultaneousHandsAndControllersTrackingPauseInfoMETA pi = { XR_TYPE_SIMULTANEOUS_HANDS_AND_CONTROLLERS_TRACKING_PAUSE_INFO_META };
+        r = f ? f(S.session, &pi) : XR_ERROR_FUNCTION_UNSUPPORTED;
+    }
+    xrlog("[handprobe] multimodal %s: %s (%d)", S.mm_want ? "on" : "paused", XR_SUCCEEDED(r) ? "yes" : "NO", (int)r);
+    S.mm_on = S.mm_want;          /* once either way: a refusal is not asked again every frame */
+}
+static void hp_frame(XrTime t, MoteVrTracking *track) {
+    hp_multimodal();
+    if (!S.hp_locate || !S.hands_on || !track) return;
+    static XrTime said;
+    const int say = !said || t - said > 2000000000LL;
+    if (say) said = t;
     for (int h = 0; h < 2; h++) {
+        MoteVrHand *H = &track->hand[h];
+        H->joints_from = 0;
         if (!S.hp_tracker[h]) continue;
         XrHandJointLocationEXT j[XR_HAND_JOINT_COUNT_EXT];
         XrHandJointLocationsEXT jl = { XR_TYPE_HAND_JOINT_LOCATIONS_EXT };
@@ -437,17 +517,23 @@ static void hp_frame(XrTime t, const MoteVrTracking *track) {
         if (S.hp_source) jl.next = &ds;
         XrHandJointsLocateInfoEXT li = { XR_TYPE_HAND_JOINTS_LOCATE_INFO_EXT };
         li.baseSpace = S.space; li.time = t;
-        const XrResult r = S.hp_locate(S.hp_tracker[h], &li, &jl);
-        const XrVector3f w = j[XR_HAND_JOINT_WRIST_EXT].pose.position, tip = j[XR_HAND_JOINT_INDEX_TIP_EXT].pose.position,
-                         pm = j[XR_HAND_JOINT_PALM_EXT].pose.position, th = j[XR_HAND_JOINT_THUMB_TIP_EXT].pose.position;
-        const float ix = tip.x - pm.x, iy = tip.y - pm.y, iz = tip.z - pm.z, tx = th.x - pm.x, ty = th.y - pm.y, tz = th.z - pm.z;
-        xrlog("[handprobe] %s: %s, active %d, source %s, controller held %d | wrist %.2f %.2f %.2f, index tip %.0f mm from the palm, thumb tip %.0f mm",
-              h ? "right" : "left", XR_SUCCEEDED(r) ? "located" : "not located", (int)jl.isActive,
-              !S.hp_source ? "?" : !ds.isActive ? "none" : ds.dataSource == XR_HAND_TRACKING_DATA_SOURCE_CONTROLLER_EXT ? "CONTROLLER" : "CAMERAS",
-              track ? track->hand[h].tracked : -1, w.x, w.y, w.z, sqrtf(ix * ix + iy * iy + iz * iz) * 1000.0f, sqrtf(tx * tx + ty * ty + tz * tz) * 1000.0f);
+        if (!XR_SUCCEEDED(S.hp_locate(S.hp_tracker[h], &li, &jl)) || !jl.isActive) continue;
+        for (int k = 0; k < XR_HAND_JOINT_COUNT_EXT; k++) {
+            memcpy(&H->joint[k].q, &j[k].pose.orientation, sizeof H->joint[k].q);
+            memcpy(&H->joint[k].p, &j[k].pose.position, sizeof H->joint[k].p);
+            H->joint_r[k] = j[k].radius;
+        }
+        H->joints_from = (S.hp_source && ds.isActive && ds.dataSource == XR_HAND_TRACKING_DATA_SOURCE_CONTROLLER_EXT) ? 2 : 1;
+        if (say) xrlog("[handprobe] %s hand: %s, controller %s%s", h ? "right" : "left",
+                       H->joints_from == 2 ? "from the controller" : "seen by the cameras",
+                       H->tracked ? (H->detached ? "DETACHED (tracked, not held): its own pose used" : "on the hand's path") : "not tracked",
+                       (S.prefer_det >> h & 1) ? " [the app's controller hand]" : "");
     }
 }
-#endif
+int  mote_xr_hands_available(void) { return S.hp_hand && (S.hp_tracker[0] || S.hp_tracker[1]); }
+const MoteXrHandMesh *mote_xr_hand_mesh(int hand) { return hand >= 0 && hand < 2 && s_hmesh[hand].ok ? &s_hmesh[hand].m : NULL; }
+void mote_xr_set_hands(int on, int multimodal) { S.hands_on = on ? 1 : 0; S.mm_want = on && multimodal ? 1 : 0; }
+void mote_xr_controller_hands(int mask) { S.prefer_det = mask & 3; }
 
 static int make_session(void) {
     /* Required before session creation even though we ignore the answer: the
@@ -495,9 +581,7 @@ static int make_session(void) {
     rs.poseInReferenceSpace.orientation.w = 1.0f;
     if (failed(xrCreateReferenceSpace(S.session, &rs, &S.space), "xrCreateReferenceSpace"))
         return -1;
-#if MOTE_LOG
     hp_start();
-#endif
     return 0;
 }
 
@@ -780,8 +864,11 @@ static XrAction mk_action(XrActionType type, const char *name, const char *prett
     ai.actionType = type;
     snprintf(ai.actionName, sizeof ai.actionName, "%s", name);
     snprintf(ai.localizedActionName, sizeof ai.localizedActionName, "%s", pretty);
-    ai.countSubactionPaths = 2;
-    ai.subactionPaths = S.hand_path;
+    /* ...and the DETACHED controllers' paths where multimodal is offered: a
+     * controller nobody is holding (one strapped to a cue) carries on there */
+    XrPath sub[4] = { S.hand_path[0], S.hand_path[1], S.det_path[0], S.det_path[1] };
+    ai.countSubactionPaths = S.hp_detached ? 4 : 2;
+    ai.subactionPaths = sub;
     XrAction a = XR_NULL_HANDLE;
     if (failed(xrCreateAction(S.action_set, &ai, &a), name)) return XR_NULL_HANDLE;
     return a;
@@ -802,6 +889,10 @@ static int make_actions(void) {
 
     S.hand_path[MOTE_VR_LEFT]  = path("/user/hand/left");
     S.hand_path[MOTE_VR_RIGHT] = path("/user/hand/right");
+    if (S.hp_detached) {
+        S.det_path[MOTE_VR_LEFT]  = path("/user/detached_controller_meta/left");
+        S.det_path[MOTE_VR_RIGHT] = path("/user/detached_controller_meta/right");
+    }
 
     S.a_pose    = mk_action(XR_ACTION_TYPE_POSE_INPUT,    "grip",    "Hold");
     /* The AIM pose, which is what every Quest menu ray comes out of. It is the
@@ -850,11 +941,30 @@ static int make_actions(void) {
         { S.a_haptic,  path("/user/hand/right/output/haptic") },
     };
     XrInteractionProfileSuggestedBinding sb = { XR_TYPE_INTERACTION_PROFILE_SUGGESTED_BINDING };
-    sb.interactionProfile = path("/interaction_profiles/oculus/touch_controller");
-    sb.suggestedBindings = tb;
-    sb.countSuggestedBindings = sizeof tb / sizeof tb[0];
-    if (!XR_SUCCEEDED(xrSuggestInteractionProfileBindings(S.instance, &sb)))
-        xrlog("[mote-xr] touch bindings rejected");
+    S.touch_path = path("/interaction_profiles/oculus/touch_controller");
+    sb.interactionProfile = S.touch_path;
+    /* THE SAME BINDINGS FOR A DETACHED CONTROLLER (7.6): /user/hand/x becomes
+     * /user/detached_controller_meta/x, in the one suggestion */
+    XrActionSuggestedBinding tbd[2 * (sizeof tb / sizeof tb[0])];
+    uint32_t ntb = 0;
+    for (uint32_t i = 0; i < sizeof tb / sizeof tb[0]; i++) tbd[ntb++] = tb[i];
+    if (S.hp_detached) {
+        for (uint32_t i = 0; i < sizeof tb / sizeof tb[0]; i++) {
+            char ps[XR_MAX_PATH_LENGTH]; uint32_t pl = 0;
+            if (!XR_SUCCEEDED(xrPathToString(S.instance, tb[i].binding, sizeof ps, &pl, ps))) continue;
+            if (strncmp(ps, "/user/hand/", 11) != 0) continue;
+            char dp[XR_MAX_PATH_LENGTH]; snprintf(dp, sizeof dp, "/user/detached_controller_meta/%s", ps + 11);
+            tbd[ntb].action = tb[i].action; tbd[ntb].binding = path(dp); ntb++;
+        }
+    }
+    sb.suggestedBindings = tbd;
+    sb.countSuggestedBindings = ntb;
+    if (!XR_SUCCEEDED(xrSuggestInteractionProfileBindings(S.instance, &sb))) {
+        xrlog("[mote-xr] touch bindings with detached controllers rejected: without them");
+        sb.suggestedBindings = tb; sb.countSuggestedBindings = sizeof tb / sizeof tb[0];
+        if (!XR_SUCCEEDED(xrSuggestInteractionProfileBindings(S.instance, &sb)))
+            xrlog("[mote-xr] touch bindings rejected");
+    }
 
     XrActionSuggestedBinding kb[] = {
         { S.a_pose,   path("/user/hand/left/input/grip/pose") },
@@ -1000,14 +1110,90 @@ static int make_actions(void) {
         si.action = S.a_aim;
         if (!XR_SUCCEEDED(xrCreateActionSpace(S.session, &si, &S.aim_space[i])))
             S.aim_space[i] = XR_NULL_HANDLE;
+        if (S.hp_detached) {
+            si.subactionPath = S.det_path[i];
+            si.action = S.a_pose;
+            if (!XR_SUCCEEDED(xrCreateActionSpace(S.session, &si, &S.det_space[i]))) S.det_space[i] = XR_NULL_HANDLE;
+            si.action = S.a_aim;
+            if (!XR_SUCCEEDED(xrCreateActionSpace(S.session, &si, &S.det_aim[i]))) S.det_aim[i] = XR_NULL_HANDLE;
+        }
     }
     return 0;
 }
 
+static void read_hand_at(int i, MoteVrHand *h, XrTime t, XrPath sub, XrSpace grip, XrSpace aim);
 static void read_hand(int i, MoteVrHand *h, XrTime t) {
+    read_hand_at(i, h, t, S.hand_path[i], S.hand_space[i], S.aim_space[i]);
+    /* NOT IN THE HAND, BUT STILL THERE (7.6): with multimodal on, a controller
+     * the runtime decides nobody is holding -- strapped to a cue butt -- goes
+     * on as a detached controller. Its pose and buttons stand in for the
+     * hand's, so a real cue is never lost to hand tracking. */
+    /* ...AND FOR A HAND THE APP SAYS IS A CONTROLLER'S, THE DETACHED ONE
+     * FIRST. With multimodal on, the runtime does not report a controller it
+     * thinks is not held as gone: the hand's path carries on with a pose taken
+     * from the TRACKED HAND (the cue swung round to face the way the hand
+     * did; Mark: "the cue suddenly re-orients and points backwards"). For a
+     * hand whose controller is strapped to a cue, the detached controller is
+     * the truth whenever the runtime has it. */
+    if (S.hp_detached && S.mm_on && S.det_space[i] && (S.prefer_det >> i & 1)) {
+        /* THE CUE'S HAND, WITH MULTIMODAL ON (the "bare bridge hand" test):
+         * only ever a REAL controller pose (Mark: "the cue tracking requires
+         * perfect tracking"). Held -- the runtime says the hand's device is
+         * the Touch controller -- its own pose on the hand's path. Detached and
+         * seen: the detached controller's pose. Otherwise NOTHING: the cue is
+         * not moved and that instant is logged. Never the tracked hand. */
+        XrInteractionProfileState ips = { XR_TYPE_INTERACTION_PROFILE_STATE };
+        const int held = XR_SUCCEEDED(xrGetCurrentInteractionProfile(S.session, S.hand_path[i], &ips)) &&
+                         ips.interactionProfile == S.touch_path;
+        MoteVrHand d;
+        read_hand_at(i, &d, t, S.det_path[i], S.det_space[i], S.det_aim[i]);
+        const char *used;
+        S.cue_held[i] = held;
+        if (held && h->tracked) used = "HELD: the controller's own pose";
+        else if (d.tracked) { *h = d; h->detached = 1; used = "detached and seen: its own pose"; }
+        else { h->tracked = 0; h->aim_tracked = 0; used = "LOST: the cue not moved"; }
+#if MOTE_LOG
+        {   static const char *was[2];
+            if (used != was[i]) {
+                was[i] = used;
+                char prof[XR_MAX_PATH_LENGTH] = "none"; uint32_t pl = 0;
+                if (ips.interactionProfile) xrPathToString(S.instance, ips.interactionProfile, sizeof prof, &pl, prof);
+                xrlog("[bridgetest] cue controller (%s): %s (the hand's device: %s)", i ? "right" : "left", used, prof);
+            } }
+#endif
+    } else if (S.hp_detached && S.mm_on && S.det_space[i] && !h->tracked) {
+        MoteVrHand d;
+        read_hand_at(i, &d, t, S.det_path[i], S.det_space[i], S.det_aim[i]);
+        if (d.tracked) { *h = d; h->detached = 1; }
+#if MOTE_LOG
+        /* WHAT THE RUNTIME SAYS OF THE CUE'S CONTROLLER as it goes out of
+         * sight (a stroke takes it behind you): every change of its flags,
+         * the detached path's and the hand's, each with V (valid) and T
+         * (tracked) for position and orientation */
+        if (S.prefer_det >> i & 1) {
+            XrSpaceLocation a = { XR_TYPE_SPACE_LOCATION }, b = { XR_TYPE_SPACE_LOCATION };
+            const XrResult ra = xrLocateSpace(S.det_space[i], S.space, t, &a), rb = xrLocateSpace(S.hand_space[i], S.space, t, &b);
+            static uint64_t was[2];
+            const uint64_t now = (uint64_t)(XR_SUCCEEDED(ra) ? a.locationFlags : 0x100) | ((uint64_t)(XR_SUCCEEDED(rb) ? b.locationFlags : 0x100) << 16);
+            if (now != was[i]) {
+                was[i] = now;
+                const XrSpaceLocationFlags fa = a.locationFlags, fb = b.locationFlags;
+                xrlog("[handprobe] cue controller (%s): detached pos %s%s orient %s%s | hand path pos %s%s orient %s%s -> %s",
+                      i ? "right" : "left",
+                      fa & XR_SPACE_LOCATION_POSITION_VALID_BIT ? "V" : "-", fa & XR_SPACE_LOCATION_POSITION_TRACKED_BIT ? "T" : "-",
+                      fa & XR_SPACE_LOCATION_ORIENTATION_VALID_BIT ? "V" : "-", fa & XR_SPACE_LOCATION_ORIENTATION_TRACKED_BIT ? "T" : "-",
+                      fb & XR_SPACE_LOCATION_POSITION_VALID_BIT ? "V" : "-", fb & XR_SPACE_LOCATION_POSITION_TRACKED_BIT ? "T" : "-",
+                      fb & XR_SPACE_LOCATION_ORIENTATION_VALID_BIT ? "V" : "-", fb & XR_SPACE_LOCATION_ORIENTATION_TRACKED_BIT ? "T" : "-",
+                      h->detached ? "the detached pose used" : h->tracked ? "THE HAND'S PATH used" : "nothing");
+            }
+        }
+#endif
+    }
+}
+static void read_hand_at(int i, MoteVrHand *h, XrTime t, XrPath sub, XrSpace grip, XrSpace aim) {
     memset(h, 0, sizeof *h);
     XrActionStateGetInfo gi = { XR_TYPE_ACTION_STATE_GET_INFO };
-    gi.subactionPath = S.hand_path[i];
+    gi.subactionPath = sub;
 
     gi.action = S.a_stick;
     XrActionStateVector2f v = { XR_TYPE_ACTION_STATE_VECTOR2F };
@@ -1048,21 +1234,21 @@ static void read_hand(int i, MoteVrHand *h, XrTime t) {
      * path comparison against a value the runtime already holds. */
     if (S.has_stylus && S.mx_ink_path) {
         XrInteractionProfileState ips = { XR_TYPE_INTERACTION_PROFILE_STATE };
-        if (XR_SUCCEEDED(xrGetCurrentInteractionProfile(S.session, S.hand_path[i], &ips)))
+        if (XR_SUCCEEDED(xrGetCurrentInteractionProfile(S.session, sub, &ips)))
             h->stylus = (ips.interactionProfile == S.mx_ink_path);
     }
 
     XrSpaceLocation loc = { XR_TYPE_SPACE_LOCATION };
-    if (XR_SUCCEEDED(xrLocateSpace(S.hand_space[i], S.space, t, &loc)) &&
+    if (XR_SUCCEEDED(xrLocateSpace(grip, S.space, t, &loc)) &&
         (loc.locationFlags & XR_SPACE_LOCATION_POSITION_VALID_BIT) &&
         (loc.locationFlags & XR_SPACE_LOCATION_ORIENTATION_VALID_BIT)) {
         memcpy(&h->pose.q, &loc.pose.orientation, sizeof h->pose.q);
         memcpy(&h->pose.p, &loc.pose.position, sizeof h->pose.p);
         h->tracked = 1;
     }
-    if (S.aim_space[i]) {
+    if (aim) {
         XrSpaceLocation al = { XR_TYPE_SPACE_LOCATION };
-        if (XR_SUCCEEDED(xrLocateSpace(S.aim_space[i], S.space, t, &al)) &&
+        if (XR_SUCCEEDED(xrLocateSpace(aim, S.space, t, &al)) &&
             (al.locationFlags & XR_SPACE_LOCATION_POSITION_VALID_BIT) &&
             (al.locationFlags & XR_SPACE_LOCATION_ORIENTATION_VALID_BIT)) {
             memcpy(&h->aim.q, &al.pose.orientation, sizeof h->aim.q);
@@ -1078,6 +1264,24 @@ static void read_hand(int i, MoteVrHand *h, XrTime t) {
  * WORLD wants. A single hand is for feedback about a thing one hand is holding:
  * a cue clamped to one controller should shake that controller and not the
  * empty hand on the other side of the room. */
+/* ...AND TO THE SAME SIDE'S DETACHED CONTROLLER (7.6; Mark: "the controller
+ * stops vibrating when it switches to hand mode ... crucial to get that
+ * back"). With hands and controllers together, a controller the runtime calls
+ * not held -- the one strapped to a real cue -- is no longer on the hand's
+ * path, so a buzz sent there reached nothing. The haptic is bound on the
+ * detached path too; a path with no controller on it takes nothing, so a
+ * controller in the hand still feels each buzz once. */
+static void haptic_detached(XrHapticActionInfo *hi, const XrHapticVibration *v, int i) {
+    if (!S.hp_detached || !S.mm_on || !S.det_path[i]) return;
+    hi->subactionPath = S.det_path[i];
+    const XrResult r = xrApplyHapticFeedback(S.session, hi, (const XrHapticBaseHeader *)v);
+#if MOTE_LOG
+    {   static XrResult said[2] = { 1, 1 };
+        if (r != said[i]) { said[i] = r; xrlog("[bridgetest] buzz to the %s detached controller: %d", i ? "right" : "left", (int)r); } }
+#else
+    (void)r;
+#endif
+}
 static void haptic_hand(float intensity, int ms, int hand) {
     if (!S.session || intensity <= 0.0f || ms <= 0) return;
     XrHapticVibration v = { XR_TYPE_HAPTIC_VIBRATION };
@@ -1090,6 +1294,7 @@ static void haptic_hand(float intensity, int ms, int hand) {
         hi.action = S.a_haptic;
         hi.subactionPath = S.hand_path[i];
         xrApplyHapticFeedback(S.session, &hi, (const XrHapticBaseHeader *)&v);
+        haptic_detached(&hi, &v, i);
     }
 }
 
@@ -1104,6 +1309,7 @@ static void haptic(float intensity, int ms) {
         hi.action = S.a_haptic;
         hi.subactionPath = S.hand_path[i];
         xrApplyHapticFeedback(S.session, &hi, (const XrHapticBaseHeader *)&v);
+        haptic_detached(&hi, &v, i);
     }
 }
 
@@ -1185,9 +1391,7 @@ static void draw_frame(void) {
 
         read_hand(MOTE_VR_LEFT,  &track.hand[MOTE_VR_LEFT],  fs.predictedDisplayTime);
         read_hand(MOTE_VR_RIGHT, &track.hand[MOTE_VR_RIGHT], fs.predictedDisplayTime);
-#if MOTE_LOG
         hp_frame(fs.predictedDisplayTime, &track);
-#endif
 
         /* views */
         XrViewState vs = { XR_TYPE_VIEW_STATE };
@@ -1509,7 +1713,12 @@ static void *ring_run(void *arg) {
                  * it. One struct, no extra call, no cost. */
                 XrSpaceVelocity vel = { XR_TYPE_SPACE_VELOCITY };
                 XrSpaceLocation loc = { XR_TYPE_SPACE_LOCATION, &vel };
-                if (!XR_SUCCEEDED(xrLocateSpace(S.hand_space[h], S.space, t, &loc))) continue;
+                /* THE CUE'S HAND UNDER MULTIMODAL: the controller's real pose
+                 * only -- the hand's path while it is held, the detached one
+                 * while it is not; never the tracked hand (read_hand) */
+                XrSpace sp = S.hand_space[h];
+                if (S.hp_detached && S.mm_on && S.det_space[h] && (S.prefer_det >> h & 1) && !S.cue_held[h]) sp = S.det_space[h];
+                if (!XR_SUCCEEDED(xrLocateSpace(sp, S.space, t, &loc))) continue;
                 if (!(loc.locationFlags & XR_SPACE_LOCATION_POSITION_VALID_BIT) ||
                     !(loc.locationFlags & XR_SPACE_LOCATION_ORIENTATION_VALID_BIT)) continue;
                 const unsigned hd = __atomic_load_n(&S_ring.head[h], __ATOMIC_RELAXED);

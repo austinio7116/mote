@@ -81,6 +81,29 @@ typedef struct {
  * wrong. */
 int mote_xr_pose_history(int hand, MoteVrPoseSample *out, int max);
 
+/* ---- HANDS (CueVR 7.6) ----------------------------------------------------
+ * The runtime's own hand mesh and skeleton, and the joints each frame (in
+ * MoteVrHand). mote_xr_set_hands(on, multimodal): the hands read or not; and
+ * multimodal -- hands and controllers together, a controller not in a hand
+ * carrying on as a detached one -- switched on or paused. Both are no-ops
+ * where the runtime has no hand tracking. */
+typedef struct {
+    int nj, nv, ni;
+    const MoteVrPose *bind;          /* each joint's pose in the mesh's own space */
+    const int *parent;               /* each joint's parent, -1 the root */
+    const float *pos, *nrm, *uv;     /* nv x3, x3, x2 */
+    const short *bidx;               /* nv x4 joints */
+    const float *bw;                 /* nv x4 weights */
+    const short *idx;                /* ni */
+} MoteXrHandMesh;
+int  mote_xr_hands_available(void);
+const MoteXrHandMesh *mote_xr_hand_mesh(int hand);
+void mote_xr_set_hands(int on, int multimodal);
+/* the hands (bit 0 left, 1 right) whose CONTROLLER matters more than the hand:
+ * one strapped to a cue. Their pose and buttons come from the detached
+ * controller whenever the runtime has one -- never from the tracked hand */
+void mote_xr_controller_hands(int mask);
+
 /* ---- what the tracking layer produces ---------------------------------- */
 
 typedef struct {
@@ -110,6 +133,19 @@ typedef struct {
      * answer rather than a special case. Two spare buttons, and on a controller
      * that has to do the work of two they are worth having. */
     int        stick_click;
+    /* THE HAND ITSELF (CueVR 7.6): its 26 joints in OpenXR's order
+     * (XrHandJointEXT: palm, wrist, then each finger from the thumb), where the
+     * runtime has them -- seen by the cameras, or worked out from how the
+     * controller is being held (its touch sensors and buttons). joints_from:
+     * 0 none, 1 the cameras, 2 the controller. Only after mote_xr_set_hands(1, ..). */
+    int        joints_from;
+    MoteVrPose joint[26];
+    float      joint_r[26];
+    /* THIS HAND'S CONTROLLER IS NOT IN THE HAND: with hands and controllers
+     * together (multimodal), a controller the runtime decides nobody is holding
+     * -- one strapped to a cue, say -- carries on as a DETACHED controller; its
+     * pose and buttons are read from there and this is 1. */
+    int        detached;
 } MoteVrHand;
 
 enum { MOTE_VR_LEFT = 0, MOTE_VR_RIGHT = 1 };
