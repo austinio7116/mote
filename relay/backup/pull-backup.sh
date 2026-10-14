@@ -15,6 +15,17 @@ mkdir -p "$DST"
 day=$(date -u +%Y-%m-%d)
 tmp="$DST/.partial-$day.tar.gz"
 out="$DST/mote-relay-$day.tar.gz"
+# PLAYERS' BACKUPS (CueVR 7.6), WEEKLY: the newest weekly tarball the server
+# made, fetched once, kept eight weeks
+wk=$(ssh -o BatchMode=yes -o ConnectTimeout=20 mote-relay 'ls -1 /var/backups/mote-relay/mote-backups-*.tar.gz 2>/dev/null | tail -1' || true)
+if [ -n "$wk" ] && [ ! -s "$DST/$(basename "$wk")" ]; then
+    umask 077
+    ssh -o BatchMode=yes -o ConnectTimeout=20 mote-relay "sudo cat '$wk'" > "$DST/.partial-$(basename "$wk")" \
+        && tar tzf "$DST/.partial-$(basename "$wk")" > /dev/null \
+        && mv -f "$DST/.partial-$(basename "$wk")" "$DST/$(basename "$wk")" \
+        && echo "$(date -u '+%Y-%m-%d %H:%M:%S') pulled $DST/$(basename "$wk") ($(stat -c %s "$DST/$(basename "$wk")") bytes)"
+    find "$DST" -maxdepth 1 -name 'mote-backups-*.tar.gz' -mtime +56 -delete
+fi
 [ -s "$out" ] && exit 0                     # today's is already here
 umask 077
 ssh -o BatchMode=yes -o ConnectTimeout=20 mote-relay \

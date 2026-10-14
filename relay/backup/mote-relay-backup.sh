@@ -27,3 +27,15 @@ tar tzf "$tmp" > /dev/null                  # a snapshot that cannot be read bac
 mv -f "$tmp" "$out"
 find "$DST" -maxdepth 1 -name 'mote-relay-*.tar.gz' -mtime +"$KEEP_DAYS" -delete
 echo "mote-relay-backup: $out ($(stat -c %s "$out") bytes)"
+# PLAYERS' BACKUPS (CueVR 7.6), WEEKLY (Mark: "weekly is fine"): on Sundays,
+# kept five weeks -- apart from the relay's own daily one, which they would
+# otherwise swell. Only if the folder exists (the relay makes it).
+if [ "$(date -u +%u)" = "7" ] && [ -d "$SRC_PARENT/mote-backups" ]; then
+    wtmp="$DST/.partial-backups-$day.tar.gz"
+    wout="$DST/mote-backups-$day.tar.gz"
+    tar czf "$wtmp" -C "$SRC_PARENT" mote-backups
+    tar tzf "$wtmp" > /dev/null
+    mv -f "$wtmp" "$wout"
+    find "$DST" -maxdepth 1 -name 'mote-backups-*.tar.gz' -mtime +35 -delete
+    echo "mote-relay-backup: $wout ($(stat -c %s "$wout") bytes)"
+fi
