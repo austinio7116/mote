@@ -2129,17 +2129,43 @@ class Relay:
             except OSError:
                 pass
 
+    # A CLUB MEMBER WHO HAS GONE QUIET HAS GONE (Mark, 2026-10-14: "tables get
+    # locked for a long time when people quit without using the leave club
+    # button (just shutting down)"). A game in the club sends its pose fifteen
+    # times a second; a headset switched off sends nothing, and the relay's own
+    # stream to it kept the connection from ever looking idle to the keepalive
+    # -- so it hung on until the kernel gave up (about fifteen minutes), its
+    # place and tables with it: 27 'idle >900s' in three days. Now a minute's
+    # silence drops it (a match holding their place still holds it), and the
+    # kernel gives up a minute after its data stops being acknowledged. A
+    # watcher sends nothing by design and is not held to it.
+    CLUB_QUIET = 60
+
+    @staticmethod
+    def club_socket(writer, secs):
+        sock = writer.get_extra_info("socket")
+        if sock is None:
+            return
+        try:
+            sock.setsockopt(socket.IPPROTO_TCP, getattr(socket, "TCP_USER_TIMEOUT", 18), int(secs * 1000))
+        except OSError:
+            pass
+
     async def member_reader(self, room, m):
         """Read one member's frames until it goes; forward each as it lands."""
         cap = self.args.room_backlog
         why = "closed"
+        quiet = self.args.idle
+        if getattr(room, "club", False) and m.k < getattr(room, "WATCH_BASE", 16):
+            quiet = min(quiet, getattr(self.args, "club_quiet", self.CLUB_QUIET))
+            self.club_socket(m.writer, quiet)
         try:
             while not m.gone:
-                hdr = await asyncio.wait_for(m.reader.readexactly(2), timeout=self.args.idle)
+                hdr = await asyncio.wait_for(m.reader.readexactly(2), timeout=quiet)
                 n = int.from_bytes(hdr, "little")
                 if n < 1:
                     why = "empty frame"; break
-                body = await asyncio.wait_for(m.reader.readexactly(n), timeout=self.args.idle)
+                body = await asyncio.wait_for(m.reader.readexactly(n), timeout=quiet)
                 if m.gone or room.closed:
                     break
                 to, payload = body[0], body[1:]
@@ -2235,7 +2261,7 @@ class Relay:
                     continue
                 room.deliver(m.k, to, payload, cap)
         except asyncio.TimeoutError:
-            why = f"idle >{self.args.idle}s"
+            why = f"idle >{quiet}s"
         except asyncio.IncompleteReadError:
             why = "peer EOF"
         except (OSError, ConnectionError) as e:
@@ -2786,6 +2812,7 @@ async def main():
     ap.add_argument("--addr", default="0.0.0.0")
     ap.add_argument("--port", type=int, default=42450)
     ap.add_argument("--join-timeout", type=int, default=0, help="optional backstop: seconds a LONE host may wait before the room is reaped (0 = wait as long as the host stays connected; never fires on a paired room)")
+    ap.add_argument("--club-quiet", type=float, default=60.0, help="seconds a club member (not a watcher) may send nothing before they are taken as gone (7.5.x: a headset switched off held its place and tables ~15 min)")
     ap.add_argument("--idle", type=int, default=900, help="seconds of TRUE silence before a paired room is dropped (TCP keepalive catches dead peers in ~70s regardless; this is only a backstop for a paused/AFK pair)")
     ap.add_argument("--max-conns", type=int, default=2000)
     ap.add_argument("--room-backlog", type=int, default=262144, help="bytes a ROOMN member may have unsent before it is dropped")

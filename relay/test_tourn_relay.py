@@ -108,6 +108,9 @@ def main():
     port = free_port()
     relay = subprocess.Popen([sys.executable, os.path.join(HERE, "mote_relay.py"), "--addr", "127.0.0.1", "--port", str(port),
                               "--store", store, "--admin-token-file", tokf, "--tourn-trust", "--no-voice",
+                              # its players send nothing while they wait for the start, as a real
+                              # game in the room (a pose fifteen times a second) never does
+                              "--club-quiet", "600",
                               "--latest-game", GID],
                              stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
     try:
