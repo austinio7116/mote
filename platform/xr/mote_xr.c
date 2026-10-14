@@ -153,6 +153,7 @@ static struct {
     PFN_xrGetHandMeshFB hp_meshfn;
     int hands_on, mm_on, mm_want, prefer_det;
     int mm_wait, mm_reassert;     /* frames before asking again after a refusal; ask again on regaining focus */
+    int hp_freq, hp_freq_set, hp_freq_wait;   /* XR_META_hand_tracking_frequency_hint: offered; asked for HIGH and agreed */
     volatile int cue_held[2];    /* the cue's controller counted as held this frame (for the sampler) */
     XrPath det_path[2];
     XrSpace det_space[2], det_aim[2];
@@ -344,6 +345,8 @@ static int make_instance(JavaVM *vm, jobject activity) {
     if (S.hp_hand && S.hp_source) want[nw++] = XR_EXT_HAND_TRACKING_DATA_SOURCE_EXTENSION_NAME;
     if (S.hp_hand && S.hp_mesh) want[nw++] = XR_FB_HAND_TRACKING_MESH_EXTENSION_NAME;
     if (S.hp_simul) want[nw++] = XR_META_SIMULTANEOUS_HANDS_AND_CONTROLLERS_EXTENSION_NAME;
+    S.hp_freq = S.hp_hand && have_ext(ext, n, XR_META_HAND_TRACKING_FREQUENCY_HINT_EXTENSION_NAME);
+    if (S.hp_freq) want[nw++] = XR_META_HAND_TRACKING_FREQUENCY_HINT_EXTENSION_NAME;
     S.hp_detached = S.hp_simul && have_ext(ext, n, XR_META_DETACHED_CONTROLLERS_EXTENSION_NAME);
     if (S.hp_detached) want[nw++] = XR_META_DETACHED_CONTROLLERS_EXTENSION_NAME;
     xrlog("[handprobe] hand tracking %d, data source (controller hands) %d, hand mesh %d, simultaneous hands+controllers %d, detached controllers %d",
@@ -530,8 +533,25 @@ static void hp_multimodal(void) {
     else if (S.mm_reassert && S.mm_reassert++ >= 3) { S.mm_reassert = 0; }   /* already so, most likely: stop asking */
     else S.mm_wait = 72;                                                    /* about a second, then again */
 }
+/* HAND TRACKING AT ITS HIGH RATE (CueVR 7.6; Mark: "there are still real
+ * tracking issues with the bridge hand losing position ... it doesn't see the
+ * hand shape well in that position" -- "try 1"): while the game uses hands,
+ * the runtime is asked for XR_HAND_TRACKING_FREQUENCY_HINT_HIGH_META. Asked
+ * again a second later if refused, and again on regaining focus. */
+static void hp_frequency(void) {
+    if (!S.hp_freq || !S.session || !S.running || !S.hands_on || S.hp_freq_set) return;
+    if (S.hp_freq_wait > 0) { S.hp_freq_wait--; return; }
+    PFN_xrSetHandTrackingFrequencyHintMETA f = NULL;
+    xrGetInstanceProcAddr(S.instance, "xrSetHandTrackingFrequencyHintMETA", (PFN_xrVoidFunction *)&f);
+    const XrResult r = f ? f(S.session, XR_HAND_TRACKING_FREQUENCY_HINT_HIGH_META) : XR_ERROR_FUNCTION_UNSUPPORTED;
+    xrlog("[handprobe] hand tracking at its high rate: %s (%d)", XR_SUCCEEDED(r) ? "yes" : "NO", (int)r);
+    if (XR_SUCCEEDED(r)) S.hp_freq_set = 1;
+    else if (!f) S.hp_freq = 0;                    /* not there after all: stop asking */
+    else S.hp_freq_wait = 72;
+}
 static void hp_frame(XrTime t, MoteVrTracking *track) {
     hp_multimodal();
+    hp_frequency();
     /* a hand whose tracker the runtime refused: asked again every ~3 s */
     if (S.hp_hand && S.hp_create && S.running && (!S.hp_tracker[0] || !S.hp_tracker[1])) {
         static int wait;
@@ -1805,6 +1825,7 @@ static void pump_events(void) {
                 (const XrEventDataSessionStateChanged *)&ev;
             S.state = e->state;
             if (e->state == XR_SESSION_STATE_FOCUSED && S.mm_want) { S.mm_reassert = 1; S.mm_wait = 0; }   /* see hp_multimodal */
+            if (e->state == XR_SESSION_STATE_FOCUSED) { S.hp_freq_set = 0; S.hp_freq_wait = 0; }            /* ...and hp_frequency */
             if (e->state == XR_SESSION_STATE_READY) {
                 XrSessionBeginInfo bi = { XR_TYPE_SESSION_BEGIN_INFO };
                 bi.primaryViewConfigurationType = XR_VIEW_CONFIGURATION_TYPE_PRIMARY_STEREO;
