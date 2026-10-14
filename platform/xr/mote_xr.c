@@ -142,6 +142,11 @@ static struct {
     XrInstance  instance;
     XrSystemId  system;
     XrSession   session;
+#if MOTE_LOG
+    int hp_hand, hp_source, hp_mesh, hp_simul;            /* the hand probe (7.6) */
+    XrHandTrackerEXT hp_tracker[2];
+    PFN_xrLocateHandJointsEXT hp_locate;
+#endif
     XrSpace     space;          /* LOCAL: the seated origin */
     XrSessionState state;
     int         running;        /* between xrBeginSession and xrEndSession */
@@ -275,7 +280,7 @@ static int make_instance(JavaVM *vm, jobject activity) {
     for (uint32_t i = 0; i < n; i++) ext[i].type = XR_TYPE_EXTENSION_PROPERTIES;
     xrEnumerateInstanceExtensionProperties(NULL, n, &n, ext);
 
-    const char *want[12];   /* room for every optional extension, and one spare */
+    const char *want[20];   /* room for every optional extension, the hand probe's too */
     uint32_t nw = 0;
     want[nw++] = XR_KHR_OPENGL_ES_ENABLE_EXTENSION_NAME;
     want[nw++] = XR_KHR_ANDROID_CREATE_INSTANCE_EXTENSION_NAME;
@@ -310,6 +315,26 @@ static int make_instance(JavaVM *vm, jobject activity) {
         want[nw++] = XR_FB_FOVEATION_CONFIGURATION_EXTENSION_NAME;
         want[nw++] = XR_FB_SWAPCHAIN_UPDATE_STATE_EXTENSION_NAME;
     }
+#if MOTE_LOG
+    /* THE HAND PROBE (CueVR 7.6, Mark: "lets try everything and see what works
+     * best - even multimodal"): every hand- or body-flavoured extension the
+     * runtime offers, logged; the four that matter asked for where they exist */
+    for (uint32_t i = 0; i < n; i++)
+        if (strstr(ext[i].extensionName, "hand") || strstr(ext[i].extensionName, "simultaneous") ||
+            strstr(ext[i].extensionName, "detached") || strstr(ext[i].extensionName, "body") ||
+            strstr(ext[i].extensionName, "controller"))
+            xrlog("[handprobe] runtime offers %s v%u", ext[i].extensionName, ext[i].extensionVersion);
+    S.hp_hand = have_ext(ext, n, XR_EXT_HAND_TRACKING_EXTENSION_NAME);
+    S.hp_source = have_ext(ext, n, XR_EXT_HAND_TRACKING_DATA_SOURCE_EXTENSION_NAME);
+    S.hp_mesh = have_ext(ext, n, XR_FB_HAND_TRACKING_MESH_EXTENSION_NAME);
+    S.hp_simul = have_ext(ext, n, XR_META_SIMULTANEOUS_HANDS_AND_CONTROLLERS_EXTENSION_NAME);
+    if (S.hp_hand) want[nw++] = XR_EXT_HAND_TRACKING_EXTENSION_NAME;
+    if (S.hp_hand && S.hp_source) want[nw++] = XR_EXT_HAND_TRACKING_DATA_SOURCE_EXTENSION_NAME;
+    if (S.hp_hand && S.hp_mesh) want[nw++] = XR_FB_HAND_TRACKING_MESH_EXTENSION_NAME;
+    if (S.hp_simul) want[nw++] = XR_META_SIMULTANEOUS_HANDS_AND_CONTROLLERS_EXTENSION_NAME;
+    xrlog("[handprobe] hand tracking %d, data source (controller hands) %d, hand mesh %d, simultaneous hands+controllers %d",
+          S.hp_hand, S.hp_source, S.hp_mesh, S.hp_simul);
+#endif
     for (uint32_t i = 0; i < nw; i++)
         if (!have_ext(ext, n, want[i])) {
             xrlog("[mote-xr] runtime lacks %s", want[i]);
@@ -342,10 +367,87 @@ static int make_instance(JavaVM *vm, jobject activity) {
     if (failed(xrGetSystem(S.instance, &sgi, &S.system), "xrGetSystem")) return -1;
 
     XrSystemProperties sp = { XR_TYPE_SYSTEM_PROPERTIES };
+#if MOTE_LOG
+    XrSystemHandTrackingPropertiesEXT hp = { XR_TYPE_SYSTEM_HAND_TRACKING_PROPERTIES_EXT };
+    XrSystemSimultaneousHandsAndControllersPropertiesMETA mp = { XR_TYPE_SYSTEM_SIMULTANEOUS_HANDS_AND_CONTROLLERS_PROPERTIES_META };
+    if (S.hp_hand) { hp.next = sp.next; sp.next = &hp; }
+    if (S.hp_simul) { mp.next = sp.next; sp.next = &mp; }
+#endif
     if (XR_SUCCEEDED(xrGetSystemProperties(S.instance, S.system, &sp)))
         xrlog("[mote-xr] %s", sp.systemName);
+#if MOTE_LOG
+    xrlog("[handprobe] system says: hand tracking supported %d, simultaneous hands and controllers supported %d",
+          S.hp_hand ? (int)hp.supportsHandTracking : -1, S.hp_simul ? (int)mp.supportsSimultaneousHandsAndControllers : -1);
+    S.hp_hand = S.hp_hand && hp.supportsHandTracking;
+    S.hp_simul = S.hp_simul && mp.supportsSimultaneousHandsAndControllers;
+#endif
     return 0;
 }
+
+#if MOTE_LOG
+/* ---- THE HAND PROBE, once the session is up: a tracker per hand asking for
+ * BOTH sources (the cameras, and the controllers' touch sensors), the mesh's
+ * size, multimodal switched on where offered; then every two seconds what each
+ * hand's data is, where it came from, and how curled the index finger is */
+static void hp_start(void) {
+    if (!S.hp_hand) { xrlog("[handprobe] no hand tracking: nothing more to try"); return; }
+    PFN_xrCreateHandTrackerEXT create = NULL;
+    xrGetInstanceProcAddr(S.instance, "xrCreateHandTrackerEXT", (PFN_xrVoidFunction *)&create);
+    xrGetInstanceProcAddr(S.instance, "xrLocateHandJointsEXT", (PFN_xrVoidFunction *)&S.hp_locate);
+    if (!create || !S.hp_locate) { xrlog("[handprobe] hand tracking functions missing"); return; }
+    for (int h = 0; h < 2; h++) {
+        XrHandTrackerCreateInfoEXT ci = { XR_TYPE_HAND_TRACKER_CREATE_INFO_EXT };
+        ci.hand = h ? XR_HAND_RIGHT_EXT : XR_HAND_LEFT_EXT;
+        ci.handJointSet = XR_HAND_JOINT_SET_DEFAULT_EXT;
+        XrHandTrackingDataSourceEXT srcs[2] = { XR_HAND_TRACKING_DATA_SOURCE_UNOBSTRUCTED_EXT, XR_HAND_TRACKING_DATA_SOURCE_CONTROLLER_EXT };
+        XrHandTrackingDataSourceInfoEXT di = { XR_TYPE_HAND_TRACKING_DATA_SOURCE_INFO_EXT };
+        di.requestedDataSourceCount = 2; di.requestedDataSources = srcs;
+        if (S.hp_source) ci.next = &di;
+        const XrResult r = create(S.session, &ci, &S.hp_tracker[h]);
+        xrlog("[handprobe] %s hand tracker (sources: %s): %s", h ? "right" : "left",
+              S.hp_source ? "cameras + controllers" : "cameras only", XR_SUCCEEDED(r) ? "made" : "REFUSED");
+        if (!XR_SUCCEEDED(r)) { S.hp_tracker[h] = XR_NULL_HANDLE; continue; }
+        if (S.hp_mesh && h == 1) {
+            PFN_xrGetHandMeshFB mesh = NULL;
+            xrGetInstanceProcAddr(S.instance, "xrGetHandMeshFB", (PFN_xrVoidFunction *)&mesh);
+            XrHandTrackingMeshFB m = { XR_TYPE_HAND_TRACKING_MESH_FB };
+            const XrResult mr = mesh ? mesh(S.hp_tracker[h], &m) : XR_ERROR_FUNCTION_UNSUPPORTED;
+            xrlog("[handprobe] the runtime's hand mesh: %s -- %u joints, %u vertices, %u indices",
+                  XR_SUCCEEDED(mr) ? "offered" : "NOT offered", m.jointCountOutput, m.vertexCountOutput, m.indexCountOutput);
+        }
+    }
+    if (S.hp_simul) {
+        PFN_xrResumeSimultaneousHandsAndControllersTrackingMETA resume = NULL;
+        xrGetInstanceProcAddr(S.instance, "xrResumeSimultaneousHandsAndControllersTrackingMETA", (PFN_xrVoidFunction *)&resume);
+        XrSimultaneousHandsAndControllersTrackingResumeInfoMETA ri = { XR_TYPE_SIMULTANEOUS_HANDS_AND_CONTROLLERS_TRACKING_RESUME_INFO_META };
+        const XrResult r = resume ? resume(S.session, &ri) : XR_ERROR_FUNCTION_UNSUPPORTED;
+        xrlog("[handprobe] multimodal (hands and controllers together) switched on: %s (%d)", XR_SUCCEEDED(r) ? "yes" : "NO", (int)r);
+    }
+}
+static void hp_frame(XrTime t, const MoteVrTracking *track) {
+    static XrTime last;
+    if (!S.hp_locate || (last && t - last < 2000000000LL)) return;
+    last = t;
+    for (int h = 0; h < 2; h++) {
+        if (!S.hp_tracker[h]) continue;
+        XrHandJointLocationEXT j[XR_HAND_JOINT_COUNT_EXT];
+        XrHandJointLocationsEXT jl = { XR_TYPE_HAND_JOINT_LOCATIONS_EXT };
+        jl.jointCount = XR_HAND_JOINT_COUNT_EXT; jl.jointLocations = j;
+        XrHandTrackingDataSourceStateEXT ds = { XR_TYPE_HAND_TRACKING_DATA_SOURCE_STATE_EXT };
+        if (S.hp_source) jl.next = &ds;
+        XrHandJointsLocateInfoEXT li = { XR_TYPE_HAND_JOINTS_LOCATE_INFO_EXT };
+        li.baseSpace = S.space; li.time = t;
+        const XrResult r = S.hp_locate(S.hp_tracker[h], &li, &jl);
+        const XrVector3f w = j[XR_HAND_JOINT_WRIST_EXT].pose.position, tip = j[XR_HAND_JOINT_INDEX_TIP_EXT].pose.position,
+                         pm = j[XR_HAND_JOINT_PALM_EXT].pose.position, th = j[XR_HAND_JOINT_THUMB_TIP_EXT].pose.position;
+        const float ix = tip.x - pm.x, iy = tip.y - pm.y, iz = tip.z - pm.z, tx = th.x - pm.x, ty = th.y - pm.y, tz = th.z - pm.z;
+        xrlog("[handprobe] %s: %s, active %d, source %s, controller held %d | wrist %.2f %.2f %.2f, index tip %.0f mm from the palm, thumb tip %.0f mm",
+              h ? "right" : "left", XR_SUCCEEDED(r) ? "located" : "not located", (int)jl.isActive,
+              !S.hp_source ? "?" : !ds.isActive ? "none" : ds.dataSource == XR_HAND_TRACKING_DATA_SOURCE_CONTROLLER_EXT ? "CONTROLLER" : "CAMERAS",
+              track ? track->hand[h].tracked : -1, w.x, w.y, w.z, sqrtf(ix * ix + iy * iy + iz * iz) * 1000.0f, sqrtf(tx * tx + ty * ty + tz * tz) * 1000.0f);
+    }
+}
+#endif
 
 static int make_session(void) {
     /* Required before session creation even though we ignore the answer: the
@@ -393,6 +495,9 @@ static int make_session(void) {
     rs.poseInReferenceSpace.orientation.w = 1.0f;
     if (failed(xrCreateReferenceSpace(S.session, &rs, &S.space), "xrCreateReferenceSpace"))
         return -1;
+#if MOTE_LOG
+    hp_start();
+#endif
     return 0;
 }
 
@@ -1080,6 +1185,9 @@ static void draw_frame(void) {
 
         read_hand(MOTE_VR_LEFT,  &track.hand[MOTE_VR_LEFT],  fs.predictedDisplayTime);
         read_hand(MOTE_VR_RIGHT, &track.hand[MOTE_VR_RIGHT], fs.predictedDisplayTime);
+#if MOTE_LOG
+        hp_frame(fs.predictedDisplayTime, &track);
+#endif
 
         /* views */
         XrViewState vs = { XR_TYPE_VIEW_STATE };
