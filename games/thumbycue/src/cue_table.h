@@ -1214,6 +1214,17 @@ Vec3 cue_table_clamp_placement_any(const CueTable *t, Vec3 p,
                                    const CueBall *balls, int n, int breaking,
                                    int anywhere);
 
+/* ...AND OVER A POCKET'S LIP, where the table's world is to hand (CueVR 7.5.x,
+ * Mark: "it should be consistent"): as _any, but a ball reached into a pocket's
+ * mouth may stay out over it -- its centre a millimetre on the slate side of the
+ * cut edge (cue_phys_cut_out) and outside the catch -- where the rules' region
+ * allows that part of the table and no ball is in the way. A null world is _any.
+ * Both ends of an online frame must clamp with the same one: it is a pairing
+ * change. */
+Vec3 cue_table_clamp_placement_world(const CueTable *t, const CueWorld *w, Vec3 p,
+                                     const CueBall *balls, int n, int breaking,
+                                     int anywhere);
+
 /* Cue-ball home (centre of the D / behind the head string) for placement. */
 Vec3 cue_table_cue_home(const CueTable *t);
 

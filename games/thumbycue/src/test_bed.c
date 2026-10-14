@@ -141,6 +141,38 @@ int main(void) {
                                       "...and stays a ball off the cushion");
     }
 
+    /* ---- ball in hand over a pocket's lip (CueVR 7.5.x, pairing 'CUEq') -- */
+    {   static CueTable t8; static CueWorld w8;
+        cue_table_init(&t8, CUE_GAME_UK8); cue_table_build_world(&t8, &w8);
+        int mid = -1;
+        for (int k = 0; k < w8.npocket; k++) if (fabsf(w8.pocket[k].x) < 0.05f && w8.pocket[k].z > 0.0f) mid = k;
+        /* reached right into the +z middle pocket's mouth, anywhere allowed */
+        Vec3 want = v3(0.010f, t8.R, w8.pocket[mid].z);
+        Vec3 got = cue_table_clamp_placement_world(&t8, &w8, want, NULL, 0, 0, 1);
+        const float qx = got.x - w8.drop_c[mid].x, qz = got.z - w8.drop_c[mid].z;
+        ok(got.z > t8.half_wid - t8.R + 0.005f, "a ball in hand can go out over a middle pocket's lip");
+        ok(cue_phys_cut_out(&w8, mid, got.x, got.z) < -0.0009f, "...its centre still on the slate");
+        ok(sqrtf(qx * qx + qz * qz) > w8.pocket_r[mid], "...and outside the catch");
+        Vec3 old = cue_table_clamp_placement_any(&t8, want, NULL, 0, 0, 1);
+        ok(old.z <= t8.half_wid - t8.R + 1e-5f, "the old clamp still stops at the cushion line");
+        Vec3 nul = cue_table_clamp_placement_world(&t8, NULL, want, NULL, 0, 0, 1);
+        ok(fabsf(nul.x - old.x) < 1e-6f && fabsf(nul.z - old.z) < 1e-6f, "a null world is the old clamp exactly");
+        /* the D (pub rules): the region does not reach the pocket, so no lip */
+        Vec3 d = cue_table_clamp_placement_world(&t8, &w8, want, NULL, 0, 0, 0);
+        Vec3 d0 = cue_table_clamp_placement_any(&t8, want, NULL, 0, 0, 0);
+        ok(fabsf(d.x - d0.x) < 1e-6f && fabsf(d.z - d0.z) < 1e-6f, "in hand in the D: no lip, the D as before");
+        /* a ball already on the lip: the white is not put on top of it */
+        CueBall b[2]; memset(b, 0, sizeof b);
+        b[1].on = 1; b[1].pos = got;
+        Vec3 blk = cue_table_clamp_placement_world(&t8, &w8, want, b, 2, 0, 1);
+        const float bx = blk.x - got.x, bz = blk.z - got.z;
+        ok(sqrtf(bx * bx + bz * bz) > 2.0f * t8.R, "a ball in the way: the white is not put on it");
+        /* inside the cushions nothing changes */
+        Vec3 fine = v3(0.3f, t8.R, 0.1f);
+        Vec3 f2 = cue_table_clamp_placement_world(&t8, &w8, fine, NULL, 0, 0, 1);
+        ok(fabsf(f2.x - fine.x) < 1e-6f && fabsf(f2.z - fine.z) < 1e-6f, "a placement on the cloth is left alone");
+    }
+
     /* ---- the validator ---------------------------------------------------
      * These are pairs of individually sensible numbers, which is the class of
      * fault the workshop will hand it all day. */

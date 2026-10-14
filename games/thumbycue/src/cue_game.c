@@ -597,15 +597,13 @@ static void ingame_tick(const CraftRawButtons *b, float dt) {
         /* Restrict to the legal region: the D (snooker/UK8) or behind the head
          * string (US). Full ball-in-hand fouls in US 8-ball still allow anywhere
          * — handled by the rules flag below. */
+        /* ...and out over a pocket's lip where the region allows (as CueVR) */
         if (s_place_restrict)
-            s_balls[0].pos = cue_table_clamp_placement_balls(
-                &s_table, s_balls[0].pos, s_balls, s_n, s_rules.break_shot);
+            s_balls[0].pos = cue_table_clamp_placement_world(
+                &s_table, &s_world, s_balls[0].pos, s_balls, s_n, s_rules.break_shot, 0);
         else {
-            float lim = s_table.half_wid - s_table.R, lx = s_table.half_len - s_table.R;
-            if (s_balls[0].pos.z >  lim) s_balls[0].pos.z =  lim;
-            if (s_balls[0].pos.z < -lim) s_balls[0].pos.z = -lim;
-            if (s_balls[0].pos.x >  lx) s_balls[0].pos.x =  lx;
-            if (s_balls[0].pos.x < -lx) s_balls[0].pos.x = -lx;
+            s_balls[0].pos = cue_table_clamp_placement_world(
+                &s_table, &s_world, s_balls[0].pos, s_balls, s_n, 0, 1);
         }
         /* never let the cue ball be moved onto / through an object ball */
         if (placement_overlaps(s_balls[0].pos)) s_balls[0].pos = prevpos;

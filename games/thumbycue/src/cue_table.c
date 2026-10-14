@@ -6112,6 +6112,43 @@ Vec3 cue_table_clamp_placement_any(const CueTable *t, Vec3 p,
     s_fp_half = 0;
     return q;
 }
+/* OVER THE LIP (see cue_table.h): the point backed off pocket k toward the
+ * table until its centre is a millimetre on the slate and outside the catch */
+static Vec3 lip_spot(const CueWorld *w, int k, Vec3 p) {
+    const float dx = p.x - w->pocket[k].x, dz = p.z - w->pocket[k].z, d = sqrtf(dx * dx + dz * dz);
+    const float ux = d > 1e-5f ? dx / d : -w->pocket[k].x, uz = d > 1e-5f ? dz / d : -w->pocket[k].z;
+    const float ul = sqrtf(ux * ux + uz * uz) > 1e-6f ? sqrtf(ux * ux + uz * uz) : 1.0f;
+    for (int it = 0; it < 120; it++) {
+        const float qx = p.x - w->drop_c[k].x, qz = p.z - w->drop_c[k].z;
+        if (cue_phys_cut_out(w, k, p.x, p.z) < -0.001f &&
+            qx * qx + qz * qz > (w->pocket_r[k] + 0.001f) * (w->pocket_r[k] + 0.001f)) break;
+        p.x += ux / ul * 0.001f; p.z += uz / ul * 0.001f;
+    }
+    return p;
+}
+Vec3 cue_table_clamp_placement_world(const CueTable *t, const CueWorld *w, Vec3 p,
+                                     const CueBall *balls, int n, int breaking,
+                                     int anywhere) {
+    const Vec3 q = cue_table_clamp_placement_any(t, p, balls, n, breaking, anywhere);
+    if (!w || t->bed_shape != CUE_BED_RECT) return q;
+    const float lx = t->half_len - t->R, lz = t->half_wid - t->R;
+    if (fabsf(p.x) <= lx && fabsf(p.z) <= lz) return q;           /* not out past a cushion line */
+    for (int k = 0; k < w->npocket; k++) {
+        const float cx = p.x - w->cut_c[k].x, cz = p.z - w->cut_c[k].z, reach = w->cut_r[k] + t->R;
+        if (cx * cx + cz * cz > reach * reach) continue;           /* not in this pocket's mouth */
+        Vec3 c = lip_spot(w, k, p); c.y = p.y;
+        /* the rules' region must allow this part of the table: the same spot
+         * brought inside the cushion lines is left where it is by the region */
+        Vec3 in = c;
+        if (in.x > lx) in.x = lx; else if (in.x < -lx) in.x = -lx;
+        if (in.z > lz) in.z = lz; else if (in.z < -lz) in.z = -lz;
+        const Vec3 rin = cue_table_clamp_placement_any(t, in, NULL, 0, breaking, anywhere);
+        if (fabsf(rin.x - in.x) > 1e-4f || fabsf(rin.z - in.z) > 1e-4f) return q;
+        if (!placement_clear(t, c, balls, n)) return q;           /* a ball in the way: as before */
+        return c;
+    }
+    return q;
+}
 static Vec3 clamp_placement_any_1(const CueTable *t, Vec3 p,
                                    const CueBall *balls, int n, int breaking,
                                    int anywhere) {
