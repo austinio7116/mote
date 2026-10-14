@@ -187,6 +187,7 @@ import time
 import urllib.parse
 import urllib.request
 
+import mote_backup               # players' backups (7.6), beside this file
 try:
     import mote_tourn            # the club's tournaments (7.5), beside this file
 except ImportError:              # a relay copied without it runs as before, with no tournaments
@@ -1032,6 +1033,8 @@ class Relay:
                                           ) if (mote_tourn and args.store) else None
         self.tourn_rate = {}       # ip -> [times] (ENTER / WITHDRAW)
         self.tourn_refused = {}    # (tid, reason) -> count, since the relay started (the stats app reads it)
+        self.backup_rate = {}      # ip -> [times] (BACKUP sessions)
+        self.backups = mote_backup.BackupStore(args.backup_dir) if getattr(args, "backup_dir", "") else None
         self.admin_token = None
         if getattr(args, "admin_token_file", ""):
             try:
@@ -1603,6 +1606,80 @@ class Relay:
             room.results.clear()
 
     # ---- THE CLUB'S TOURNAMENTS (7.5) ----------------------------------------
+    # ---- BACKUPS (7.6; VR111: "Settings and Workshop Creations Backup and
+    # Restore"; Mark: by the Meta account, on the server) ---------------------
+    # MOTE2 BACKUP <gid> OPEN <account> <proof>: proved once, then on the same
+    # connection LIST (BK <id> <time> <bytes> ... END), PUT <bytes> and the
+    # bytes (BACKUP SAVED <id>), GET <id> (DATA <bytes> and the bytes), BYE.
+    # The relay keeps what the game sends and never reads it (mote_backup.py);
+    # chunks to disk as they come, never a whole backup in memory.
+    async def backup_session(self, a, reader, writer, peer):
+        async def say(line):
+            writer.write(line.encode()); await writer.drain()
+        if self.backups is None:
+            await say("BACKUP OFF\n"); return
+        if len(a) < 3 or a[0].upper() != "OPEN":
+            await say("BACKUP BAD\n"); return
+        ip = peer[0] if isinstance(peer, tuple) else str(peer)
+        now = time.monotonic()
+        q = [x for x in self.backup_rate.get(ip, []) if now - x < 3600]
+        if len(q) >= 30:
+            self.backup_rate[ip] = q
+            await say("BACKUP BUSY\n"); return
+        q.append(now); self.backup_rate[ip] = q
+        uid, nonce = a[1], a[2]
+        if not await self.tourn_proof(uid, nonce):
+            await say("BACKUP PROOF\n"); return
+        await say("BACKUP OK\n")
+        loop = asyncio.get_running_loop()
+        for _ in range(32):
+            try:
+                line = (await asyncio.wait_for(read_line(reader, 80), timeout=60)).decode("ascii", "replace").split()
+            except (asyncio.TimeoutError, ConnectionError, OSError):
+                return
+            if not line or line[0].upper() == "BYE":
+                return
+            cmd = line[0].upper()
+            if cmd == "LIST":
+                rows = await loop.run_in_executor(None, self.backups.list, uid)
+                await say("".join(f"BK {bid} {t} {n}\n" for bid, t, n in rows) + "END\n")
+            elif cmd == "PUT" and len(line) > 1 and line[1].isdigit():
+                n = int(line[1])
+                if n <= 0 or n > mote_backup.MAX_BYTES:
+                    await say("BACKUP TOOBIG\n"); return
+                w = await loop.run_in_executor(None, self.backups.begin, uid)
+                if isinstance(w, str):
+                    await say(f"BACKUP {w}\n"); return
+                try:
+                    left = n
+                    while left > 0:
+                        chunk = await asyncio.wait_for(reader.read(min(65536, left)), timeout=60)
+                        if not chunk:
+                            raise ConnectionError("cut")
+                        await loop.run_in_executor(None, w.write, chunk)
+                        left -= len(chunk)
+                    bid = await loop.run_in_executor(None, w.finish)
+                except (asyncio.TimeoutError, ConnectionError, OSError, ValueError) as e:
+                    await loop.run_in_executor(None, w.abandon)
+                    log(f"backup: an upload cut short ({type(e).__name__})")
+                    return
+                log(f"backup: {n} bytes kept for an account")
+                await say(f"BACKUP SAVED {bid}\n")
+            elif cmd == "GET" and len(line) > 1:
+                p = self.backups.path(uid, line[1])
+                if not p:
+                    await say("BACKUP NONE\n"); continue
+                size = os.path.getsize(p)
+                await say(f"DATA {size}\n")
+                with open(p, "rb") as f:
+                    while True:
+                        chunk = await loop.run_in_executor(None, f.read, 65536)
+                        if not chunk:
+                            break
+                        writer.write(chunk); await writer.drain()
+            else:
+                await say("BACKUP BAD\n"); return
+
     # ---- RELOAD (Mark, 2026-10-13: "We really need to find a way to update
     # the server without killing games or requiring we empty the club") ----
     # mote_tourn.py read again from disk and put under the live tournaments:
@@ -2720,6 +2797,10 @@ class Relay:
                 writer.write((await self.tourn_answer(gid, a, peer, reader)).encode()); await writer.drain()
                 return
 
+            if verb == "BACKUP" and t[0] == "MOTE2":    # (7.6) a player's settings and creations, kept
+                await self.backup_session(a, reader, writer, peer)
+                return
+
             if verb == "HONOURS" and t[0] == "MOTE2":   # (7.4) the club's honours boards and trophies
                 writer.write((await self.honours_answer(a)).encode() + b"END\n"); await writer.drain()
                 return
@@ -2816,6 +2897,7 @@ async def main():
     ap.add_argument("--idle", type=int, default=900, help="seconds of TRUE silence before a paired room is dropped (TCP keepalive catches dead peers in ~70s regardless; this is only a backstop for a paused/AFK pair)")
     ap.add_argument("--max-conns", type=int, default=2000)
     ap.add_argument("--room-backlog", type=int, default=262144, help="bytes a ROOMN member may have unsent before it is dropped")
+    ap.add_argument("--backup-dir", default="", help="players' backups of their settings and creations (7.6), a directory APART from --store; empty = off")
     ap.add_argument("--store", default="", help="directory for share codes (PUT/GET); empty = share codes off")
     ap.add_argument("--meta-secret-file", default="", help="file holding the Meta app secret: players' account proofs are checked and results kept against the account (7.3)")
     ap.add_argument("--meta-app-id", default="1036582382349280", help="the Meta app the proofs are for (CueVR)")
