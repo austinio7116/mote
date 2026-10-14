@@ -150,6 +150,7 @@ static struct {
     XrHandTrackerEXT hp_tracker[2];
     PFN_xrLocateHandJointsEXT hp_locate;
     int hands_on, mm_on, mm_want, prefer_det;
+    int mm_wait, mm_reassert;     /* frames before asking again after a refusal; ask again on regaining focus */
     volatile int cue_held[2];    /* the cue's controller counted as held this frame (for the sampler) */
     XrPath det_path[2];
     XrSpace det_space[2], det_aim[2];
@@ -483,8 +484,18 @@ static void hp_start(void) {
     }
 }
 /* multimodal on or off, as the app last asked: only when it changes */
+/* ASKED AGAIN UNTIL IT IS SO (CueVR 7.6; Mark, after a restore made him
+ * reopen the game: "it feels like you have lost multimodal mode completely").
+ * The answer was taken as done whether the runtime agreed or not, and never
+ * asked again -- one refusal (at start-up, before the session is ready, say)
+ * and multimodal was gone for the session. Now a refusal is asked again a
+ * second later until it is agreed, and regaining focus (the system menu,
+ * anything that took the headset away) asks again in case the runtime reset
+ * it meanwhile. */
 static void hp_multimodal(void) {
-    if (!S.hp_simul || !S.session || S.mm_on == S.mm_want) return;
+    if (!S.hp_simul || !S.session || !S.running) return;
+    if (S.mm_on == S.mm_want && !(S.mm_reassert && S.mm_want)) return;
+    if (S.mm_wait > 0) { S.mm_wait--; return; }
     XrResult r;
     if (S.mm_want) {
         PFN_xrResumeSimultaneousHandsAndControllersTrackingMETA f = NULL;
@@ -497,8 +508,11 @@ static void hp_multimodal(void) {
         XrSimultaneousHandsAndControllersTrackingPauseInfoMETA pi = { XR_TYPE_SIMULTANEOUS_HANDS_AND_CONTROLLERS_TRACKING_PAUSE_INFO_META };
         r = f ? f(S.session, &pi) : XR_ERROR_FUNCTION_UNSUPPORTED;
     }
-    xrlog("[handprobe] multimodal %s: %s (%d)", S.mm_want ? "on" : "paused", XR_SUCCEEDED(r) ? "yes" : "NO", (int)r);
-    S.mm_on = S.mm_want;          /* once either way: a refusal is not asked again every frame */
+    xrlog("[handprobe] multimodal %s: %s (%d)%s", S.mm_want ? "on" : "paused", XR_SUCCEEDED(r) ? "yes" : "NO", (int)r,
+          S.mm_reassert ? " (asked again on regaining focus)" : "");
+    if (XR_SUCCEEDED(r)) { S.mm_on = S.mm_want; S.mm_reassert = 0; }
+    else if (S.mm_reassert && S.mm_reassert++ >= 3) { S.mm_reassert = 0; }   /* already so, most likely: stop asking */
+    else S.mm_wait = 72;                                                    /* about a second, then again */
 }
 static void hp_frame(XrTime t, MoteVrTracking *track) {
     hp_multimodal();
@@ -1769,6 +1783,7 @@ static void pump_events(void) {
             const XrEventDataSessionStateChanged *e =
                 (const XrEventDataSessionStateChanged *)&ev;
             S.state = e->state;
+            if (e->state == XR_SESSION_STATE_FOCUSED && S.mm_want) { S.mm_reassert = 1; S.mm_wait = 0; }   /* see hp_multimodal */
             if (e->state == XR_SESSION_STATE_READY) {
                 XrSessionBeginInfo bi = { XR_TYPE_SESSION_BEGIN_INFO };
                 bi.primaryViewConfigurationType = XR_VIEW_CONFIGURATION_TYPE_PRIMARY_STEREO;
