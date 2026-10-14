@@ -317,6 +317,24 @@ class Model:
                     sd = side(i); sh = dict(sd.get("shot") or {})
                     if sd.get("shots") == 1 and side(1 - i).get("shots") == 0:
                         sh.pop("bnr", None)
+                    # ...AND THE REST OF THE RELAY'S RULES (mote_relay.py
+                    # honours_shot -- keep the two in step): at 8-ball a run is
+                    # eight of the runner's own, at 9- and 10-ball every object
+                    # ball down. This month's race had only the golden-break
+                    # rule, so it still showed the runs the boards had dropped
+                    # (Mark, 2026-10-14: "my monthly honours lists in the admin
+                    # app showing the clearances and break and runs that we have
+                    # now filtered out")
+                    try:
+                        kind = int(r.get("kind", -1))
+                    except (TypeError, ValueError):
+                        kind = -1
+                    own = {0: 8, 1: 8, 3: 8}.get(kind)
+                    if own and int(sd.get("potted") or 0) < own:
+                        sh.pop("bnr", None); sh.pop("runouts", None)
+                    need = {2: 9, 13: 10}.get(kind)
+                    if need and int(sd.get("potted") or 0) + int(side(1 - i).get("potted") or 0) < need:
+                        sh.pop("bnr", None); sh.pop("runouts", None)
                     # pot success, for Mark's eyes only (the stats app's Honours tab; not a club board)
                     att, made = int(sh.get("att") or 0), int(sh.get("made") or 0)
                     for tally in (self.pot_all, self.pot_month.setdefault(mon, {})):
