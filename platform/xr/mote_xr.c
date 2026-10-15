@@ -1182,6 +1182,17 @@ static int make_actions(void) {
 static void read_hand_at(int i, MoteVrHand *h, XrTime t, XrPath sub, XrSpace grip, XrSpace aim);
 static void read_hand(int i, MoteVrHand *h, XrTime t) {
     read_hand_at(i, h, t, S.hand_path[i], S.hand_space[i], S.aim_space[i]);
+    /* IS A CONTROLLER IN THIS HAND (CueVR 7.6.1): with hands and controllers
+     * together the hand's path has a pose whether or not a controller is in
+     * it, and where its fingers come from flickers -- the runtime's current
+     * device for the path is the one reliable word. Without multimodal a
+     * tracked controller is a held one. */
+    int held_now = h->tracked;
+    if (S.hp_detached && S.mm_on) {
+        XrInteractionProfileState ips0 = { XR_TYPE_INTERACTION_PROFILE_STATE };
+        held_now = XR_SUCCEEDED(xrGetCurrentInteractionProfile(S.session, S.hand_path[i], &ips0)) &&
+                   ips0.interactionProfile == S.touch_path;
+    }
     /* NOT IN THE HAND, BUT STILL THERE (7.6): with multimodal on, a controller
      * the runtime decides nobody is holding -- strapped to a cue butt -- goes
      * on as a detached controller. Its pose and buttons stand in for the
@@ -1247,6 +1258,7 @@ static void read_hand(int i, MoteVrHand *h, XrTime t) {
         }
 #endif
     }
+    h->ctrl_held = held_now;
 }
 static void read_hand_at(int i, MoteVrHand *h, XrTime t, XrPath sub, XrSpace grip, XrSpace aim) {
     memset(h, 0, sizeof *h);

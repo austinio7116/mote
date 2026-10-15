@@ -140,6 +140,7 @@ typedef struct {
      * 0 none, 1 the cameras, 2 the controller. Only after mote_xr_set_hands(1, ..). */
     int        joints_from;
     int        joints_tracked;   /* of the 26, how many the runtime says it SAW (position and orientation tracked), not inferred */
+    int        ctrl_held;        /* a Touch controller is IN this hand now (the runtime's word with hands and controllers together; else simply tracked) */
     MoteVrPose joint[26];
     float      joint_r[26];
     /* THIS HAND'S CONTROLLER IS NOT IN THE HAND: with hands and controllers
