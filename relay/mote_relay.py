@@ -1394,6 +1394,20 @@ class Relay:
                 log(f"honours: proof {'good' if ok else 'BAD'}, {len(mine.get(a[0], []))} monthly wins {'sent' if ok else 'held'}")
             if ok:
                 text += "".join(f"MINE {b} {m} {v}\n" for b, m, v in mine.get(a[0], []))
+                # ...and the TOURNAMENTS this account has won, for its cabinet
+                wl = getattr(self.tourn, "wins_lines", None) if self.tourn is not None else None
+                if wl is not None:
+                    try:
+                        text += "".join(l + "\n" for l in wl(a[0]))
+                    except Exception as e:
+                        log(f"honours: tournament wins failed ({type(e).__name__})")
+        # THE TOURNAMENT WINNERS board, for everyone
+        cl = getattr(self.tourn, "champions_lines", None) if self.tourn is not None else None
+        if cl is not None:
+            try:
+                text += "".join(l + "\n" for l in cl())
+            except Exception as e:
+                log(f"honours: tournament champions failed ({type(e).__name__})")
         return text
 
     def result_write(self, name, line):
@@ -1878,6 +1892,17 @@ class Relay:
                 log(f"tournament {tid}: {sub.lower()} refused {ans} (game {gid}, version {a[4] if sub == 'ENTER' and len(a) > 4 else '-'})")
             self.tourn_flush()
             return f"{sub} {ans}\n"
+        # ANYTHING ELSE A PLAYER ASKS goes to mote_tourn.py, so a new request
+        # (HISTORY, the Records page's tournaments) goes out by RELOAD
+        pa = getattr(self.tourn, "player_answer", None)
+        if pa is not None:
+            try:
+                ans = pa(sub, a)
+            except Exception as e:
+                log(f"tournaments: {sub} failed ({type(e).__name__}: {e})")
+                ans = None
+            if ans is not None:
+                return ans
         return "ERR\n"
 
     def tourn_table(self, room, m, came):

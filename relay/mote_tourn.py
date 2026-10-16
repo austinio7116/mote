@@ -633,6 +633,78 @@ class Organiser:
         self.record({"e": "withdrawn", "tid": tid, "uid": uid})
         return "OK"
 
+    # ---- A PLAYER'S TOURNAMENTS (Mark, 2026-10-16: "the trophy must go in
+    # their trophy cabinet and a history of events entered must be available in
+    # the records section. The plate must have the tournament name date and
+    # winner"; one trophy per tournament name, engraved each win; a TOURNAMENT
+    # WINNERS board in the club). Lines the game reads with sscanf, the free
+    # text last after a "|".
+    @staticmethod
+    def stage(t, rnd):
+        """the round as the game words it: F the final, S a semi-final, Q a
+        quarter-final, else R<n>"""
+        rounds = {4: 2, 8: 3, 16: 4}.get(t.size, max((m.rnd for m in t.matches), default=1))
+        left = rounds - rnd
+        return "F" if left == 0 else "S" if left == 1 else "Q" if left == 2 else f"R{rnd}"
+
+    def history_lines(self, uid, limit=40):
+        """HISTORY <uid>: every tournament this account entered, newest first --
+        "TH <tid> <start> <kind> <rules> <status> <result> <num> <size>|<title>",
+        then its matches as "THM <tid> <stage> <mine> <theirs> <won> <why|-> <best_of>|<opponent>".
+        result: CHAMPION, RUNNERUP, the stage it went out in (S, Q, R<n>),
+        IN (still in), ENTERED (not drawn yet), OFF (called off), OUT (never played)"""
+        out = []
+        mine = [t for t in self.t.values() if t.entered(uid) or uid in t.draw.values()]
+        for t in sorted(mine, key=lambda t: -t.start)[:limit]:
+            num = next((n for n, u in t.draw.items() if u == uid), 0)
+            if t.status == "off":
+                res = "OFF"
+            elif not t.draw:
+                res = "ENTERED"
+            elif t.champion and t.champion == num:
+                res = "CHAMPION"
+            else:
+                lost = next((m for m in t.matches if m.state == "done" and num in (m.a, m.b) and m.winner != num), None)
+                if lost is not None:
+                    res = "RUNNERUP" if self.stage(t, lost.rnd) == "F" else self.stage(t, lost.rnd)
+                elif t.status == "done":
+                    res = "OUT"
+                else:
+                    res = "IN"
+            out.append(f"TH {t.tid} {int(t.start)} {t.kind} {t.rules} {t.status} {res} {num} {t.size}|{word(t.title)}")
+            for m in t.matches:
+                if not num or num not in (m.a, m.b) or m.a is None or m.b is None or m.state != "done":
+                    continue
+                me_a = m.a == num
+                opp = m.b if me_a else m.a
+                s_me, s_them = (m.score[0], m.score[1]) if me_a else (m.score[1], m.score[0])
+                out.append(f"THM {t.tid} {self.stage(t, m.rnd)} {s_me} {s_them} {1 if m.winner == num else 0} "
+                           f"{m.why or '-'} {m.best_of}|{word(t.name_of(t.draw.get(opp)))[:23]}")
+        return out
+
+    def wins_lines(self, uid):
+        """this account's titles, for its cabinet: "TWON <tid> <start>|<title>" (sent
+        only to a game that proved the account, with the honours)"""
+        return [f"TWON {t.tid} {int(t.start)}|{word(t.title)}"
+                for t in sorted(self.t.values(), key=lambda t: t.start)
+                if t.status == "done" and t.champion and t.draw.get(t.champion) == uid]
+
+    def champions_lines(self, limit=20):
+        """the club's TOURNAMENT WINNERS board, newest first: TCHAMP <tid> <start> <champion>|<title>"""
+        done = [t for t in self.t.values() if t.status == "done" and t.champion]
+        return [f"TCHAMP {t.tid} {int(t.start)} {word(t.name_of(t.draw.get(t.champion)))[:23].replace(' ', '_')}|{word(t.title)}"
+                for t in sorted(done, key=lambda t: -t.start)[:limit]]
+
+    def player_answer(self, sub, a):
+        """a player's request the relay does not know itself (so a new one goes
+        out by RELOAD): HISTORY <uid>"""
+        if sub == "HISTORY":
+            uid = a[1] if len(a) > 1 and a[1].isdigit() and len(a[1]) <= 20 else ""
+            if not uid:
+                return "BAD\n"
+            return "".join(l + "\n" for l in self.history_lines(uid)) + "END\n"
+        return None
+
     def listing(self, gid):
         """the tournaments a board shows: not finished more than a day ago"""
         now = self.now()
