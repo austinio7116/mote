@@ -526,8 +526,24 @@ def main():
     ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
     ctx.minimum_version = ssl.TLSVersion.TLSv1_2
     ctx.load_cert_chain(A.cert, A.key)
-    srv = ThreadingHTTPServer((A.bind, A.port), H)
-    srv.socket = ctx.wrap_socket(srv.socket, server_side=True)
+    # THE HANDSHAKE ON THE CONNECTION'S OWN THREAD, with a time limit
+    # (2026-10-17, Mark: "My android app isn't loading anything any more"): the
+    # listening socket was wrapped, so every TLS handshake ran on the one thread
+    # that accepts, with no timeout -- a phone that opened a connection and went
+    # quiet held it for ever, the queue filled and nothing else got in
+    class TLSServer(ThreadingHTTPServer):
+        daemon_threads = True
+        def finish_request(self, request, client_address):
+            request.settimeout(15)
+            try:
+                tls = ctx.wrap_socket(request, server_side=True)
+            except (OSError, ssl.SSLError):
+                try: request.close()
+                except OSError: pass
+                return
+            self.RequestHandlerClass(tls, client_address, self)
+    H.timeout = 30
+    srv = TLSServer((A.bind, A.port), H)
     if A.state:
         threading.Thread(target=sampler, daemon=True).start()
     threading.Thread(target=seeder, daemon=True).start()
