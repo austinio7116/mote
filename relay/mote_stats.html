@@ -261,7 +261,7 @@ function hChart(){
     [[1,'Day'],[7,'Week'],[30,'Month']].map(([n,l]) => `<span class="chip${HD==n?' on':''}" onclick="HD=${n};hload()">${l}</span>`).join('') + '</div>';
   if (!d) return h + empty('Loading...');
   const W = Math.min(window.innerWidth, 640) - 32 - 26, Hh = 150, P = 22;
-  let mx = 1; for (const b of d.series) mx = Math.max(mx, b.club + b.match);
+  let mx = 1; for (const b of d.series) mx = Math.max(mx, b.club + b.match + (b.tourn || 0));
   const x = t => P + (t - d.from) / (d.to - d.from) * (W - P - 4), y = v => Hh - 18 - v / mx * (Hh - 30);
   const bw = Math.max(1, (W - P) * d.bucket / (d.to - d.from) - 1);
   let g = `<svg width=${W} height=${Hh}>`;
@@ -269,14 +269,16 @@ function hChart(){
     g += `<line x1=${P} x2=${W} y1=${yy} y2=${yy} stroke="#242b33"/><text x=0 y=${yy+4} fill="#7d8790" font-size=10>${v}</text>`; }
   for (const b of d.series){ const xx = x(b.t);
     if (b.club) g += `<rect x=${xx} y=${y(b.club)} width=${bw} height=${y(0)-y(b.club)} fill="#7fd4b4"/>`;
-    if (b.match) g += `<rect x=${xx} y=${y(b.club+b.match)} width=${bw} height=${y(b.club)-y(b.club+b.match)} fill="#f0a070"/>`; }
+    if (b.match) g += `<rect x=${xx} y=${y(b.club+b.match)} width=${bw} height=${y(b.club)-y(b.club+b.match)} fill="#f0a070"/>`;
+    if (b.tourn) { const lo = b.club + b.match, hi = lo + b.tourn;
+      g += `<rect x=${xx} y=${y(hi)} width=${bw} height=${y(lo)-y(hi)} fill="#6fa8f0"/>`; } }
   const ticks = d.days == 7 ? 7 : 6;
   for (let i = 0; i <= ticks; i++){ const t = d.from + (d.to - d.from) * i / ticks, dt = new Date(t * 1000);
     const lab = d.days == 1 ? dt.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'}) : dt.toLocaleDateString([], {day:'numeric', month:'short'});
     g += `<text x=${i == ticks ? W : x(t)} y=${Hh-3} fill="#7d8790" font-size=10 text-anchor=${i==0?'start':i==ticks?'end':'middle'}>${lab}</text>`; }
   g += '</svg>';
   h += `<div class=card>${d.series.length ? g : '<div class="dim small">No history yet: a sample is taken every minute.</div>'}
-        <div class="small dim" style="margin-top:6px"><span class=key style="background:#7fd4b4"></span>in the club<span class=key style="background:#f0a070"></span>in matches</div></div>`;
+        <div class="small dim" style="margin-top:6px"><span class=key style="background:#7fd4b4"></span>in the club<span class=key style="background:#f0a070"></span>in matches<span class=key style="background:#6fa8f0"></span>in a tournament</div></div>`;
   for (const r of d.daily.slice(0, HD == 1 ? 2 : HD)){
     const day = new Date(r.day + 'T12:00:00Z').toLocaleDateString([], {weekday:'short', day:'numeric', month:'short'});
     h += `<div class="card small"><div class=row><b>${day}</b><span class=dim>${r.players} player${r.players==1?'':'s'} seen</span></div>

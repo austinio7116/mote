@@ -468,6 +468,14 @@ class Organiser:
     def admin(self, verb, spec):
         if verb == "EDIT":
             return self.edit(spec)
+        if verb == "PRESENT":
+            # WHO IS IN A TOURNAMENT'S ROOM NOW, for the stats page's graph
+            # (Mark, 2026-10-17: "show tournament room players too in blue"):
+            # the room is not browsed, so LIST never counts them -- "OK <n>
+            # <name|name|...>"
+            names = [word(t.name_of(u))[:23] for t in self.t.values()
+                     if t.status in ("room", "running") for u in t.present]
+            return f"OK {len(names)} {'|'.join(n.replace('|', '/') for n in names) or '-'}"
         if verb == "UNDO":
             # A RESULT TAKEN BACK: spec {"tid", "mid"}; only while the match it
             # sent its winner on to has not been played

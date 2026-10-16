@@ -154,6 +154,9 @@ def sampler():
             live = live_now()
             now = time.time()
             row = {"t": int(now), "v": {v["version"]: count_list(v) for v in live if not v.get("error")}}
+            tp = tourn_present()
+            if tp is not None:
+                row["tourn"], row["tn"] = tp
             day = time.strftime("%Y-%m-%d", time.gmtime(now))
             with open(os.path.join(hdir, day + ".jsonl"), "a", encoding="utf-8") as f:
                 f.write(json.dumps(row, separators=(",", ":")) + "\n")
@@ -162,6 +165,27 @@ def sampler():
 
 
 HCACHE = {}                                      # closed days: date -> rows
+
+
+def tourn_present():
+    """players in a tournament's room now (the organiser's PRESENT, by the
+    admin token): (count, names), or None when it cannot be asked"""
+    tok = tourn_token()
+    if not tok:
+        return None
+    try:
+        ans = relay_ask(f"MOTE2 TOURN {A.tourn_gid} ADMIN {tok} PRESENT", "{}").strip()
+    except OSError:
+        return None
+    p = ans.split(" ", 3)
+    if len(p) < 3 or p[0] != "ADMIN" or p[1] != "OK":
+        return None
+    try:
+        n = int(p[2])
+    except ValueError:
+        return None
+    names = [x for x in (p[3].split("|") if len(p) > 3 else []) if x and x != "-"]
+    return n, names
 
 
 def history_rows(day):
@@ -199,18 +223,20 @@ def history(days):
             t = r.get("t", 0)
             club = sum(x.get("club", 0) for x in r.get("v", {}).values())
             match = sum(x.get("match", 0) for x in r.get("v", {}).values())
+            tourn = int(r.get("tourn", 0) or 0)                  # in a tournament's room (blue)
             d = per_day.setdefault(day, {"day": day, "peak": 0, "peak_t": 0, "names": set(), "samples": 0})
             d["samples"] += 1
-            if club + match > d["peak"]:
-                d["peak"], d["peak_t"] = club + match, t
+            if club + match + tourn > d["peak"]:
+                d["peak"], d["peak_t"] = club + match + tourn, t
             for x in r.get("v", {}).values():
                 d["names"].update(x.get("names", []))
+            d["names"].update(r.get("tn", []))
             if t < t0:
                 continue
             b = (t // bucket) * bucket
             cur = B.get(b)
-            if cur is None or club + match > cur["club"] + cur["match"]:
-                B[b] = {"t": b, "club": club, "match": match}
+            if cur is None or club + match + tourn > cur["club"] + cur["match"] + cur["tourn"]:
+                B[b] = {"t": b, "club": club, "match": match, "tourn": tourn}
     series = [B[k] for k in sorted(B)]
     daily = [{"day": d["day"], "peak": d["peak"], "peak_t": d["peak_t"], "players": len(d["names"]),
               "samples": d["samples"]} for d in sorted(per_day.values(), key=lambda d: d["day"], reverse=True)
