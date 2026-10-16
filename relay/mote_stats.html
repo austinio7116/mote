@@ -94,6 +94,36 @@ window.addEventListener('hashchange', () => { window.scrollTo(0, 0); draw(); loa
 
 /* ---- TOURNAMENTS (7.5): the relay runs them; they are made here ------------ */
 let TN = null, TMSG = '';
+// THE DRAW of a tournament, opened from its card (Mark, 2026-10-17: "I also want the app to show
+// tournament results tree"): tid -> the organiser's view, fetched when opened
+const TV = {}; let TOPEN = 0;
+async function tview(tid){ TOPEN = TOPEN == tid ? 0 : tid; draw();
+  if (TOPEN) { try { TV[tid] = await get('api/tourn/view?tid=' + tid); } catch (x) { TV[tid] = {err: String(x.message)}; } draw(); } }
+function tbracket(v){
+  if (!v) return '<div class="small dim">Loading...</div>';
+  if (v.err) return `<div class="small bad">${e(v.err)}</div>`;
+  if (!v.matches || !v.matches.length) return '<div class="small dim">Not drawn yet.</div>';
+  const nm = n => n ? (v.draw[String(n)] || '?') : '';
+  const rounds = Math.max(...v.matches.map(m => m.rnd));
+  const rname = r => r == rounds ? 'Final' : r == rounds - 1 ? 'Semi-finals' : r == rounds - 2 ? 'Quarter-finals' : 'Round ' + r;
+  let h = '<div style="overflow-x:auto;margin-top:8px"><div style="display:flex;gap:10px;min-width:max-content">';
+  for (let r = 1; r <= rounds; r++) {
+    const ms = v.matches.filter(m => m.rnd == r);
+    h += `<div style="display:flex;flex-direction:column;min-width:150px"><div class="tiny dim" style="margin-bottom:4px">${rname(r)}</div><div style="display:flex;flex-direction:column;justify-content:space-around;flex:1">`;
+    for (const m of ms) {
+      const line = (n, sc, side) => {
+        const won = m.winner && m.winner == n, out = m.state == 'done' && n && !won;
+        return `<div class=row style="gap:6px;padding:2px 6px;${won ? 'color:var(--acc);font-weight:600' : out ? 'color:var(--dim)' : ''}">
+          <span class=small style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${n ? e(nm(n)) : (m.why == 'bye' ? '<i class=dim>bye</i>' : '<span class=dim>-</span>')}</span>
+          <span class=small>${m.state == 'done' && m.why && m.why != 'played' ? (won ? e(m.why == 'walkover' ? 'w/o' : m.why) : '') : (m.state != 'drawn' ? sc : '')}</span></div>`; };
+      const live = m.state == 'called' || m.state == 'playing' || m.state == 'paused';
+      h += `<div style="border:1px solid ${live ? 'var(--acc)' : 'var(--line)'};border-radius:8px;margin:4px 0">${line(m.a, m.score[0])}${line(m.b, m.score[1])}${live ? `<div class="tiny acc" style="padding:0 6px 2px">${m.state == 'paused' ? 'paused' : 'table ' + m.table}</div>` : ''}</div>`;
+    }
+    h += '</div></div>';
+  }
+  h += `<div style="display:flex;flex-direction:column;justify-content:center;min-width:120px"><div class="tiny dim">Champion</div><div class=acc style="font-weight:700">${v.champion ? e(nm(v.champion)) : '-'}</div></div>`;
+  return h + '</div></div>';
+}
 const TGAMES = [[0, 'UK 8-ball'], [2, '9-ball'], [6, 'Snooker, 6 reds']];
 // each game's rulesets, in the game's own order (CueVR rules_stops): the
 // tournament's "rules" is the index, set on both ends of every match
@@ -136,6 +166,7 @@ function vTourn(){
       <div class="small dim">${new Date(t.start * 1000).toLocaleString([], {weekday:'short', day:'numeric', month:'short', hour:'2-digit', minute:'2-digit'})}
         &middot; ${e(game(t.kind))}, ${e(ruleName(t.kind, t.rules))} &middot; ${e(tableName(t.kind, t.table))} table${t.style && t.style.body >= 0 ? ', ' + e(bodyName(t.style.body)) + ' body' : ''} &middot; ${t.size} players &middot; race to ${(t.best_of+1)/2}, final to ${(t.final_best_of+1)/2}</div>
       <div class=small>${t.nent} entered${t.entrants.length ? ': ' + t.entrants.map(e).join(', ') : ''}</div>
+      ${t.status != 'open' ? `<div style="margin-top:6px"><button onclick="tview(${t.tid})">${TOPEN == t.tid ? 'Hide the draw' : 'Draw'}</button></div>${TOPEN == t.tid ? tbracket(TV[t.tid]) : ''}` : ''}
       ${t.refused && Object.keys(t.refused).length ? `<div class="small bad">Sign-ups turned away: ${Object.entries(t.refused).map(([w, n]) => `${n} ${e(REFUSED_WHY[w] || w)}`).join(', ')}</div>` : ''}
       ${t.status == 'open' && TN.can_create ? `<div class="row tedit" style="gap:12px;flex-wrap:wrap;margin-top:8px;justify-content:flex-start;align-items:flex-end">
         <label class=small>Rules<select id="te-rules${t.tid}">${opts((TRULES[t.kind] || ['-']).map((n, i) => [i, n]), t.rules)}</select></label>

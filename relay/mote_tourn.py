@@ -468,6 +468,17 @@ class Organiser:
     def admin(self, verb, spec):
         if verb == "EDIT":
             return self.edit(spec)
+        if verb == "VIEW":
+            # ONE TOURNAMENT WHOLE, for the stats page's draw (Mark, 2026-10-17:
+            # "I also want the app to show tournament results tree"): its
+            # view() as one line of JSON
+            try:
+                t = self.t.get(int(spec["tid"]))
+            except (KeyError, TypeError, ValueError):
+                return "BAD"
+            if t is None:
+                return "NONE"
+            return "OK " + json.dumps(t.view(), separators=(",", ":"))
         if verb == "PRESENT":
             # WHO IS IN A TOURNAMENT'S ROOM NOW, for the stats page's graph
             # (Mark, 2026-10-17: "show tournament room players too in blue"):

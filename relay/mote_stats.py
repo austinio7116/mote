@@ -487,7 +487,7 @@ class H(BaseHTTPRequestHandler):
     def do_GET(self):
         u = urlparse(self.path)
         q = parse_qs(u.query)
-        if u.path not in ("/", "/api", "/api/history", "/api/model", "/api/server", "/api/player", "/api/match", "/api/tourn"):
+        if u.path not in ("/", "/api", "/api/history", "/api/model", "/api/server", "/api/player", "/api/match", "/api/tourn", "/api/tourn/view"):
             return self._send(404, "text/plain", b"not here\n")
         if not self._ok(q):
             return self._send(403, "text/plain", b"no\n")
@@ -511,6 +511,18 @@ class H(BaseHTTPRequestHandler):
                                                                        "accounts": tourn_accounts()}).encode())
             except OSError as e:
                 return self._send(502, "application/json", json.dumps({"error": f"the relay did not answer ({e})"}).encode())
+        if u.path == "/api/tourn/view":
+            # ONE TOURNAMENT'S DRAW (Mark, 2026-10-17: "show tournament results
+            # tree"): the organiser's VIEW, names only
+            tok = tourn_token()
+            try:
+                tid = int((q.get("tid") or ["0"])[0])
+                ans = relay_ask(f"MOTE2 TOURN {A.tourn_gid} ADMIN {tok} VIEW", json.dumps({"tid": tid})).strip() if tok else ""
+            except (ValueError, OSError) as e:
+                return self._send(502, "application/json", json.dumps({"error": f"the relay did not answer ({e})"}).encode())
+            if not ans.startswith("ADMIN OK "):
+                return self._send(404, "application/json", json.dumps({"error": ans or "no admin token"}).encode())
+            return self._send(200, "application/json", ans[len("ADMIN OK "):].encode())
         if u.path == "/api/server":
             return self._send(200, "application/json", json.dumps(MODEL.server(), separators=(",", ":")).encode())
         if u.path == "/api/history":
