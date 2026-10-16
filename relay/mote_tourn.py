@@ -332,6 +332,25 @@ class Organiser:
                 m.score = list(ev["score"])
             self.say(t.tid, f"WON {m.mid} {m.winner} {m.why or 'played'}")
             self.advance(t, m, ev["at"])
+        elif e == "undone":
+            # A RESULT TAKEN BACK by the admin (the first night: Jimmy walked
+            # over while REJOIN had him in his finished match's room): the
+            # match waits for its call again, its no-show clock from now, and
+            # whatever it sent on comes back out of the next round -- that
+            # match back to waiting, its call withdrawn
+            m = t.matches[ev["mi"]]
+            nxt = [x for x in t.matches if x.rnd == m.rnd + 1]
+            if nxt and m.winner is not None:
+                to = nxt[(int(m.mid.split("M")[1]) - 1) // 2]
+                if to.a == m.winner: to.a = None
+                if to.b == m.winner: to.b = None
+                if to.state in ("called", "playing", "paused"):
+                    to.state, to.code, to.table, to.called_at, to.score, to.frames = "drawn", "", 0, None, [0, 0], 0
+                    self.say(t.tid, f"UNCALLED {to.mid}")
+            m.state, m.winner, m.why, m.score, m.frames = "drawn", None, "", [0, 0], 0
+            m.code, m.table, m.called_at, m.ready_at = "", 0, None, ev["at"]
+            m.paused_at, m.paused_uid = None, None
+            self.say(t.tid, f"UNDONE {m.mid}")
         elif e == "champion":
             t.status, t.champion = "done", ev["num"]
             self.say(t.tid, f"CHAMPION {t.champion}")
@@ -449,6 +468,47 @@ class Organiser:
     def admin(self, verb, spec):
         if verb == "EDIT":
             return self.edit(spec)
+        if verb == "UNDO":
+            # A RESULT TAKEN BACK: spec {"tid", "mid"}; only while the match it
+            # sent its winner on to has not been played
+            try:
+                tid, mid = int(spec["tid"]), str(spec["mid"])
+            except (KeyError, TypeError, ValueError):
+                return "BAD"
+            t = self.t.get(tid)
+            m = next((x for x in t.matches if x.mid == mid), None) if t else None
+            if m is None:
+                return "NONE"
+            if m.state != "done":
+                return "NOTDONE"
+            nxt = [x for x in t.matches if x.rnd == m.rnd + 1]
+            if nxt:
+                to = nxt[(int(m.mid.split("M")[1]) - 1) // 2]
+                if to.state == "done" or to.score != [0, 0]:
+                    return "PLAYEDON"
+            self.record({"e": "undone", "tid": tid, "mi": t.matches.index(m), "by": "admin"})
+            self.log(f"tournament {tid}: {mid} undone by the admin")
+            return "OK"
+        if verb == "RECALL":
+            # A MATCH CALLED AGAIN, to its table with a fresh room code (the first
+            # night, 2026-10-16: Jimmy's game went back into his finished
+            # match's room by REJOIN, which replaced his call to the next one,
+            # and nothing times out while both players are present): spec
+            # {"tid", "mid"}; only a match still waiting at its call
+            try:
+                tid, mid = int(spec["tid"]), str(spec["mid"])
+            except (KeyError, TypeError, ValueError):
+                return "BAD"
+            t = self.t.get(tid)
+            m = next((x for x in t.matches if x.mid == mid), None) if t else None
+            if m is None:
+                return "NONE"
+            if m.state != "called":
+                return "NOTCALLED"
+            code = self.new_code()
+            self.record({"e": "called", "tid": tid, "mi": t.matches.index(m), "table": m.table, "code": code, "by": "admin"})
+            self.log(f"tournament {tid}: {mid} called again by the admin, table {m.table}, code {code}")
+            return f"OK {code}"
         if verb == "ADD":
             return self.admin_add(spec)
         if verb == "SEEDS":
@@ -763,7 +823,7 @@ class Organiser:
     def frame_agreed(self, tid, mid, winner_uid):
         t = self.t.get(tid)
         m = next((x for x in t.matches if x.mid == mid), None) if t else None
-        if m is None or m.state == "done":
+        if m is None or m.state == "done" or m.a is None or m.b is None:
             return
         n = t.num_of(winner_uid)
         if n not in (m.a, m.b):
