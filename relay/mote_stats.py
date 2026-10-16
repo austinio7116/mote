@@ -41,7 +41,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse, parse_qs
 
 # the CueVR versions worth showing: the game id each plays online with
-VERSIONS = [("7.6", 0x43554572), ("7.5.5", 0x43554571), ("7.5-7.5.4", 0x43554570), ("7.3.2-7.4.x", 0x4355456F), ("7.3", 0x4355456E), ("7.2.1", 0x4355456D)]
+VERSIONS = [("7.6.2", 0x43554573), ("7.6-7.6.1", 0x43554572), ("7.5.5", 0x43554571), ("7.5-7.5.4", 0x43554570), ("7.3.2-7.4.x", 0x4355456F), ("7.3", 0x4355456E), ("7.2.1", 0x4355456D)]
 GID = 0x4355456F                 # the honours are asked of the current one
 
 A = None
@@ -483,7 +483,7 @@ def main():
     ap.add_argument("--journal-file", default="", help="read the relay's log from this file, not journalctl (tests)")
     ap.add_argument("--backups", default="", help="the daily snapshots' folder, listed on the Server page")
     ap.add_argument("--tourn-token-file", default="", help="the relay's tournament admin token (its --admin-token-file): makes the Tournaments form work")
-    ap.add_argument("--tourn-gid", type=int, default=0x43554572, help="the game id tournaments are made for (7.6: CUEr; a tournament is shown to every version of its game)")
+    ap.add_argument("--tourn-gid", type=int, default=0x43554573, help="the game id tournaments are made for (7.6.2: CUEs; a tournament is shown to every version of its game)")
     ap.add_argument("--tourn-ver", default="7.5", help="the game version entrants must be on")
     A = ap.parse_args()
     MODEL = Model(A.store, A.relay, GID, A.journal_file, A.backups)
