@@ -250,6 +250,27 @@ def tourn_list():
         elif p[0] == "TS" and len(p) >= 8 and int(p[1]) in by:
             by[int(p[1])]["style"] = {"cloth": int(p[2]), "frame": int(p[3]), "body": int(p[4]), "set": int(p[5]),
                                       "leather": p[6], "metal": p[7]}
+    # THE TABLE, which LIST does not carry (a change to it needs a relay
+    # restart): the last one set for each, from tournaments.jsonl, read only
+    # (Mark, 2026-10-16: "my attempts in the app to save the 6ft table are not
+    # working - it keeps reverting to tournament" -- it was saved; the page
+    # could not see it)
+    if out:
+        tables = {}
+        try:
+            with open(os.path.join(A.store, "tournaments.jsonl")) as f:
+                for line in f:
+                    if '"table"' not in line:
+                        continue
+                    try:
+                        ev = json.loads(line)
+                        tables[int(ev["tid"])] = int(ev["table"])
+                    except (ValueError, KeyError, TypeError):
+                        pass
+        except OSError:
+            pass
+        for t in out:
+            t["table"] = tables.get(t["tid"], -1)
     # SIGN-UPS TURNED AWAY, and why (2026-10-13: a night's refusals went
     # unseen) -- the relay's count since it started; it needs the admin token
     tok = tourn_token()
