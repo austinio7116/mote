@@ -299,7 +299,12 @@ def tourn_create(spec):
         bo = int(spec["best_of"]); fbo = int(spec["final_best_of"]); close = int(spec.get("close", start - 60))
         title = str(spec.get("title", "")).strip()[:48]
         st = spec.get("style") or {}
-        style = {"cloth": int(st.get("cloth", 9)), "frame": int(st.get("frame", 7)), "body": -1, "set": int(st.get("set", 0))}
+        # THE BODY too (Mark, 2026-10-16: "I need to be able to set the body type too (cabinet in
+        # this case)"): CueVR's CUEVR_FRAMES index, -1 the game's own
+        body = int(st.get("body", -1))
+        if not -1 <= body < 16:
+            body = -1
+        style = {"cloth": int(st.get("cloth", 9)), "frame": int(st.get("frame", 7)), "body": body, "set": int(st.get("set", 0))}
         for k in ("leather", "metal"):
             v = str(st.get(k, "") or "").lstrip("#")
             if len(v) == 6 and all(c in "0123456789abcdefABCDEF" for c in v):
@@ -401,7 +406,7 @@ class H(BaseHTTPRequestHandler):
             return self._send(200 if ans == "ADMIN OK" else 400, "application/json",
                               json.dumps({"answer": ans, "error": why.get(ans, ans)}).encode())
         if u.path == "/api/tourn/edit":
-            # CHANGED while it takes entries: the rules, the table and the number of places
+            # CHANGED while it takes entries: the rules, the table, the body and the number of places
             try:
                 spec = json.loads(raw or "{}")
                 kind = next(t["kind"] for t in tourn_list() if t["tid"] == tid)
@@ -412,6 +417,12 @@ class H(BaseHTTPRequestHandler):
                         return self._send(400, "application/json", b'{"error":"that game has no such rules"}')
                 if "size" in spec:
                     ed["size"] = int(spec["size"])
+                if "body" in spec:      # the body: the style as it is, with this body
+                    st = dict(next(t["style"] for t in tourn_list() if t["tid"] == tid))
+                    st["body"] = int(spec["body"])
+                    if not -1 <= st["body"] < 16:
+                        return self._send(400, "application/json", b'{"error":"that is not a body"}')
+                    ed["style"] = st
                 if "table" in spec:
                     ed["table"] = int(spec["table"])
                     if not -1 <= ed["table"] < 32:
