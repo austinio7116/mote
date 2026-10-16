@@ -5572,16 +5572,26 @@ void cue_rules_bil_tick(CueRules *r, float dt) {
 
 void cue_rules_bil_expire(CueRules *r) {
     if (!r || r->frame_over || !r->bil_timeup) return;
-    r->frame_over = 1;
     /* Rule 1(f)(i): most points in the stipulated time. Rule 5(c) allows the
-     * scores to be level, and says the rules setting the time must provide for
-     * a tie-break — so with none set this is a drawn game rather than a made-up
-     * winner. book_frame refuses a winner of -1, which is what a draw is. */
-    r->winner = (r->score[0] == r->score[1]) ? -1
-              : (r->score[0] > r->score[1]) ? 0 : 1;
-    if (r->winner >= 0) book_frame(r, r->winner);
-    snprintf(r->msg, sizeof r->msg,
-             r->winner < 0 ? "TIME - GAME DRAWN" : "TIME");
+     * scores to be level and says the rules setting the time must provide for
+     * a tie-break. OURS (Mark, 2026-10-17, asked what winner stays on does with
+     * a level timed game -- it did nothing, and the room sat on the result for
+     * ever): PLAY ON, AND THE NEXT POINTS WIN. Level at TIME, the game carries
+     * on (bil_timeup 2, said once) and is asked again after every stroke; the
+     * first stroke that leaves the scores apart -- points made, or a foul's
+     * points to the other side -- decides it. So a timed game always has a
+     * winner. */
+    if (r->score[0] == r->score[1]) {
+        if (r->bil_timeup == 1) {
+            r->bil_timeup = 2;
+            snprintf(r->msg, sizeof r->msg, "LEVEL - NEXT POINTS WIN");   /* 23: the whole of msg */
+        }
+        return;
+    }
+    r->frame_over = 1;
+    r->winner = r->score[0] > r->score[1] ? 0 : 1;
+    book_frame(r, r->winner);
+    snprintf(r->msg, sizeof r->msg, r->bil_timeup == 2 ? "NEXT POINTS - GAME" : "TIME");
 }
 
 /* Rule 8(a): the Spot, then the Pyramid Spot, then the Centre Spot. Rule

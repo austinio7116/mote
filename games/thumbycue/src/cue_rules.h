@@ -295,9 +295,9 @@ typedef struct {
      * any points scored shall be added to the appropriate side." So the clock
      * running out does not end the frame where it stands; it ends it after the
      * stroke in flight has been scored, which is why `bil_timeup` is a latch
-     * and not the ending itself. Rule 5(c) allows a level finish, and a level
-     * finish is a draw: winner -1, exactly as the carom games already record
-     * one.
+     * and not the ending itself. Rule 5(c) allows a level finish and asks the
+     * rules to settle it: here the game plays on and the next points win
+     * (bil_timeup 2), so a timed game always has a winner.
      *
      * Zero means the game is played to a number of points instead, which is
      * the other half of Rule 1(f) and the default. */

@@ -548,10 +548,14 @@ int main(void) {
         r.score[0] = r.score[1] = 30;
         cue_rules_bil_tick(&r, 2.0f);
         cue_rules_bil_expire(&r);
-        ok(r.frame_over, "5(c): level at time, and the game still ends", r.msg);
-        ok(r.winner == -1, "...as a draw, with no tie-break set", r.msg);
-        ok(r.frames[0] == 0 && r.frames[1] == 0,
-           "...and a draw is booked to nobody", "");
+        ok(!r.frame_over && r.bil_timeup == 2, "5(c): level at time, and the game plays on (our tie-break)", r.msg);
+        cue_rules_bil_expire(&r);
+        ok(!r.frame_over, "...and still level, still on", r.msg);
+        const int on = r.turn;
+        Shot s = { .touch = { CUE_ID_BIL_RED }, .pot = { CUE_ID_BIL_RED } };
+        play(&r, &s);
+        ok(r.frame_over && r.winner == on, "...the next points win it", r.msg);
+        ok(r.frames[on] == 1, "...and the game is booked to them", "");
     }
     {   CueRules r; fresh(&r);
         cue_rules_bil_set_time(&r, 600.0f);
