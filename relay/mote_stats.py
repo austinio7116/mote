@@ -308,13 +308,19 @@ def tourn_create(spec):
         return 400, {"error": "the form is not complete"}
     if not 0 <= int(spec.get("rules", 0)) < TOURN_RULES_N.get(kind, 1):
         return 400, {"error": "that game has no such rules"}
+    try:
+        table = int(spec.get("table", -1))      # the bed every match is played on; -1 the game's TOURNAMENT
+    except (TypeError, ValueError):
+        return 400, {"error": "the form is not complete"}
+    if not -1 <= table < 32:
+        return 400, {"error": "that is not a table"}
     if not title:
         return 400, {"error": "give it a title"}
     if start < time.time() + 120:
         return 400, {"error": "the start must be at least two minutes from now"}
     body = json.dumps({"start": start, "kind": kind, "rules": int(spec.get("rules", 0)), "size": size, "best_of": bo,
                        "final_best_of": fbo, "close": close, "title": title, "ver": str(spec.get("ver", A.tourn_ver)),
-                       "gid": str(A.tourn_gid), "style": style})
+                       "gid": str(A.tourn_gid), "style": style, "table": table})
     ans = relay_ask(f"MOTE2 TOURN {A.tourn_gid} CREATE {tok}", body).strip()
     if ans.startswith("CREATE OK"):
         return 200, {"tid": int(ans.split()[2]), "answer": ans}
@@ -395,7 +401,7 @@ class H(BaseHTTPRequestHandler):
             return self._send(200 if ans == "ADMIN OK" else 400, "application/json",
                               json.dumps({"answer": ans, "error": why.get(ans, ans)}).encode())
         if u.path == "/api/tourn/edit":
-            # CHANGED while it takes entries: the rules and the number of places
+            # CHANGED while it takes entries: the rules, the table and the number of places
             try:
                 spec = json.loads(raw or "{}")
                 kind = next(t["kind"] for t in tourn_list() if t["tid"] == tid)
@@ -406,6 +412,10 @@ class H(BaseHTTPRequestHandler):
                         return self._send(400, "application/json", b'{"error":"that game has no such rules"}')
                 if "size" in spec:
                     ed["size"] = int(spec["size"])
+                if "table" in spec:
+                    ed["table"] = int(spec["table"])
+                    if not -1 <= ed["table"] < 32:
+                        return self._send(400, "application/json", b'{"error":"that is not a table"}')
             except (StopIteration, KeyError, TypeError, ValueError, OSError):
                 return self._send(400, "application/json", b'{"error":"the change is not complete"}')
             ans = relay_ask(f"MOTE2 TOURN {A.tourn_gid} ADMIN {tok} EDIT", json.dumps(ed)).strip()

@@ -94,6 +94,12 @@ class Tournament:
         # leather/metal is set on the style too"), each "RRGGBB" or "" for
         # the body's own
         self.style = clean_style(ev.get("style"))
+        # THE TABLE, the same for every match (Mark, 2026-10-16: "Which table
+        # is the tournament tonight? 6ft or 7ft? - this is something i need to
+        # be able to set as tournament admin"): the game's bed number
+        # (CUE_TAB_*: 1 the TOURNAMENT spec, 7 the 6 ft, ...), -1 the game's
+        # own TOURNAMENT. Before this the host's own choice was played.
+        self.table = clean_table(ev.get("table", -1))
         self.entrants = []                         # [{"uid", "name"}] in order of entry
         self.status = "open"                       # open / room / running / done / off
         self.draw = {}                             # draw number -> uid
@@ -123,12 +129,21 @@ class Tournament:
         return {"tid": self.tid, "title": self.title, "kind": self.kind, "rules": self.rules, "size": self.size,
                 "best_of": self.best_of, "final_best_of": self.final_best_of, "start": int(self.start),
                 "close": int(self.close), "ver": self.ver, "venue": self.venue, "status": self.status,
-                "style": dict(self.style),
+                "style": dict(self.style), "table": self.table,
                 "entrants": [e["name"] for e in self.entrants],
                 "draw": {str(n): self.name_of(u) for n, u in sorted(self.draw.items())},
                 "present": sorted(n for n, u in self.draw.items() if u in self.present) if self.draw
                            else len([e for e in self.entrants if e["uid"] in self.present]),
                 "matches": [m.view() for m in self.matches], "champion": self.champion, "why_off": self.why_off}
+
+
+def clean_table(v):
+    """a bed number the game knows (CUE_TAB_*), or -1 for the game's own TOURNAMENT"""
+    try:
+        v = int(v)
+    except (TypeError, ValueError):
+        return -1
+    return v if 0 <= v < 32 else -1
 
 
 def same_game(a, b):
@@ -179,7 +194,8 @@ def state_lines(t):
            f"{int(t.start)} {t.champion or 0} {word(t.why_off).replace(' ', '_')}",
            f"TS TITLE {word(t.title)}",
            f"TS STYLE {t.style['cloth']} {t.style['frame']} {t.style['body']} {t.style['set']} "
-           f"{t.style['leather'] or '-'} {t.style['metal'] or '-'}"]
+           f"{t.style['leather'] or '-'} {t.style['metal'] or '-'}",
+           f"TS TABLE {t.table}"]
     if t.draw:
         for n, u in sorted(t.draw.items()):
             out.append(f"TS DRAW {n} {1 if u in t.present else 0} {word(t.name_of(u))[:23]}")
@@ -267,6 +283,8 @@ class Organiser:
                     setattr(t, k, ev[k])
             if "style" in ev:
                 t.style = clean_style(ev["style"])
+            if "table" in ev:
+                t.table = clean_table(ev["table"])
             return
         if e == "entered":
             if not t.entered(ev["uid"]):
@@ -415,7 +433,7 @@ class Organiser:
               "size": size, "best_of": bo, "final_best_of": fbo, "start": start,
               "close": float(spec.get("close", start - OPEN_BEFORE)), "ver": str(spec.get("ver", ""))[:16],
               "venue": str(spec.get("venue", "club"))[:16],
-              "style": clean_style(spec.get("style"))}
+              "style": clean_style(spec.get("style")), "table": clean_table(spec.get("table", -1))}
         self.record(ev)
         self.log(f"tournament {tid}: created, {ev['title']!r} kind {kind} size {size} at {time.strftime('%Y-%m-%d %H:%M', time.gmtime(start))} UTC")
         return tid, "OK"
@@ -561,6 +579,10 @@ class Organiser:
                         return "BAD"
             if "style" in spec:
                 ev["style"] = clean_style(spec["style"])
+            if "table" in spec:
+                ev["table"] = int(spec["table"])
+                if not -1 <= ev["table"] < 32:
+                    return "BAD"
         except (TypeError, ValueError):
             return "BAD"
         if len(ev) == 2:
