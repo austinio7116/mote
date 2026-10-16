@@ -74,6 +74,11 @@ class Match:
 
 
 class Tournament:
+    # A TOURNAMENT CARRIED OVER BY A RELOAD keeps its old __dict__ (the relay
+    # swaps only the class), so a field added since reads from here: the
+    # table was missing on the live one when it came in (2026-10-16)
+    table = -1
+
     def __init__(self, ev):
         self.tid = ev["tid"]
         self.gid = str(ev.get("gid", ""))
