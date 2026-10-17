@@ -1356,13 +1356,20 @@ class Relay:
         for b, rows in enumerate(boards(allp)):
             for i, (uid, val) in enumerate(rows[:10]):
                 out.append(f"HON {b} {i + 1} {val}{'%' if b == 1 else ''} {name_of.get(uid, '?')}")
+        # A TIE AT THE TOP IS JOINT WINNERS (Mark, 2026-10-17: "joint winners
+        # for the honours"): every account level with the best figure has the
+        # month -- each its own MINE line, so each cabinet gets the trophy --
+        # and the one MONTH line names them all, "A & B", so a game that keeps
+        # one name a month (7.6.4 and before) still shows every winner
         for month in sorted(monthp):
             for b, rows in enumerate(boards(monthp[month])):
                 if rows:
-                    uid, val = rows[0]
-                    vs = f"{val}{'%' if b == 1 else ''}"
-                    out.append(f"MONTH {b} {month} {vs} {name_of.get(uid, '?')}")
-                    mine.setdefault(uid, []).append((b, month, vs))
+                    top = rows[0][1]
+                    tied = [uid for uid, val in rows if val == top]
+                    vs = f"{top}{'%' if b == 1 else ''}"
+                    out.append(f"MONTH {b} {month} {vs} {' & '.join(name_of.get(u, '?') for u in tied)}")
+                    for uid in tied:
+                        mine.setdefault(uid, []).append((b, month, vs))
         text = "".join(x + "\n" for x in out)
         self._hon_cache = (mt, month_now, text, mine)
         return text, mine

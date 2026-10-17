@@ -13,7 +13,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 PORT = 47977
 APP, SECRET = "1036582382349280", "test-secret-not-real"
 UID = {"Ann": "101", "Bob": "102", "Cat": "103", "Dan": "104", "Fay": "106", "Eve": "105", "Ann2": "107"}
-GOOD = {"proofANN": "101", "proofBOB": "102"}
+GOOD = {"proofANN": "101", "proofBOB": "102", "proofFAY": "106"}
 
 
 class FakeMeta(BaseHTTPRequestHandler):
@@ -66,6 +66,7 @@ def main():
     # player (account 107) also calls themself "Ann"
     rows.append(frame("2026-09-25 21:00:00", "Annie", "Cat", 0, 7, best=(12, 0), ua="101"))
     rows.append(frame("2026-09-26 21:00:00", "Ann", "Cat", 0, 10, best=(77, 0), ua="107"))
+    rows.append(frame("2026-09-27 21:00:00", "Fay", "Cat", 0, 10, best=(77, 0)))   # level with Ann: joint winners
     # this month: Cat a 98 at 10-red, an unverified frame that must not count
     rows.append(frame(time.strftime("%Y-%m-01 10:00:00", time.gmtime()), "Cat", "Dan", 0, 5, best=(98, 0)))
     rows.append(frame(time.strftime("%Y-%m-01 11:00:00", time.gmtime()), "Eve", "Dan", 0, 4, best=(155, 0), verified=False))
@@ -81,6 +82,7 @@ def main():
                          stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     try:
         lines = ask("MOTE2 HONOURS 1129661807\n")
+        fay = ask("MOTE2 HONOURS 1129661807 106 proofFAY\n")
         ann = ask("MOTE2 HONOURS 1129661807 101 proofANN\n")
         bad = ask("MOTE2 HONOURS 1129661807 101 proofBOB\n")
         steal = ask("MOTE2 HONOURS 1129661807 102 proofANN\n")
@@ -93,6 +95,8 @@ def main():
         nonlocal ok, bad_n
         print(("  [ok ] " if cond else "  [BAD] ") + what); ok += cond; bad_n += not cond
     check("HON 0 1 21 Annie" in lines, "most frames won by ACCOUNT: Ann's 20 and Annie's 1 are one player, shown as her latest name")
+    check("MONTH 8 2026-09 77 Ann & Fay" in lines, "a tie at the top is joint winners: September's billiards, Ann & Fay on 77")
+    check("MINE 8 2026-09 77" in fay, "...and the joint winner gets the month's trophy too (Fay's MINE)")
     check("HON 8 1 77 Ann" in lines, "the other player called Ann (account 107) keeps their own record (billiards 77)")
     check("HON 1 1 91% Annie" in lines, "win rate, 20 frames or more: account 101 21 of 23")
     check(not any(l.startswith("HON 1 ") and l.endswith(" Cat") for l in lines), "Cat (5 frames) not on the win-rate board")
@@ -102,7 +106,7 @@ def main():
     check("HON 6 1 98 Cat" in lines, "10-red: Cat 98")
     check("HON 9 1 51 Dan" in lines and "MONTH 9 2026-09 51 Dan" in lines, "3-red: Dan 51, and September's")
     check(not any("Eve" in l for l in lines), "an unverified result counts nowhere")
-    check(not any(" & " in l for l in lines), "a doubles frame counts nowhere")
+    check(not any("Ann & Bob" in l or "Cat & Dan" in l for l in lines), "a doubles frame counts nowhere")
     check("MONTH 5 2026-09 147 Bob" in lines and "MONTH 0 2026-09 21 Annie" in lines, "September's winners")
     check(not any(l.startswith("MONTH 6 ") for l in lines), "this month is not a trophy yet")
     check(not any(l.startswith("MINE ") for l in lines), "no MINE lines without a proof")
