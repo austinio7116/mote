@@ -848,14 +848,21 @@ def parse_gid(v):
 
 
 
+# WALK-OUTS COUNT FROM HERE ON (UTC, results.jsonl's own "time" format): a
+# frame somebody left before this counts for nothing, one at or after it as it
+# always did (Mark: "we want walk outs to count from the fix forward"). Set to
+# when the drop fixes went out. --forfeits-from overrides it.
+WALKOUTS_COUNT_FROM = "2026-10-18 00:00:00"
+
+
 def is_walkout(d):
     """A FRAME SOMEBODY LEFT (2026-10-18; Mark: "just remove wins for dropping
     from the history and resume only once these fixes are out"; "Noone is
     trying to cheat yet so we can assume all drops were bugs"). Players were
     thrown out of rooms by the backlog cap, and the frames went to the one who
     stayed -- or, with the sides reported the wrong way round, to the one who
-    went. Until --count-forfeits, such a frame counts on no honours board. It is
-    still recorded: nothing in results.jsonl changes."""
+    went. Before WALKOUTS_COUNT_FROM such a frame counts on no honours board.
+    It is still recorded: nothing in results.jsonl changes."""
     r = d.get("result") if isinstance(d.get("result"), dict) else {}
     return bool(d.get("forfeit") or r.get("forfeit") or "left" in d)
 
@@ -874,10 +881,10 @@ class ResultsDB:
     is only there. Safe from any thread: one lock, a connection per call."""
     SCHEMA_VERSION = "4"          # 2: a golden break's bnr left out (2026-10-11); 3: 9/10-ball runs need every ball down; 4: 8-ball runs need 8 of the runner's own (2026-10-12)
 
-    def __init__(self, store, hon_kind, count_forfeits=False):
-        self.count_forfeits = count_forfeits
-        # the switch is part of the index's version: changing it rebuilds it
-        self.SCHEMA_VERSION = ResultsDB.SCHEMA_VERSION + ("" if count_forfeits else "-noforfeit")
+    def __init__(self, store, hon_kind, forfeits_from=WALKOUTS_COUNT_FROM):
+        self.forfeits_from = forfeits_from
+        # the cut-off is part of the index's version: changing it rebuilds it
+        self.SCHEMA_VERSION = ResultsDB.SCHEMA_VERSION + "-walkouts-from-" + forfeits_from
         self.jsonl = os.path.join(store, "results.jsonl")
         self.path = os.path.join(store, "results.db")
         self.hon_kind = hon_kind
@@ -931,7 +938,7 @@ class ResultsDB:
         rid = cur.lastrowid
         if not d.get("verified") or r.get("t") != "frame":
             return
-        if not self.count_forfeits and is_walkout(d):      # a walk-out counts for nothing, for now
+        if is_walkout(d) and str(d.get("time", "")) < self.forfeits_from:   # left before the fix: counts for nothing
             return
         names, sides = r.get("names") or [], r.get("sides") or []
         if any(" & " in str(n) for n in names):     # singles only: a team names a side "A & B"
@@ -1037,7 +1044,7 @@ class Relay:
         self.nrooms = {}           # "gid/CODE" -> RoomN (a hub of up to eight)
         self.conns = 0
         self.store = Store(args.store, args.store_cap, args.puts_per_hour) if args.store else None
-        self.results_db = ResultsDB(args.store, self.HON_KIND, getattr(args, "count_forfeits", False)) if args.store else None
+        self.results_db = ResultsDB(args.store, self.HON_KIND, getattr(args, "forfeits_from", WALKOUTS_COUNT_FROM)) if args.store else None
         # THE META KEY (7.3): the app's secret, read once from its file and
         # never logged; with it a player's proof of their account is checked
         # with Meta and their results are kept against that account
@@ -1352,8 +1359,8 @@ class Relay:
                     r = d.get("result") or {}
                     if not d.get("verified") or r.get("t") != "frame":
                         continue
-                    if not getattr(self.args, "count_forfeits", False) and is_walkout(d):   # a walk-out counts for nothing, for now
-                        continue
+                    if is_walkout(d) and str(d.get("time", "")) < getattr(self.args, "forfeits_from", WALKOUTS_COUNT_FROM):
+                        continue                    # left before the fix: counts for nothing
                     names, sides = r.get("names") or [], r.get("sides") or []
                     if any(" & " in str(n) for n in names):     # singles only: a team names a side "A & B"
                         continue
@@ -2973,7 +2980,7 @@ async def main():
     ap.add_argument("--tourn-watchers", type=int, default=40, help="most watchers in a tournament's room (7.5)")
     ap.add_argument("--tourn-trust", action="store_true", help="DESK ONLY: take a tournament entrant's account as given, without Meta")
     ap.add_argument("--resume-wait", type=float, default=300.0, help="seconds a player dropped from a frame under way has to come back to it (7.5)")
-    ap.add_argument("--count-forfeits", action="store_true", help="count frames somebody left on the honours boards (off from 2026-10-18 until the drop fixes are out)")
+    ap.add_argument("--forfeits-from", default=WALKOUTS_COUNT_FROM, help="frames somebody left count on the honours boards from this UTC time on (YYYY-MM-DD HH:MM:SS); earlier ones count for nothing")
     ap.add_argument("--forfeit-wait", type=float, default=90.0, help="seconds a forfeit waits for the remaining player's report before the relay records it without figures (7.4.x)")
     ap.add_argument("--latest-game", action="append", default=[], help="a current game id ('CUEn', 0x4355456E): older ids of its family are told to update (7.3); also <store>/latest_games")
     ap.add_argument("--store-cap", type=int, default=200000, help="most share codes kept")

@@ -5,6 +5,10 @@ the server's health. Read only: nothing here ever writes to the relay's store.
 """
 import collections, hashlib, json, os, re, socket, subprocess, time
 
+# walk-outs before this (UTC) win nothing -- the same moment as mote_relay.py's
+# WALKOUTS_COUNT_FROM, and changed with it
+WALKOUTS_COUNT_FROM = "2026-10-18 00:00:00"
+
 # the shared facts of a result, as the relay compares them (mote_relay.py)
 RES_SHARED = ("t", "game", "variant", "kind", "mode", "best_of", "frame",
               "score", "frames", "winner", "match_winner", "bnr", "golden")
@@ -76,9 +80,10 @@ class Model:
     followed (shorter, or its first line changed) starts the totals again."""
     MATCHES_KEPT = 2000           # the newest matches, with their frames, for the Matches page
 
-    def __init__(self, store, relay, gid, journal_file="", backups="", count_forfeits=False):
+    def __init__(self, store, relay, gid, journal_file="", backups="", forfeits_from=None):
         self.store, self.relay, self.gid, self.journal_file, self.backups = store, relay, gid, journal_file, backups
-        self.count_forfeits = count_forfeits   # see _fold: walk-outs win nothing until the drop fixes are out
+        # see _fold: a walk-out before this wins nothing (the relay's own cut-off unless given)
+        self.forfeits_from = forfeits_from if forfeits_from is not None else WALKOUTS_COUNT_FROM
         self._key = None
         self._model = None
         self._hon = (0.0, None)
@@ -189,15 +194,15 @@ class Model:
         t = str(line.get("time", ""))
         if r.get("t") not in ("frame", "match"):
             return
-        # A WALK-OUT WINS NOTHING, FOR NOW (2026-10-18; Mark: "just remove wins
-        # for dropping from the history and resume only once these fixes are
-        # out"; "Noone is trying to cheat yet so we can assume all drops were
-        # bugs"). Players were thrown out of rooms by the relay's backlog cap,
-        # and the frames were given to the one who stayed -- or, with the sides
+        # A WALK-OUT BEFORE THE FIX WINS NOTHING (2026-10-18; Mark: "just
+        # remove wins for dropping from the history and resume only once these
+        # fixes are out"; "Noone is trying to cheat yet so we can assume all
+        # drops were bugs"; "we want walk outs to count from the fix forward").
+        # Players were thrown out of rooms by the relay's backlog cap, and the
+        # frames were given to the one who stayed -- or, with the sides
         # reported the wrong way round, to the one who went. Such a frame stays
         # in the list, with no winner: no wins, form, head-to-head or rating.
-        # --count-forfeits counts them again.
-        if not self.count_forfeits and (line.get("forfeit") or r.get("forfeit") or "left" in line):
+        if t < self.forfeits_from and (line.get("forfeit") or r.get("forfeit") or "left" in line):
             r = dict(r, winner=None, match_winner=None)
             line = dict(line, result=r)
         names = ([_clean(x, 30) for x in (r.get("names") or [])] + ["?", "?"])[:2]
