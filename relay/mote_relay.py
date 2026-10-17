@@ -266,13 +266,14 @@ class Room:
 
 class Member:
     __slots__ = ("k", "reader", "writer", "q", "backlog", "task", "gone", "peer",
-                 "vtok", "uaddr", "useen", "vtcp", "vwin", "vcount", "uid", "proofs", "pend", "resume")
+                 "vtok", "uaddr", "useen", "vtcp", "vwin", "vcount", "uid", "proofs", "pend", "resume", "lossy")
     def __init__(self, k, reader, writer, peer):
         self.k, self.reader, self.writer, self.peer = k, reader, writer, peer
         self.q = asyncio.Queue()
         self.pend = []             # a batched club's frames, waiting for its flush
         self.resume = False        # its game said RESUME: it knows AWAY/BACK/GONE (7.5)
         self.backlog = 0
+        self.lossy = 0             # movement frames not queued to it while it was behind (7.6.5)
         self.task = None
         self.gone = False
         self.uid = None            # the Meta account, once Meta has said the proof is good (7.3)
@@ -345,6 +346,20 @@ class RoomN:
             log(f"nroom {self.gid}/{self.code}: member {m.k} backlog {m.backlog}B, dropped")
             self.drop(m, "backlog")
 
+    # MOVEMENT IS NOT QUEUED TO A MEMBER WHO IS BEHIND (7.6.5). A pose, a
+    # hand's shape, a cue tip and a headset's look are worth something only as
+    # they happen: the game sends them "dropped rather than queued" itself.
+    # Queued, they were nearly everything a room sent -- 9 KB a second a player
+    # and more with bare hands, 30-40 KB a second into a winner-stays-on table
+    # -- so a newcomer whose game paused for a few seconds (building the table
+    # it had joined, or a stroke waiting to be played) passed the backlog cap
+    # and was thrown out of the room: 0IronSkull0 eight seconds after joining a
+    # club table, every time (Mark: "It happens always when joining"). Past
+    # LOSSY_AFTER they are simply not sent to that member, as the club's own
+    # presence frames already are not; everything with a place in the game's
+    # order -- strokes, tables, hellos, the relay's word -- is queued as ever.
+    LOSSY_TAGS = (0xC3, 0xB3, 0xB5, 0xB6)   # PKT_POSE, PKT_HANDS, PKT_CUETIP, PKT_HSDES
+    LOSSY_AFTER = 64 << 10
     def deliver(self, frm, to, payload, cap):
         """One frame from `frm`: to one member, or everyone but the sender.
         A watcher speaks to the host alone, whatever it addresses: it can say
@@ -359,7 +374,13 @@ class RoomN:
         if not targets:
             return
         data = self.frame(frm, payload)      # ONE number for all its receivers
+        lossy = len(payload) > 0 and payload[0] in self.LOSSY_TAGS
         for m in targets:
+            if lossy and m.backlog > self.LOSSY_AFTER and not m.gone:
+                if m.lossy == 0:
+                    log(f"nroom {self.gid}/{self.code}: member {m.k} behind ({m.backlog}B): its movement frames skipped")
+                m.lossy += 1
+                continue
             self.send_to(m, data, cap)
 
     VOICE = 0xFD
@@ -426,7 +447,8 @@ class RoomN:
         m.q.put_nowait(None)                 # the writer closes the socket when it gets here
         if self.members.get(m.k) is m:
             del self.members[m.k]
-        log(f"nroom {self.gid}/{self.code}: member {m.k} left ({why}), {len(self.members)} remain")
+        log(f"nroom {self.gid}/{self.code}: member {m.k} left ({why}), {len(self.members)} remain"
+            + (f"; {m.lossy} movement frames were skipped for it while it was behind" if m.lossy else ""))
         # GONE FROM A FRAME UNDER WAY (7.5, Mark): the place is held five
         # minutes for that account -- a headset that slept, a link that fell
         # over -- the host's too, and the room stays open. The others are told
