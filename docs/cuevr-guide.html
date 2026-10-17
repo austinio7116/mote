@@ -95,6 +95,20 @@
   #shotpop .cap{color:var(--dim);font-size:.9rem;margin-top:8px;max-width:none}
   #shotpop .cap b{color:var(--ink)}
   /* EVERY SCREEN: the glass flat and straight on, the whole width, a click opens it full size */
+  /* A SCREEN, LABELLED: numbered pins on the picture, the same numbers beside it */
+  figure.annot{display:grid;grid-template-columns:minmax(0,1.25fr) minmax(0,1fr);gap:22px;margin:20px 0 30px;align-items:start}
+  @media(max-width:900px){figure.annot{grid-template-columns:1fr}}
+  .annot-img{position:relative}
+  .annot-img img{width:100%;height:auto;display:block}
+  .annot .pin{position:absolute;transform:translate(-50%,-50%);width:24px;height:24px;border-radius:50%;
+    background:var(--gold);color:#111;font:700 13px/24px sans-serif;text-align:center;box-shadow:0 0 0 3px rgba(0,0,0,.55);cursor:default}
+  ol.annot-key{margin:0;padding:0;list-style:none;counter-reset:k;font-size:.92rem;max-width:none}
+  ol.annot-key li{position:relative;padding:6px 6px 6px 34px;border-radius:6px;line-height:1.4;color:var(--dim)}
+  ol.annot-key li b{color:var(--ink)}
+  ol.annot-key li::before{content:attr(data-n);position:absolute;left:4px;top:6px;width:22px;height:22px;border-radius:50%;
+    background:var(--gold);color:#111;font:700 12px/22px sans-serif;text-align:center}
+  ol.annot-key li.on,.annot .pin.on{outline:2px solid var(--gold)}
+  ol.annot-key li.on{background:#161d26}
   /* THE GAME, SHOWN OFF: a mosaic at the top of Getting started, and cards for where to go next */
   .showcase{display:grid;grid-template-columns:2fr 1fr 1fr 1fr;grid-auto-rows:170px;gap:10px;margin:22px 0 30px}
   .showcase figure{margin:0;position:relative;overflow:hidden;border-radius:10px}
@@ -251,12 +265,11 @@
   <a href="#finding">Finding your way</a>
   <a href="#table">Setting up the table</a>
   <a href="#controls">Controls</a>
-  <a href="#realcue">Real cue attachment</a>
   <a href="#stroke">Playing a shot</a>
+  <a href="#games">The games</a>
   <a href="#challenges">Challenges</a>
   <a href="#opponents">Opponents</a>
   <a href="#rules">Rules and the referee</a>
-  <a href="#games">The games</a>
   <a href="#which">Which table</a>
   <a href="#online">Playing a friend</a>
   <a href="#career">Career</a>
@@ -265,6 +278,7 @@
   <a href="#records">Records</a>
   <a href="#saving">Saving</a>
   <a href="#replays">Replays</a>
+  <a href="#realcue">Real cue attachment</a>
   <a href="#look">Table and room</a>
   <a href="#workshop">Build a table</a>
   <a href="#cues">Cues</a>
@@ -563,202 +577,145 @@
 
 <section id="controls">
   <h2>Controls</h2>
-  <p class="lede">Both controllers hold the cue. The buttons do a small number of jobs, and the two
-  side triggers are the ones worth learning. The <b>side trigger</b> is the grip button on the side
-  of the controller, under your middle finger; some of the panels in the game call it GRIP.</p>
+  <p class="lede">There are four ways to hold the cue. Start with two controllers; you can switch
+  at any time on <b>Settings &rarr; Controls</b>.</p>
+  <div class="cards">
+    <a class="card" href="#twocontrollers"><img src="img/cuevr/game-uk8.png" alt="" loading="lazy"><span class="t">Two controllers</span><span class="d">How the game starts. The cue lies between your hands.</span></a>
+    <a class="card" href="#onecontroller"><img src="img/cuevr/table-mark.jpg" alt="" loading="lazy"><span class="t">One controller and your bare hand</span><span class="d">Put the bridge controller down and bridge with your hand.</span></a>
+    <a class="card" href="#realcue"><img src="img/cuevr/ai_player_cues.png" alt="" loading="lazy"><span class="t">A real cue</span><span class="d">Clamp a controller to your own cue and play with it.</span></a>
+  </div>
+  <p>A Logitech MX Ink pen works as a cue too: see <a href="#mxink">The Logitech MX Ink</a>.</p>
 
-  <p>The cue lies between your two controllers, so both hands aim it together: the line of the shot
-  is the line between them. One hand is your <b>bridge hand</b>, where the front of the cue rests.
-  The other is your <b>butt hand</b>, which holds the end and plays the stroke. Which physical
-  controller is which depends on the handedness setting, so everything below names the two hands
-  rather than left and right.</p>
-
-  <table>
-    <tr><th>Control</th><th>What it does</th></tr>
-    <tr><td><b>Bridge hand</b></td>
-        <td>Sets your bridge position — where the front of the cue rests.</td></tr>
-    <tr><td><b>Butt hand</b></td>
-        <td>Holds the butt of the cue. Moving it forward is the stroke.</td></tr>
-    <tr><td><b>Butt hand trigger</b></td>
-        <td><b>Takes the shot.</b> Pull it to commit — that locks the line the cue will travel
-        along, so your aim cannot drift while you deliver. Keep it held and move the hand forward
-        through the ball. Release when the shot is played.</td></tr>
-    <tr><td><b>Butt hand side trigger</b> (hold)</td>
-        <td>Slides the cue through your bridge, so more or less of it sticks out in front. This is
-        how you shorten up for a shot against a cushion. Your aim stays where it is.</td></tr>
-    <tr><td><b>Bridge hand side trigger</b> (hold)</td>
-        <td>Holds your bridge still. While you hold it, the bridge stays where it is on the table
-        and your butt hand aims the cue through it, so your bridge hand can move or rest without
-        changing the aim. Let go and the bridge is back on your hand as it was.</td></tr>
-    <tr><td><b>Bridge hand side trigger</b> (tap, then hold)</td>
-        <td>Moves your bridge for good: sets where the cue sits relative to your controller, so the
-        bridge falls in a position that is comfortable for you. Hold it and move the hand; the cue
-        stays put and the offset changes.</td></tr>
-    <tr><td><b>Bridge hand side trigger</b> (double tap)</td>
-        <td>Puts that offset back to the default. <b>PUT THE BRIDGE AND GRIP BACK</b>, on
-        <b>Settings &rarr; Controls</b>, does the same thing.</td></tr>
-    <tr><td><b>RULES</b> (step 2 on the main menu)</td>
-        <td>Which rule book the frame is played to — and on two cards, which GAME. UK 8-ball
-        offers PUB (2 SHOTS), INTERNATIONAL, ULTIMATE POOL, BLACKBALL (WPA) and KILLER. The snooker
-        games choose how strictly a miss is judged, with SHOOTOUT and THE 900 beyond it. Straight
-        pool and 10-ball choose whether pockets have to be called, and carom chooses which of its
-        five games you play.
-        <br><br><b>US 8-ball's row is the long one.</b> After its three rule books come eight more
-        games played on that same nine-foot bed with the same fifteen balls, differing in what
-        scores rather than in anything you could photograph: KILLER, ONE POCKET, BANK POOL,
-        ROTATION 61, FILIPINO ROTATION, 15-BALL, COWBOY POOL, HONOLULU, SPEED POOL and CRIBBAGE
-        POOL. They are there rather than on cards of their own for the same reason KILLER always
-        has been — the bed, the rack and the balls are the same, so a card apiece would be the
-        same photograph ten times.
-        <br><br><b>BOWLLIARDS is not on that row</b>, though it is played on the same bed. The
-        others are one rack contested between two players; bowlliards is ten racks, each cleared
-        on your own against a card. That is golf's shape of game rather than eight-ball's, so it
-        sits on the main list beside golf.
-        <br><br><b>The row opens a page</b> rather than stepping. Click it and the rule sets
-        appear as a list you point at, with the one you are on marked and what it changes written
-        beside it. Stepping twelve stops one push at a time is no way to find COWBOY POOL.</td></tr>
-    <tr><td><b>Bridge hand's upper button</b> <kbd>Y</kbd> or <kbd>B</kbd></td>
-        <td>Takes up <a href="#stroke">the rest</a>, and each press after that steps to the next
-        notch. Hold it to put the rest away. Which physical button this is depends on your
-        handedness: it is <kbd>Y</kbd> for a right-hander and <kbd>B</kbd> for a left-hander,
-        because it is always the hand that is <em>not</em> holding the butt.</td></tr>
-    <tr><td><b>Butt hand's upper button</b> <kbd>B</kbd> or <kbd>Y</kbd> (tap)</td>
-        <td>Shows the mark round your real table for a couple of seconds, if you have set one.
-        Held, in practice, it takes the last shot back.</td></tr>
-    <tr><td><b>Thumbstick, pressed in</b><br><i>(only with a real cue set up)</i></td>
-        <td>The same two things, on a button a clamped hand can reach: a tap shows the mark, a hold
-        takes the last shot back. Either hand. With two controllers this does nothing, and the
-        controls are exactly as they were.</td></tr>
-    <tr><td><kbd>X</kbd> (hold)</td>
-        <td>Swaps the scoreboard for a <b>live photograph of the table from above</b>, for as long
-        as you hold it — the quickest way to read a position without walking round.</td></tr>
-    <tr><td><b>Left stick</b></td>
-        <td>Slides the table around the room. Works at any time, including mid-frame, on either
-        hand. With <a href="#moving">Movement: Camera</a> it walks you instead.</td></tr>
-    <tr><td><b>Right stick</b></td>
-        <td>Turns the table. Also at any time. Between the two sticks you can bring any shot in
-        front of you without walking. With <a href="#moving">Movement: Camera</a> it turns you
-        instead.</td></tr>
-    <tr><td><b>Trigger</b> (in menus)</td><td>Selects the row or item you are pointing at.</td></tr>
-    <tr><td><kbd>A</kbd> and <kbd>B</kbd></td><td>Confirm and go back.</td></tr>
-    <tr><td><kbd>MENU</kbd></td><td>Pauses the game. Only the left controller has this button — if
-        your cue is clamped to that one, the scoreboard shows a <b>MENU</b> row you can point at
-        instead.</td></tr>
+  <h3 id="twocontrollers">Two controllers</h3>
+  <p>The cue lies between your two controllers, and the line between them is the line of the
+  shot. One hand is your <b>bridge hand</b>, where the front of the cue rests; the other holds
+  the back of the cue and plays the stroke. With <b>CUE HAND</b> on RIGHT, your right hand is at
+  the back.</p>
+  <table class="stack">
+    <tr><th>To</th><th>Do this</th></tr>
+    <tr><td>Play a shot</td><td>Pull the trigger in your back hand, keep it held, and move that hand forward through the ball. The faster you move it, the harder you hit.</td></tr>
+    <tr><td>Hold your bridge still</td><td>Hold the side grip button in your bridge hand. The bridge stays put while your back hand aims through it.</td></tr>
+    <tr><td>Shorten or lengthen the cue</td><td>Hold the side grip button in your back hand and move it back or forward.</td></tr>
+    <tr><td>Move your bridge for good</td><td>Tap, then hold, the side grip button in your bridge hand and move the hand. Double-tap it to put it back.</td></tr>
+    <tr><td>Use the rest</td><td>Press <kbd>Y</kbd> (<kbd>B</kbd> if left-handed). Press again for the next notch; hold it to put the rest away. See <a href="#rest">Playing off the rest</a>.</td></tr>
+    <tr><td>See the table from above</td><td>Hold <kbd>X</kbd>.</td></tr>
+    <tr><td>Take a shot back, in practice</td><td>Hold <kbd>B</kbd> (<kbd>Y</kbd> if left-handed).</td></tr>
+    <tr><td>Move and turn the table</td><td>Left stick slides it, right stick turns it, at any time.</td></tr>
+    <tr><td>Raise or lower the table</td><td>Press a thumbstick in and push it up or down.</td></tr>
+    <tr><td>Pause</td><td>Press <kbd>MENU</kbd> on the left controller. Hold it to bring Home to you.</td></tr>
   </table>
 
-  <h3 id="moving">Movement: Table or Camera</h3>
-  <p>The sticks can move the table or move you. <b>MOVEMENT</b> is a row on the pause menu, and
-  <b>Settings &rarr; Movement</b> has it twice, because you may want it differently in each:
-  <b>MOVEMENT IN VR</b> for the rooms the game draws round you, and <b>MOVEMENT IN MIXED
-  REALITY</b> for your own room. The pause menu's row sets the one you are in.</p>
-  <table>
-    <tr><th>Setting</th><th>The sticks</th></tr>
-    <tr><td><b>TABLE</b></td><td>As described above: the left stick slides the table, the right
-      stick turns it. This is the default.</td></tr>
-    <tr><td><b>CAMERA</b></td><td>You walk the room, as in a first-person game. The left stick moves
-      you where you are looking and steps you to the side; the right stick turns you on the spot.
-      The best way to explore the pub, the club and the library.</td></tr>
-  </table>
-  <p><b>Walls stop you.</b> In the arena and the rooms, you cannot walk or slide through a wall, a
-  bookcase or the bar. Walk into one and you slide along it. If you change to a smaller room
-  while standing beyond its walls, you are brought back in towards the table.</p>
-  <p><b>Moving about in a virtual room</b> is the time comfort matters: seeing the room move while
-  your body stays still can make you feel sick. The game starts with its comfort settings on, and
-  <a href="#comfort">Comfort</a> below says what each one does and how to change them.</p>
-
-    <figure class="glass"><a href="img/cuevr/glass/settings-movement.jpg"><img src="img/cuevr/glass/settings-movement.jpg" alt="Settings, Movement" loading="lazy"></a>
-    <figcaption><b>Movement</b>: <b>MOVEMENT IN VR</b> and <b>MOVEMENT IN MIXED REALITY</b>
-    (<b>TABLE</b>: the sticks move the table; <b>CAMERA</b>: you walk about). <b>TABLE
-    MOVEMENT</b> chooses how the sticks move it, and <b>STICKS</b> which one moves and which
-    turns. Then snap turn, inverting either stick, and the move and turn speeds.</figcaption></figure>
-
-<h3 id="comfort">Comfort: moving without feeling sick</h3>
-  <p>Seeing the room move while your body stays still makes some people feel sick, and turning
-  is the worst of it. <b>Settings &rarr; Comfort</b> has the usual remedies. It starts on
-  <b>FULL</b>; if moving smoothly suits you, set <b>COMFORT</b> to OFF and everything is as it
-  was. These work in the VR rooms and venues. Mixed reality is left alone, because your real
-  room keeps you steady, except for ORBIT, which works in both.</p>
-  <figure>
-    <img src="img/cuevr/glass/settings-comfort.jpg" alt="The Comfort tab in Settings">
-    <figcaption>The Comfort tab, as it starts.</figcaption>
-  </figure>
-  <table>
-    <tr><th>Row</th><th>What it does</th></tr>
-    <tr><td><b>COMFORT</b></td><td>Sets the rows below together: <b>OFF</b>, <b>SOME</b> (a light
-      vignette and stairs as a jump) or <b>FULL</b> (a medium vignette with the grid, 45 degree
-      turns, jump moves and stairs as a jump). Change a row yourself and it reads
-      <b>CUSTOM</b>.</td></tr>
-    <tr><td><b>VIGNETTE</b></td><td>While you move or turn, the edges of your view close in, more
-      the faster you go, and open again when you stop. <b>LOW</b>, <b>MEDIUM</b> or
-      <b>HIGH</b>.</td></tr>
-    <tr><td><b>VIGNETTE SHOWS</b></td><td><b>DARK</b> edges, or a faint <b>GRID</b> of your real
-      room, which stays still while the virtual room moves.</td></tr>
-    <tr><td><b>TURNING</b></td><td><b>SMOOTH</b>, or in <b>30</b> or <b>45 DEG STEPS</b>: one push
-      of the stick, one step, however long you hold it.</td></tr>
-    <tr><td><b>JUMP MOVES</b></td><td>With <a href="#moving">Movement: Camera</a>: push the left
-      stick forward and an arc runs from your hand to the floor. Let go and you're there.
-      Pushing that stick left or right turns you a step. The arc turns red where you can't
-      stand. Land it on a staircase and you go up it, or down it from the top.</td></tr>
-    <tr><td><b>STAIRS</b></td><td><b>WALK</b> up them, or <b>JUMP</b>: step onto a staircase and
-      you arrive at the other end.</td></tr>
-    <tr><td><b>ORBIT</b></td><td>At the table, push the right stick and a gold pointer appears
-      beside the cue ball, on the side you'll stand: push away for the far side, left or right to
-      come round. Let go and you're there, facing the ball. Off unless you turn it on; it is not
-      part of COMFORT's settings.</td></tr>
-    <tr><td><b>ORBIT DISTANCE</b></td><td>Where orbit puts the cue ball. <b>CENTRE OF YOUR
-      MARK</b>, the default: with your real table marked (see <a href="#marktable">Marking your
-      real table</a>), the ball lands in the middle of the mark with the shot running along it
-      away from you, so it is on your real surface, under your bridge hand, wherever you are
-      standing. With a real cue this is the one to use. Or a fixed distance straight in front of
-      you, <b>30 to 120 CM</b>. Nothing marked, CENTRE puts it 60 cm away.</td></tr>
-    <tr><td><b>USE IN</b></td><td><b>CAMERA AND TABLE</b>, or <b>CAMERA ONLY</b> to leave moving
-      the table with the sticks as it was.</td></tr>
-    <tr><td><b>CLUB: SWITCH MOVEMENT</b></td><td><b>ON</b>: in the club, taking a table switches
-      movement to <b>TABLE</b> and leaving it switches back to <b>CAMERA</b>. <b>OFF</b>: it stays
-      as you set it.</td></tr>
-  </table>
-  <figure>
-    <img src="img/cuevr/orbit_pointer.jpg" alt="The orbit pointer beside the cue ball">
-    <figcaption>Orbit: the pointer shows where you'll stand.</figcaption>
+  <h3 id="setcontrols">Settings &rarr; Controls</h3>
+  <figure class="annot">
+    <div class="annot-img"><a href="img/cuevr/glass/settings-controls-panel.jpg"><img src="img/cuevr/glass/settings-controls-panel.jpg" alt="Settings, Controls" loading="lazy"></a>
+      <span class="pin" data-n="1" style="left:27.54%;top:5.83%">1</span>
+      <span class="pin" data-n="2" style="left:27.54%;top:13.67%">2</span>
+      <span class="pin" data-n="3" style="left:27.54%;top:21.50%">3</span>
+      <span class="pin" data-n="4" style="left:27.54%;top:29.33%">4</span>
+      <span class="pin" data-n="5" style="left:27.54%;top:39.50%">5</span>
+      <span class="pin" data-n="6" style="left:27.54%;top:49.67%">6</span>
+      <span class="pin" data-n="7" style="left:27.54%;top:57.50%">7</span>
+      <span class="pin" data-n="8" style="left:27.54%;top:65.33%">8</span>
+      <span class="pin" data-n="9" style="left:27.54%;top:73.16%">9</span>
+      <span class="pin" data-n="10" style="left:27.54%;top:91.50%">10</span>
+      <span class="pin" data-n="11" style="left:63.56%;top:91.50%">11</span>
+    </div>
+    <ol class="annot-key">
+      <li data-n="1"><b>CUE HAND</b> &mdash; The hand that holds the back of the cue. Left-handed? Set it to LEFT.</li>
+      <li data-n="2"><b>CUE</b> &mdash; <b>CONTROLLERS</b> to play with your controllers, or <b>REAL CUE</b> once you have clamped a controller to a real cue and calibrated it (see <a href="#realcue">Real cue attachment</a>).</li>
+      <li data-n="3"><b>BRIDGE ON THE TABLE</b> &mdash; On: your bridge stays where you put it on the cloth, like a real bridge hand, instead of following your controller in the air.</li>
+      <li data-n="4"><b>CUE RESTS ON THE TABLE</b> &mdash; On: if your hands go too low, the cue lies on the rail or cloth instead of sinking into the table.</li>
+      <li data-n="5"><b>LOCK THE CUE WITH</b> &mdash; What fixes your aim for the shot. <b>BACK TRIGGER</b>: pull the trigger in the hand at the back of the cue. <b>BRIDGE TRIGGER</b>: pull the trigger in your bridge hand once the tip is at the ball. <b>AUTO (FEATHER)</b>: just feather at the ball and it locks by itself; stop feathering and you can aim again.</li>
+      <li data-n="6"><b>YOUR HANDS</b> &mdash; Shows your own hands instead of controllers, where the headset can see them. Needs hand tracking on in the headset's settings.</li>
+      <li data-n="7"><b>BARE BRIDGE HAND</b> &mdash; Put your bridge controller down and bridge with your own hand. See <a href="#onecontroller">One controller and your bare hand</a>.</li>
+      <li data-n="8"><b>PINCH TO MOVE</b> &mdash; With a bare bridge hand, a pinch in the air moves the table. Turn it off if you only want a pinch to press buttons.</li>
+      <li data-n="9"><b>HANDS NEAR YOUR FACE</b> &mdash; <b>HIDDEN</b> stops your hands and controllers blocking your view when you cue close to your face.</li>
+      <li data-n="10"><b>CALIBRATE A CUE</b> &mdash; Sets up a real cue. See <a href="#realcue">Real cue attachment</a>.</li>
+      <li data-n="11"><b>RESET BRIDGE POS</b> &mdash; Puts the cue back between your hands if it has ended up somewhere odd.</li>
+    </ol>
   </figure>
 
-  <h3>When your hands go below the table</h3>
-  <p>Two rows on <b>Settings &rarr; Controls</b>, for controllers. Neither changes your aim or the
-  stroke.</p>
-  <table>
-    <tr><th>Row</th><th>What it does</th></tr>
-    <tr><td><b>CUE RESTS ON THE TABLE</b></td><td>The cue lies on whatever is under it &mdash; the
-      rail, the cushion or the cloth &mdash; instead of sinking into it, however low your hands
-      go. Without it a cue pushed into the table buzzes and will not play the stroke.</td></tr>
-    <tr><td><b>BRIDGE ON THE TABLE</b></td><td>Your bridge stays where your hand puts it on the
-      table, and follows you as you move.</td></tr>
-  </table>
-  <p><b>LOCK THE CUE WITH</b>, also for controllers, says what locks the cue's line for the shot:
-  <b>BACK TRIGGER</b>, <b>BRIDGE TRIGGER</b> (once the tip is at the ball) or <b>AUTO
-  (FEATHER)</b>. With AUTO, set your bridge, then feather or stroke at the ball: once your bridge
-  has been still for a moment, the first 2 cm your back hand moves along the cue locks it. Nothing
-  locks while you are getting down or moving your bridge. It lets go the
-  moment you strike the ball, or when you stop feathering for a second, so you can aim again. A
-  short pause at the back of your backswing keeps it locked. With <b>BRIDGE TRIGGER</b> and
-  <b>BARE BRIDGE HAND</b>, put the bridge controller down and your cue hand's trigger locks the
-  cue instead, as there is no bridge trigger to press; pick the controller up again and its
-  trigger is back.</p>
-  <p>Only the front half of the cue meets the table and the balls. The butt can go through a
-  cushion behind you, where you cannot see it, without moving the cue or stopping the shot. The
-  cue only buzzes for being in the table while you are aiming your own shot.</p>
+  <h3 id="cuefeel">Settings &rarr; Cue feel</h3>
+  <figure class="annot">
+    <div class="annot-img"><a href="img/cuevr/glass/settings-feel-panel.jpg"><img src="img/cuevr/glass/settings-feel-panel.jpg" alt="Settings, Cue feel" loading="lazy"></a>
+      <span class="pin" data-n="1" style="left:27.54%;top:5.83%">1</span>
+      <span class="pin" data-n="2" style="left:27.54%;top:13.67%">2</span>
+      <span class="pin" data-n="3" style="left:27.54%;top:21.50%">3</span>
+      <span class="pin" data-n="4" style="left:27.54%;top:31.84%">4</span>
+      <span class="pin" data-n="5" style="left:27.54%;top:44.00%">5</span>
+      <span class="pin" data-n="6" style="left:27.54%;top:56.17%">6</span>
+      <span class="pin" data-n="7" style="left:27.54%;top:68.33%">7</span>
+      <span class="pin" data-n="8" style="left:27.54%;top:78.00%">8</span>
+    </div>
+    <ol class="annot-key">
+      <li data-n="1"><b>STROKE</b> &mdash; Real cue only: how much of your hand's shake is smoothed out of your aim. Your power is never changed.</li>
+      <li data-n="2"><b>CONTROLLER STROKE</b> &mdash; Controllers only. <b>LOCKED</b> keeps the cue on the line you aimed once you pull the trigger. <b>FREE</b> lets your back hand steer it during the stroke, as a real cue does, and tells you afterwards how straight you were. FREE suits Pro controllers.</li>
+      <li data-n="3"><b>CUE TURNS WITH YOUR WRIST</b> &mdash; Real cue only: the drawn cue rolls when you twist your real one, so its markings stay facing the same way.</li>
+      <li data-n="4"><b>CUE ROTATION</b> &mdash; Real cue only: turns the drawn cue round so its markings face the same way as your real cue's.</li>
+      <li data-n="5"><b>CUE DEFLECTION</b> &mdash; How far the cue ball is pushed off your line when you hit it with side. 0.5&deg; is a low-deflection carbon shaft, 2.0&deg; an ash snooker cue. NONE turns it off.</li>
+      <li data-n="6"><b>CUE TIP</b> &mdash; The width of your tip, 8 to 14 mm. A wider tip lets you put more side on the ball before it slips.</li>
+      <li data-n="7"><b>STROKE WEIGHT</b> &mdash; How hard a given swing hits the ball. Turn it down if your gentle shots come out too hard, up if you struggle to get the ball up the table. It does not change a full-power stroke.</li>
+      <li data-n="8"><b>CUE CASE</b> &mdash; On: a cue for each kind of game, plus a break cue and a jump cue. Set it up in <a href="#cuecase">Your cue case</a>.</li>
+    </ol>
+  </figure>
 
+  <h3 id="moving">Moving about</h3>
+  <p>The sticks move the table, so you can bring any shot in front of you without walking. In the
+  game's own rooms you can switch them to move <em>you</em> instead and walk about. Walls stop you,
+  and stairs take you up and down.</p>
+  <figure class="annot">
+    <div class="annot-img"><a href="img/cuevr/glass/settings-movement-panel.jpg"><img src="img/cuevr/glass/settings-movement-panel.jpg" alt="Settings, Movement" loading="lazy"></a>
+      <span class="pin" data-n="1" style="left:27.54%;top:5.83%">1</span>
+      <span class="pin" data-n="2" style="left:27.54%;top:13.67%">2</span>
+      <span class="pin" data-n="3" style="left:27.54%;top:27.00%">3</span>
+      <span class="pin" data-n="4" style="left:27.54%;top:40.33%">4</span>
+      <span class="pin" data-n="5" style="left:27.54%;top:48.17%">5</span>
+      <span class="pin" data-n="6" style="left:27.54%;top:56.00%">6</span>
+      <span class="pin" data-n="7" style="left:27.54%;top:73.33%">7</span>
+    </div>
+    <ol class="annot-key">
+      <li data-n="1"><b>MOVEMENT IN VR</b> &mdash; In the game's own rooms: <b>TABLE</b> makes the sticks move the table, <b>CAMERA</b> makes them move you, as in a first-person game.</li>
+      <li data-n="2"><b>MOVEMENT IN MIXED REALITY</b> &mdash; The same, in your own room. TABLE is the one to use there.</li>
+      <li data-n="3"><b>TABLE MOVEMENT</b> &mdash; <b>TWO STICKS</b>: one slides the table, the other turns it. <b>ONE STICK</b>: everything on one stick, for a real cue. <b>SNAP TO THE EDGES</b>: keeps the table lined up with your real desk (see <a href="#snap">Snap to the edges</a>). <b>ONE STICK, EITHER</b>: the same control on both hands.</li>
+      <li data-n="4"><b>STICKS</b> &mdash; Which stick slides and which turns.</li>
+      <li data-n="5"><b>SNAP TURN</b> &mdash; With SNAP TO THE EDGES: step round the table a side at a time, or point the stick at the side you want.</li>
+      <li data-n="6"><b>INVERT SLIDE / INVERT TURN</b> &mdash; Flip either stick if it moves the table the wrong way for you.</li>
+      <li data-n="7"><b>MOVE SPEED / TURN SPEED</b> &mdash; How fast the sticks move and turn the table.</li>
+    </ol>
+  </figure>
 
-  <h3 id="tableheight">Changing the table's height at the table</h3>
-  <p>You can raise or lower the table without going back to the set-up screen. Press a
-  thumbstick in and, while it is held, push it up or down. With two controllers you can also hold
-  <b>Y</b> (<b>B</b> if you play left-handed) and push your cue hand's stick up or down. The height
-  shows on your glass as it changes and is kept for next time. It works with a real cue, with one
-  controller or two, and with the MX Ink stylus.</p>
-  <p>While you are changing the height, that stick does nothing else. Only a push that starts
-  while you are holding counts, so a stick you are already pushing, or one you hold in to talk,
-  does not move the table.</p>
+  <h3 id="comfort">Comfort</h3>
+  <p>Moving through a virtual room while your body stays still makes some people feel sick. These
+  settings help, and they start on. They only apply in the game's own rooms: in your own room,
+  nothing moves you.</p>
+  <figure class="annot">
+    <div class="annot-img"><a href="img/cuevr/glass/settings-comfort-panel.jpg"><img src="img/cuevr/glass/settings-comfort-panel.jpg" alt="Settings, Comfort" loading="lazy"></a>
+      <span class="pin" data-n="1" style="left:27.54%;top:5.83%">1</span>
+      <span class="pin" data-n="2" style="left:27.54%;top:13.67%">2</span>
+      <span class="pin" data-n="3" style="left:27.54%;top:21.50%">3</span>
+      <span class="pin" data-n="4" style="left:27.54%;top:31.67%">4</span>
+      <span class="pin" data-n="5" style="left:27.54%;top:41.83%">5</span>
+      <span class="pin" data-n="6" style="left:27.54%;top:49.67%">6</span>
+      <span class="pin" data-n="7" style="left:27.54%;top:57.50%">7</span>
+      <span class="pin" data-n="8" style="left:27.54%;top:67.33%">8</span>
+      <span class="pin" data-n="9" style="left:27.54%;top:77.50%">9</span>
+      <span class="pin" data-n="10" style="left:27.54%;top:85.33%">10</span>
+    </div>
+    <ol class="annot-key">
+      <li data-n="1"><b>COMFORT</b> &mdash; Sets all the rows below at once: <b>OFF</b>, <b>SOME</b> or <b>FULL</b>. It starts on FULL. Change any row yourself and this reads CUSTOM.</li>
+      <li data-n="2"><b>VIGNETTE</b> &mdash; Darkens the edges of your view while you move or turn, which stops most people feeling sick.</li>
+      <li data-n="3"><b>VIGNETTE SHOWS</b> &mdash; <b>DARK</b> edges, or a faint <b>GRID</b> of your real room that stays still while the virtual one moves.</li>
+      <li data-n="4"><b>TURNING</b> &mdash; Turn smoothly, or in 30&deg; or 45&deg; steps, one step for each push of the stick.</li>
+      <li data-n="5"><b>JUMP MOVES</b> &mdash; Instead of gliding: push the stick forward, aim the arc at the floor, let go and you are there.</li>
+      <li data-n="6"><b>STAIRS</b> &mdash; Walk up them, or jump straight to the other end.</li>
+      <li data-n="7"><b>ORBIT</b> &mdash; At the table, push the right stick to choose where to stand round the cue ball, and let go to be there. It works in your own room too.</li>
+      <li data-n="8"><b>ORBIT DISTANCE</b> &mdash; How far in front of you the cue ball ends up after an orbit.</li>
+      <li data-n="9"><b>USE IN</b> &mdash; Use these when you move the table too, or only when you walk about.</li>
+      <li data-n="10"><b>CLUB: SWITCH MOVEMENT</b> &mdash; In the club: TABLE movement while you are at a table, CAMERA while you walk about.</li>
+    </ol>
+  </figure>
 
-  <h3 id="hands">Your hands</h3>
+<h3 id="hands">Your hands</h3>
   <p>Where the headset tracks your hands, CueVR draws them as hands instead of controllers.
   Turn it on or off with <b>YOUR HANDS</b> on <b>Settings &rarr; Controls</b>. It needs hand
   tracking switched on in the headset's own settings.</p>
@@ -787,7 +744,7 @@
   <p>A pinch only counts with your hand well above the cloth, so a looped bridge, where your
   thumb and finger touch, never presses anything or moves the table.</p>
 
-  <h3 id="onecontroller">One controller and a bare bridge hand</h3>
+  <h3 id="onecontroller">One controller and your bare hand</h3>
   <p>With controllers, turn on <b>BARE BRIDGE HAND</b> and put your bridge controller down. The
   controller in your cue hand is the back of your cue, and the cue pivots in the V
   between your bridge hand's thumb and first knuckle, where a real cue would rest. While you move
@@ -818,550 +775,20 @@
     than aiming, so the hand travels and the line you have set stays where it is.
   </div>
 
-  <figure>
-    <img src="img/cuevr/glass/board-scoreboard.jpg" alt="The scoreboard showing control hints">
-    <figcaption>While it is your turn the board reminds you of the main controls.</figcaption>
-  </figure>
+  
 
-  <figure>
-    <img src="img/cuevr/glass/settings-controls.jpg" alt="The controls screen">
-    <figcaption><b>Settings &rarr; Controls</b>. You can swap which stick moves and which turns,
-    and invert either. <b>PUT THE BRIDGE AND GRIP BACK</b> puts the cue back in your hands if it
-    ends up somewhere odd.</figcaption>
-  </figure>
-</section>
+  
+<h3 id="tableheight">Changing the table's height at the table</h3>
+  <p>You can raise or lower the table without going back to the set-up screen. Press a
+  thumbstick in and, while it is held, push it up or down. With two controllers you can also hold
+  <b>Y</b> (<b>B</b> if you play left-handed) and push your cue hand's stick up or down. The height
+  shows on your glass as it changes and is kept for next time. It works with a real cue, with one
+  controller or two, and with the MX Ink stylus.</p>
+  <p>While you are changing the height, that stick does nothing else. Only a push that starts
+  while you are holding counts, so a stick you are already pushing, or one you hold in to talk,
+  does not move the table.</p>
 
-<section id="realcue">
-  <h2>Real cue attachment</h2>
-  <p class="lede">Fix a controller to a real cue and you play with the cue in your hands: your own
-  bridge, your own stroke. First you show the game, once, where the controller sits on your cue.
-  After that the cue on the table goes wherever your real one goes.</p>
-
-  <div class="note">
-    <b>What you need.</b> A cue, and something to hold a controller on it: a clamp, a strap or a
-    bracket. Put it on the butt or part way up the shaft, wherever it holds firm. It does not need
-    to be straight or in the middle of the cue. The set-up works that out for you.
-  </div>
-
-  <p>Once it is set up, the cue plays the ball when its tip reaches the ball, just like a real one.
-  There is no button to press to strike.</p>
-
-  <h3>Before you start</h3>
-  <ol>
-    <li><b>Fix the controller on tight.</b> If it can wobble or twist on the cue, the drawn cue
-    wobbles too. If you move it later, you will need to set the cue up again.</li>
-    <li><b>Find a clear spot of floor</b> in front of you, with room to tilt the cue about a
-    foot either way. A rug or a mat stops the tip sliding.</li>
-  </ol>
-
-  <div class="note">
-    <b>Standard controllers: keep the controller where the headset can see it.</b> The Quest's
-    standard controllers are tracked by the headset's cameras. If your hand, the cue or your body
-    hides the controller, the headset loses it and guesses, and the set-up has to start again.
-    Hold the cue out in front of you at arm's length all the way through. Pro controllers track
-    themselves and are not affected.
-  </div>
-
-  <h3>Open the set-up screen</h3>
-  <p>Go to <b>Settings &rarr; Controls</b> and press <b>CALIBRATE A CUE</b> (it says
-  <b>CALIBRATE AGAIN</b> once a cue is set up). The table disappears while you are on this
-  screen, and you see your own room, so you can see your cue.</p>
-
-  <figure>
-    <img src="img/cuevr/glass/rca-start.jpg" alt="The Real cue attachment screen: a row of steps, the controller choice, and START">
-    <figcaption>The set-up screen. Top right, choose the controller that is on your cue. The row
-    underneath the title shows the three steps; the picture on the right shows what to do.</figcaption>
-  </figure>
-
-  <ol>
-    <li><b>Say which controller is on your cue:</b> press <b>Left controller</b> or <b>Right
-    controller</b>, top right.</li>
-    <li><b>Press START.</b></li>
-  </ol>
-
-  <p>From here on you do not need to look at the big screen, or press anything except the one
-  trigger pull in step 1. The big screen goes away and a small card appears just above the
-  controller on your cue, where you are already looking. It names the step, says what to do, and
-  has a bar that fills as you go.</p>
-
-  <ul>
-    <li><b>Each step ends by itself.</b> As it fills you hear soft ticks that rise in pitch. When
-    it is done you hear a chime, the controller buzzes, and the card flashes green with
-    <b>DONE</b> and the next step.</li>
-    <li><b>Dots round your cue show the progress</b> as well, so you can keep your eyes on the
-    cue. They start grey and turn blue as they fill.</li>
-    <li><b>To give up, press B</b> (or X or Y). You go back to the set-up screen and the cue you
-    had before is kept, unchanged.</li>
-  </ul>
-
-  <h3>Step 1 &mdash; cue upright, tip down</h3>
-  <figure>
-    <img src="img/cuevr/rca-card-tip.png" alt="The card: STEP 1 OF 3, CUE UPRIGHT, TIP DOWN">
-  </figure>
-  <ol>
-    <li>Stand the cue upright with its tip on the floor in front of you, held out so you can see
-    the controller.</li>
-    <li>Turn the cue in your hands so that the side you normally have facing up when you play
-    &mdash; the side with the badge, or where the points are &mdash; is facing towards you. When
-    you lower the butt to play, that side ends up on top. This tells the game which way up your
-    cue is, so the markings on the drawn cue match yours. If they come out turned, <b>Cue rotation</b> on the set-up screen
-    puts them right.</li>
-    <li>Pull either trigger, the one under your first finger. The tip now stays on that spot for
-    steps 2 and 3.</li>
-  </ol>
-
-  <h3>Step 2 &mdash; twist the cue</h3>
-  <div class="grid g2">
-    <figure>
-      <svg viewBox="0 0 320 230" width="100%" role="img" aria-label="An upright cue with a ring of dots round it at the controller, half blue, and a line of dots down its middle to the floor">
-        <line x1="16" y1="212" x2="304" y2="212" style="stroke:var(--dim);stroke-width:2"/>
-        <g id="ring"><circle cx="112.0" cy="66.3" r="3.5" style="fill:#5aa9e6"/><circle cx="123.2" cy="61.4" r="3.5" style="fill:#98a693;opacity:.45"/><circle cx="140.1" cy="58.1" r="3.5" style="fill:#98a693;opacity:.45"/><circle cx="160.0" cy="57.0" r="3.5" style="fill:#98a693;opacity:.45"/><circle cx="179.9" cy="58.1" r="3.5" style="fill:#98a693;opacity:.45"/><circle cx="196.8" cy="61.4" r="3.5" style="fill:#98a693;opacity:.45"/><circle cx="208.0" cy="66.3" r="3.5" style="fill:#98a693;opacity:.45"/></g><polyline points="181.0,28.5 184.1,29.0 187.0,29.6 189.7,30.2 192.2,30.9 194.4,31.7 196.4,32.5 198.1,33.4 199.5,34.2 200.6,35.2 201.4,36.1 201.8,37.0" style="stroke:var(--gold);stroke-width:2.2;fill:none;stroke-linecap:round;opacity:.45"/><polyline points="118.0,38.0 118.2,37.0 118.6,36.1 119.4,35.2 120.5,34.2 121.9,33.4 123.6,32.5 125.6,31.7 127.8,30.9 130.3,30.2 133.0,29.6 135.9,29.0 139.0,28.5" style="stroke:var(--gold);stroke-width:2.2;fill:none;stroke-linecap:round;opacity:.45"/><line x1="160" y1="210" x2="160" y2="14" style="stroke:#c9a36a;stroke-width:6;stroke-linecap:round"/><rect x="149" y="54" width="22" height="30" rx="4" style="fill:#3a4a39;stroke:var(--ink);stroke-width:1"/><circle cx="212.0" cy="72.0" r="3.5" style="fill:#5aa9e6"/><circle cx="208.0" cy="77.7" r="4.5" style="fill:#5aa9e6"/><circle cx="196.8" cy="82.6" r="4.5" style="fill:#5aa9e6"/><circle cx="179.9" cy="85.9" r="4.5" style="fill:#5aa9e6"/><circle cx="160.0" cy="87.0" r="4.5" style="fill:#5aa9e6"/><circle cx="140.1" cy="85.9" r="4.5" style="fill:#5aa9e6"/><circle cx="123.2" cy="82.6" r="4.5" style="fill:#5aa9e6"/><circle cx="112.0" cy="77.7" r="4.5" style="fill:#5aa9e6"/><circle cx="108.0" cy="72.0" r="3.5" style="fill:#5aa9e6"/><circle cx="160" cy="100" r="2.5" style="fill:#5aa9e6"/><circle cx="160" cy="120" r="2.5" style="fill:#5aa9e6"/><circle cx="160" cy="140" r="2.5" style="fill:#5aa9e6"/><circle cx="160" cy="160" r="2.5" style="fill:#98a693;opacity:.45"/><circle cx="160" cy="180" r="2.5" style="fill:#98a693;opacity:.45"/><polyline points="201.8,37.0 202.0,38.0 201.8,39.0 201.4,39.9 200.6,40.8 199.5,41.8 198.1,42.6 196.4,43.5 194.4,44.3 192.2,45.1 189.7,45.8 187.0,46.4 184.1,47.0 181.0,47.5 177.7,48.0 174.4,48.3 170.9,48.6 167.3,48.8 163.7,49.0 160.0,49.0 156.3,49.0 152.7,48.8 149.1,48.6 145.6,48.3 142.3,48.0 139.0,47.5 135.9,47.0 133.0,46.4 130.3,45.8 127.8,45.1 125.6,44.3 123.6,43.5 121.9,42.6 120.5,41.8 119.4,40.8 118.6,39.9 118.2,39.0 118.0,38.0" style="stroke:var(--gold);stroke-width:2.2;fill:none;stroke-linecap:round"/><path d="M130.5 25.5 L139.0 28.5 L131.8 33.8" style="stroke:var(--gold);stroke-width:2.2;fill:none;stroke-linecap:round"/><path d="M188.2 33.8 L181.0 28.5 L189.5 25.5" style="stroke:var(--gold);stroke-width:2.2;fill:none;stroke-linecap:round"/><text x="212" y="20" style="fill:var(--gold);font-size:12px">turn it in your</text><text x="212" y="34" style="fill:var(--gold);font-size:12px">fingers, one way,</text><text x="212" y="48" style="fill:var(--gold);font-size:12px">then the other</text>
-        <circle cx="160" cy="210" r="5" style="fill:var(--gold)"/>
-        <text x="172" y="206" style="fill:var(--ink);font-size:12px">tip stays on its spot</text>
-      </svg>
-      <figcaption>What you see round your cue: a ring of dots at the controller that fills as you
-      twist, and a line of dots down the middle of the cue to the floor.</figcaption>
-    </figure>
-    <figure>
-      <img src="img/cuevr/rca-card-twist.png" alt="The card: STEP 2 OF 3, TWIST THE CUE, tip still until the ring is full, with its bar part filled">
-      <figcaption>The card for step 2, part way through.</figcaption>
-    </figure>
-  </div>
-  <div class="note">
-    <b>Keep the cue on exactly the same line.</b> This is the one thing that matters in this step.
-    Only twist the cue round its own length, like turning a key: do not let it lean, sway or wander
-    while you turn it. The game measures the line the cue turns about, so any lean goes straight
-    into your calibration as an aim error. Hold it lightly at the top, keep the tip planted, and
-    turn it slowly rather than quickly.
-  </div>
-  <ol>
-    <li>Keep the tip on its spot and the cue on the same line, and turn the cue in your fingers,
-    about half a turn one way, then half a turn the other way, back and forth.</li>
-    <li>Keep going until the ring is full. It takes about four half turns, five seconds or so.</li>
-  </ol>
-  <p>The dotted line shows where the game thinks the middle of your cue is. When it runs down the
-  middle of your real cue to the tip, it has found it.</p>
-
-  <h3>Step 3 &mdash; tilt it back and forth</h3>
-  <div class="grid g2">
-    <figure>
-      <svg viewBox="0 0 320 230" width="100%" role="img" aria-label="An upright cue tilted to each side, with an arc of dots at the butt, one side blue">
-        <line x1="16" y1="212" x2="304" y2="212" style="stroke:var(--dim);stroke-width:2"/>
-        <line x1="160" y1="210" x2="112" y2="34" style="stroke:#c9a36a;stroke-width:5;stroke-linecap:round;opacity:.3"/>
-        <line x1="160" y1="210" x2="208" y2="34" style="stroke:#c9a36a;stroke-width:5;stroke-linecap:round;opacity:.3"/>
-        <line x1="160" y1="210" x2="160" y2="28" style="stroke:#c9a36a;stroke-width:6;stroke-linecap:round"/>
-        <rect x="149" y="62" width="22" height="30" rx="4" style="fill:#3a4a39;stroke:var(--ink);stroke-width:1"/>
-        <circle cx="160" cy="28" r="4" style="fill:#5aa9e6"/>
-        <circle cx="172" cy="28.4" r="4" style="fill:#5aa9e6"/><circle cx="184" cy="29.6" r="4" style="fill:#5aa9e6"/>
-        <circle cx="196" cy="31.6" r="4" style="fill:#5aa9e6"/><circle cx="208" cy="34.4" r="6" style="fill:#5aa9e6"/>
-        <circle cx="148" cy="28.4" r="4" style="fill:#5aa9e6"/><circle cx="136" cy="29.6" r="4" style="fill:#98a693;opacity:.45"/>
-        <circle cx="124" cy="31.6" r="4" style="fill:#98a693;opacity:.45"/><circle cx="112" cy="34.4" r="6" style="fill:#98a693;opacity:.45"/>
-        <text x="226" y="40" style="fill:var(--gold);font-size:12px">this end reached</text>
-        <text x="10" y="58" style="fill:var(--dim);font-size:12px">this end still to go</text>
-        <circle cx="160" cy="210" r="5" style="fill:var(--gold)"/>
-        <text x="172" y="206" style="fill:var(--ink);font-size:12px">tip stays on its spot</text>
-      </svg>
-      <figcaption>An arc of dots at the butt, like a seesaw. Each half fills as you tilt the butt
-      out that way; the big dot at each end is how far to go.</figcaption>
-    </figure>
-    <figure>
-      <img src="img/cuevr/rca-card-tilt.png" alt="The card: STEP 3 OF 3, TILT IT BACK AND FORTH, with its bar part filled">
-      <figcaption>The card for step 3, one end done.</figcaption>
-    </figure>
-  </div>
-  <ol>
-    <li>Keep the tip on its spot and tilt the butt back and forth, whichever way is comfortable:
-    away from you and back, or side to side. The arc starts out side to side and turns to follow
-    the way you are tilting.</li>
-    <li>Go about 25 cm, ten inches, out at the butt each way, until both ends of the arc are
-    full.</li>
-  </ol>
-
-  <h3>When it is done</h3>
-  <figure>
-    <img src="img/cuevr/glass/rca-done.jpg" alt="The set-up screen after calibrating: CALIBRATION COMPLETED, with SAVE, tip length, cue rotation and saved calibrations">
-    <figcaption>Finished. Check it, then press <b>SAVE</b>. Underneath are the small adjustments
-    and your saved calibrations.</figcaption>
-  </figure>
-  <ol>
-    <li>The card says <b>CALIBRATION COMPLETED</b> and the set-up screen comes back.</li>
-    <li><b>Check it:</b> turn your cue in your hand. The virtual cue should turn with the real one
-    and stay on it all the way round. If it swings away from your cue as you turn it, press
-    <b>START AGAIN</b>.</li>
-    <li><b>Press SAVE.</b> Your cue is now switched on.</li>
-  </ol>
-
-  <h3>If it sends you back</h3>
-  <p>The card turns orange and says why. It only does this when a step clearly did not work.</p>
-  <figure>
-    <img src="img/cuevr/rca-card-refused.png" alt="The card back at step 1 saying THE TIP MOVED - PUT IT DOWN AGAIN in orange">
-  </figure>
-  <table>
-    <tr><th>The card says</th><th>What happened, and what to do</th></tr>
-    <tr><td><b>THE TIP MOVED - PUT IT DOWN AGAIN</b></td><td>The tip slid or lifted during step 2
-      or 3. Put it down again, on something grippy, and pull the trigger.</td></tr>
-    <tr><td><b>LOST THE CONTROLLER - KEEP IT IN VIEW</b></td><td>The headset could not see the
-      controller for too long. Hold the cue further out in front of you, and keep your hand off
-      the front of the controller.</td></tr>
-    <tr><td><b>IT LEANED - KEEP IT ON THE SAME LINE</b></td><td>The cue leaned about too much while
-      you twisted it. You go back to step 2 with the tip still down: twist again, more slowly, only
-      twisting the cue and keeping it on the same line.</td></tr>
-  </table>
-
-  <h3>Saved calibrations</h3>
-  <p>If you use more than one cue, or more than one clamp, you can keep a calibration for each and
-  switch between them without setting up again.</p>
-  <figure>
-    <img src="img/cuevr/rca-saveas.jpg" alt="Save this calibration as: a name field, SAVE and CANCEL, and a keyboard">
-    <figcaption><b>SAVE AS...</b> asks for a name, typed on this keyboard.</figcaption>
-  </figure>
-  <ul>
-    <li><b>SAVE AS...</b>, on the finished screen under <b>SAVED CALIBRATIONS</b>, keeps the
-    calibration you have just made under a name, for example the name of the cue.</li>
-    <li><b>LOAD</b> beside a saved one puts it back in use. Press <b>SAVE</b> to keep it.</li>
-    <li><b>DELETE</b> removes it.</li>
-  </ul>
-
-  <h3 id="finetune">Fine-tuning it with the side trigger</h3>
-  <p>A calibration is fixed to the controller and does not wear out. What does drift is the
-  headset's own tracking: over a session it can come to see the controller a few millimetres or a
-  fraction of a degree from where it really is, and then the whole cue sits a little off. This
-  puts that right, and you can do it whenever you like, even at the table in the middle of a
-  frame. The side trigger is the grip button on the side of the controller, under your middle
-  finger.</p>
-
-  <figure>
-    <svg viewBox="0 0 320 150" width="100%" style="max-width:460px;display:block" role="img" aria-label="Seen from above: the real cue slid across the table until it lies under the frozen drawn cue">
-      <rect x="10" y="14" width="300" height="116" rx="6" style="fill:var(--panel2);stroke:var(--line)"/>
-      <line x1="40" y1="58" x2="290" y2="58" style="stroke:var(--ink);stroke-width:7;stroke-linecap:round;opacity:.35"/>
-      <text x="40" y="44" style="fill:var(--ink);font-size:12px">the drawn cue, frozen while you hold the side trigger</text>
-      <line x1="46" y1="100" x2="292" y2="88" style="stroke:#c9a36a;stroke-width:6;stroke-linecap:round"/>
-      <text x="46" y="122" style="fill:#c9a36a;font-size:12px">your real cue, flat on the table</text>
-      <path d="M100 92 L100 68" style="stroke:var(--gold);stroke-width:1.5;fill:none"/>
-      <path d="M95 74 L100 66 L105 74" style="stroke:var(--gold);stroke-width:1.5;fill:none"/>
-      <path d="M240 86 L240 68" style="stroke:var(--gold);stroke-width:1.5;fill:none"/>
-      <path d="M235 74 L240 66 L245 74" style="stroke:var(--gold);stroke-width:1.5;fill:none"/>
-      <text x="252" y="80" style="fill:var(--gold);font-size:11px">slide it</text>
-    </svg>
-    <figcaption>Seen from above. Hold the side trigger and the drawn cue stops still. Slide your real
-    cue until it lies exactly under it, then let go.</figcaption>
-  </figure>
-
-  <ol>
-    <li><b>Lay your real cue on something flat,</b> like a table or a desk, so it is still and you
-    can see it clearly against the drawn cue.</li>
-    <li><b>Tap the side trigger on the cue's controller, then press it again and hold it.</b> The
-    drawn cue freezes in the air and stops following you. The tap has to come first: your hand
-    rests on that button all through a game, and the tap tells the game you mean it.</li>
-    <li><b>Keep holding, and slide your real cue</b> until it lies exactly under the drawn one: tip
-    under tip, shaft under shaft.</li>
-    <li><b>Let go of the side trigger.</b> The drawn cue now follows your real cue from where you
-    put it.</li>
-  </ol>
-  <ul>
-    <li><b>It moves the whole cue, not your calibration,</b> so it cannot make the cue swing about
-    when you turn it in your hand. Do it as often as you like: each one adds to the last.</li>
-    <li><b>It lasts until you quit the game.</b> Next time you start, you begin from your
-    calibration as it was measured.</li>
-    <li><b>To undo it, double tap the side trigger.</b> The cue goes back to your calibration as
-    measured. <b>RESET NUDGE</b> on the set-up screen does the same, and the line beside it says
-    how far you have nudged.</li>
-    <li><b>If nudging does not fix it,</b> or you have moved the clamp, calibrate again. It takes
-    about twenty seconds.</li>
-  </ul>
-
-  <div class="note">
-    <b>Where it works.</b> On the set-up screen, and at the table during a frame, on your turn or
-    your opponent's. It does not work in the menus, where the side trigger does other jobs.
-  </div>
-
-  <h3>Small adjustments on the set-up screen</h3>
-  <p>Open the set-up screen when your cue is already set up, and it opens on your calibration with
-  two adjustments under it. Point at a <b>&minus;</b> or <b>+</b> with your other hand and pull
-  its trigger.</p>
-  <table>
-    <tr><th>Row</th><th>What each press does</th></tr>
-    <tr><td><b>Tip length</b></td><td>How far the tip is from the controller, 1 mm a press, or 1 cm
-      a press with <b>-1 CM</b> and <b>+1 CM</b> beside it. Use it if the drawn tip ends short of
-      your real tip, or past it.</td></tr>
-    <tr><td><b>Cue rotation</b></td><td>Turns the drawn cue round its own length, a degree a press,
-      so its points and badge face the same way as your real cue's. It only turns the picture of
-      the cue: your aim and your tip do not move.</td></tr>
-  </table>
-  <p>Every press saves straight away.</p>
-
-  <h3 id="onestick">One stick has to do everything</h3>
-  <p class="lede">A controller clamped to a cue is on the end of a metre and a half of timber. The
-  game assumes you cannot reach it, so with a real cue set up, everything you need is on the hand
-  that is free.</p>
-
-  <p>Nothing here is different for the ordinary two-controller cue — those controls are exactly as
-  they always were. It only changes once a cue is calibrated and <b>CUE</b> is set to <b>REAL CUE</b>.</p>
-
-  <div class="note">
-    <b>But it is on both hands anyway.</b> Every one of these is mirrored onto the cue controller as
-    well, in case your clamp does leave it usable. If it does, nothing is taken away from you. Set
-    <b>TABLE MOVEMENT</b> to <b>ONE STICK, EITHER</b> and both hands do the same job.
-  </div>
-
-  <div class="note">
-    <b>Which hand is which comes from your cue, not from the handedness setting.</b> Once a cue is
-    calibrated, the game takes the controller you clamped it to as the answer: that hand is the cue
-    hand and the other is your free hand. The rest, the overhead view, the scoreboard and the mark
-    all follow it. Nothing to set — but it is why picking the other controller on the set-up screen
-    changes more than the calibration.
-  </div>
-
-  <p>One stick cannot do two things at once, so <b>the side trigger switches what it is doing</b>.
-  It is the same gesture on all three screens that need it, and <b>the panel always says which job
-  the stick is on</b> — you never have to remember.</p>
-
-  <table>
-    <tr><th>Where</th><th>The stick</th><th>The side trigger</th></tr>
-    <tr><td><b>Placing the table</b><br>(<kbd>MENU</kbd> &rarr; <b>Table</b>)</td>
-        <td>Sets the height, and turns the table left and right.</td>
-        <td>Switches the stick to sliding the table about instead — forward, back and sideways.
-        Squeeze it again to go back to the height.</td></tr>
-    <tr><td><b>The mark round your real table</b><br>(the square)</td>
-        <td>Moves it.</td>
-        <td>Steps the stick through <b>move</b>, <b>size</b> and <b>turn</b>. It turns both ways.</td></tr>
-    <tr><td><b>The scoreboard</b><br>(<b>Scoreboard</b> on the placement screen, from
-        <b>Environment &rarr; Table</b>)</td>
-        <td>Carries it.</td>
-        <td>Steps the stick through <b>move</b>, <b>turn and raise</b>, and <b>size</b>.</td></tr>
-    <tr><td><b>At the table, during a frame</b></td>
-        <td>Moves the table — see <a href="#movetable">the next section</a>.</td>
-        <td>Holds the drawn cue still so you can line your real one up on it. It does nothing else
-        while you are at the table, so it can never be doing the wrong job when you reach for
-        it.</td></tr>
-    <tr><td><b>Setting up the cue</b><br>(CALIBRATE A CUE)</td>
-        <td>Nothing: the three steps need no stick.</td>
-        <td>The fine-tune, as at the table: holds the drawn cue still, and moves it onto your real
-        one when you let go.</td></tr>
-  </table>
-
-  <h3>The buttons a clamped hand cannot reach</h3>
-  <table>
-    <tr><th>Control</th><th>What it does</th></tr>
-    <tr><td><b>Press the thumbstick in</b> (tap)</td>
-        <td>Shows the mark round your real table for a couple of seconds. Normally that is the cue
-        hand's upper button, which is the one you cannot get to.</td></tr>
-    <tr><td><b>Press the thumbstick in</b> (hold)</td>
-        <td>Takes the last shot back, in practice. A hold rather than a tap, so a stray press
-        cannot rewind the table. The bar on the panel shows how long is left.</td></tr>
-    <tr><td><b>Point with the cue</b></td>
-        <td>Menus can be pointed at with the cue itself, as well as with either hand. Whichever is
-        easier where you are stood.</td></tr>
-    <tr><td><b><kbd>A</kbd> on the levelling screen</b></td>
-        <td>Works from either hand.</td></tr>
-    <tr><td><b>MENU row on the scoreboard</b></td>
-        <td>Only the left controller has a <kbd>MENU</kbd> button. If your cue is clamped to the
-        left one, your free hand has no way of opening the pause menu — so the scoreboard grows a
-        <b>MENU</b> row you can point at instead. It appears only when you need it.</td></tr>
-  </table>
-
-  <div class="note">
-    <b>Placing the white.</b> With a cue attached and a mark drawn round your real table, the cue
-    ball comes onto the line through the middle of that mark and the stick runs it up and down that
-    line. It stays wherever it already is — it does not jump to a new position each time you touch
-    the stick, and it does not depend on which way you are facing, so you can walk round your own
-    table without it flying across to the other side.
-  </div>
-
-  <h3>The rest of the settings</h3>
-  <p>Settings has nine tabs: <b>Controls</b> (which hand, real cue or controllers, and the button
-  that calibrates a cue), <b>Movement</b> (how the sticks move the table or you), <b>Comfort</b>
-  (see <a href="#comfort">Comfort</a>), <b>Cue feel</b> (the rows below), <b>Chalk</b> (see
-  <a href="#chalk">Chalk</a>), <b>Graphics</b>, <b>Sound</b>, <b>Opponents</b> and <b>Backup</b>
-  (see <a href="#backup">Backing up</a>). Each tab is shown with the part of the guide it
-  belongs to.</p>
-  <table>
-    <tr><th>Row</th><th>What it does</th></tr>
-    <tr><td><b>STROKE</b></td>
-        <td>With a real cue: how much your hand's shake is smoothed before it moves the cue.
-        SMOOTHED filters the tremble out of your aim and the sideways movement of the tip while
-        leaving the delivery, and therefore the power, untouched; it is what a bridge hand does.
-        HALF smooths half as much, and RAW leaves the cue exactly where your hands put it.</td></tr>
-    <tr><td><b>CONTROLLER STROKE</b></td>
-        <td>With two controllers. LOCKED keeps the cue on the line you aimed once you pull the
-        trigger. FREE lets your back hand steer the cue during the stroke, pivoting it in your
-        bridge as a real cue does, and after each shot a line tells you how far off line you were.
-        FREE is recommended for Pro controllers only.</td></tr>
-    <tr><td><b>CONTROLLER MODEL</b></td>
-        <td>HIDDEN by default: the drawn controller sits on the shaft where your clamp is, and
-        depending where that is it can be the thing you are looking through when you are down on
-        the shot. SHOWN puts it back. Only the one on the cue is affected — your free hand keeps
-        its controller, since it carries the ball and points at menus.</td></tr>
-    <tr><td><b>CUE TURNS WITH YOUR WRIST</b></td>
-        <td>Rolls the drawn cue as you turn the real one, so the splice and the badge follow your
-        hands. It is worked out separately from the aim and can only turn the model — it cannot
-        move the tip or the line. Off by default.</td></tr>
-    <tr><td><b>CUE ROTATION</b></td>
-        <td>Turns the drawn cue round its own length, from 0 to 359 degrees, so its points and
-        badge face the same way as your real cue's. It only turns the picture of the cue: your
-        aim and your tip do not move. It works with CUE TURNS WITH YOUR WRIST on or off, and it
-        is on the set-up screen too.</td></tr>
-    <tr><td><b>CUE TIP</b></td>
-        <td>How wide the tip is, in millimetres, stepping half a millimetre at a time from 8 to 14.
-        The name beside the number is the game that size belongs to: 8&ndash;9 is English pool,
-        9.5&ndash;10.5 snooker, 11&ndash;12 carom, 12.5&ndash;13.5 American pool, and 14 is a break
-        cue. A wider tip reaches further off centre before it slips, so it will hold more side. It
-        starts at 10.0 mm.</td></tr>
-    <tr><td><b>CUE DEFLECTION</b></td>
-        <td>How far the cue ball is pushed off your aiming line when you strike it away from centre
-        &mdash; squirt. The steps are real shafts: 0.5&deg; is a carbon low-deflection one, 2.0&deg;
-        an ash snooker cue, and the range anybody has measured stops around 2.6&deg;. It carries on
-        past that to 5&deg;, which is no cue that was ever made and is exactly why it is there. NONE
-        takes it out altogether if you would rather practise without it. It starts at 2.0&deg;.</td></tr>
-    <tr><td><b>STROKE WEIGHT</b></td>
-        <td>How much of your arm&rsquo;s speed becomes cue ball speed on a soft or medium shot,
-        from 60% to 120% in steps of ten, named LIGHT, NORMAL, FIRM or HEAVY. Your arm swings a controller, not a cue, so it moves
-        faster than the real thing and the honest figure depends on you and your room: turn it down
-        if your gentle shots come out hard, up if you cannot get the ball down the table. A full
-        power stroke is not affected &mdash; it is already flat out either way. It starts at 100%,
-        which the row calls HEAVY.</td></tr>
-  </table>
-
-    <figure class="glass"><a href="img/cuevr/glass/settings-feel.jpg"><img src="img/cuevr/glass/settings-feel.jpg" alt="Settings, Cue feel" loading="lazy"></a>
-    <figcaption><b>Cue feel</b>:
-    <ul>
-      <li><b>STROKE</b>: how much your hand's shake is smoothed.</li>
-      <li><b>CONTROLLER STROKE</b>: <b>LOCKED</b> holds the cue on its line once you pull the
-        trigger; <b>FREE</b> lets your back hand steer it (recommended for Pro controllers).</li>
-      <li><b>CUE TURNS WITH YOUR WRIST</b> and <b>CUE ROTATION</b>: whether, and how far, the
-        drawn cue turns to match yours.</li>
-      <li><b>CUE DEFLECTION</b>: how far off line the ball goes when you strike away from
-        centre.</li>
-      <li><b>CUE TIP</b>: a narrower tip grips further out on the ball.</li>
-      <li><b>STROKE WEIGHT</b>: scales every stroke.</li>
-      <li><b>CUE CASE</b>: a cue for each kind of game, set up in the Workshop.</li>
-    </ul></figcaption></figure>
-
-<h3>The Logitech MX Ink</h3>
-  <p>The pen is a cue in its own right. Its buttons map to the ones the game uses:</p>
-  <table>
-    <tr><th>On the pen</th><th>What it is</th></tr>
-    <tr><td>Middle pad</td><td>The trigger.</td></tr>
-    <tr><td>Pressing the tip</td><td>The grip.</td></tr>
-    <tr><td>Front cluster button</td><td>The lower button — <kbd>A</kbd> or <kbd>X</kbd>.</td></tr>
-    <tr><td>Back cluster button</td><td>The upper button — <kbd>B</kbd> or <kbd>Y</kbd>.</td></tr>
-    <tr><td>Front button, double tap</td><td><kbd>MENU</kbd>.</td></tr>
-    <tr><td>Back button, double tap</td><td>Clicking the stick.</td></tr>
-  </table>
-  <p>The double taps are the pen's own, not a gesture timed by the game, so they feel the same as
-  they do everywhere else on the pen.</p>
-  <p><b>Your other controller stays live</b> — it still points at menus, still bridges, still
-  presses things. If you would rather it stood down while the pen is in play, <b>Settings &rarr;
-  Controls &rarr; OFF HAND</b> has that; the row only appears once the game has actually seen a
-  pen.</p>
-  <div class="note">
-    <b>If you have one, we would like to hear how it goes.</b> None of us owns a pen, so this is
-    written from the headset's own device reports rather than from playing with it.
-  </div>
-
-  <h3 id="movetable">Moving the table with a cue in your hands</h3>
-  <p>The table can be moved at any time, mid-frame included — that is how you bring a shot to you
-  in a small room rather than walking round a twelve-foot table. With a controller clamped to a
-  cue, though, one of your two sticks is on the end of a metre and a half of timber and the other
-  hand may be empty. The <b>TABLE MOVEMENT</b> row on <b>Settings &rarr; Controls</b> chooses
-  between three ways of working. Two
-  are below; the third, <b>SNAP TO THE EDGES</b>, is for playing over a real table and has its
-  <a href="#snap">own section</a> further down.</p>
-
-  <table>
-    <tr><th></th><th>TWO STICKS</th><th>ONE STICK</th></tr>
-    <tr><td><b>Left stick</b></td>
-        <td>Slides the table about the floor.</td>
-        <td rowspan="2">The hand that is not on the cue keeps sliding the table about the floor,
-        exactly as it does in two-stick mode. Nothing is lost by switching.</td></tr>
-    <tr><td><b>Right stick</b></td>
-        <td>Turns the table.</td></tr>
-    <tr><td><b>The cue hand's stick</b></td>
-        <td>—</td>
-        <td><b>Up and down</b> brings the table nearer and pushes it away, along the line you are
-        looking down. <b>Left and right</b> turns the table about the cue ball.</td></tr>
-    <tr><td><b>On each fresh push</b></td>
-        <td>Nothing.</td>
-        <td>The table swings so the cue ball is directly in front of you, at the range it already
-        had — nothing comes towards you or moves away, it only comes round. Then the stick works
-        along that line until you let go.</td></tr>
-  </table>
-
-  <p>The cue hand is the controller you clamped the cue to when you calibrated; with the
-  ordinary two-controller cue it is whichever hand holds the butt. The table swings round once per
-  push rather than continuously, so it cannot chase you around the room: let go, stand where you
-  like, push again and the ball comes round from there.</p>
-
-  <div class="note">
-    <b>Two things that do not change.</b> On the levelling screen, up and down is still the table's
-    height, whichever mode you are in. <b>INVERT SLIDE</b> and <b>INVERT TURN</b> still apply too,
-    so if pushing forward moves the table the wrong way for your taste, that is where you flip it.
-  </div>
-
-  <h3 id="marktable">Marking your real table</h3>
-  <p>This is the first step of the table panel, and the one worth doing properly. If the cloth is
-  drawn over a real piece of furniture you can lean on it, rest a bridge hand on its edge and walk
-  into it safely — and the game table stands on whatever you mark, so marking it well is how the
-  cloth ends up at the right height and the right way round.</p>
-
-  <p>Stand at the edge of your desk, <b>point along it and hold the trigger</b>: the outline comes
-  to your hand, at your hand's height, running the way you are pointing. Let go and it stays. From
-  there the left stick slides it, the right stick sizes it, grip with the right stick turns and
-  raises it, and you can grip any corner and drag it onto your real corner. <b>RESET THE
-  OUTLINE</b> puts it back under the table if you lose it.</p>
-
-  <p>Or use both hands: <b>hold both triggers</b> and the line between them is the near edge, so
-  the width comes from your reach along with the angle and the height. A hand on each corner of
-  your desk sets the whole thing in one go.</p>
-
-  <p>The bright edge is the side you play from; amber means you are standing at a different one and
-  should rotate the outline round to you. Show it while you play — <b>Never</b>, <b>Always</b>,
-  or <b>On press</b> — from the same panel.</p>
-
-  <figure>
-    <img src="img/cuevr/table-mark.jpg" alt="A faint translucent rectangle lying on the table surface">
-    <figcaption>The mark. It lies in the room rather than on the cloth — it is your furniture it
-    describes, not the table.</figcaption>
-  </figure>
-
-
-  <h3 id="snap">Snap to the edges</h3>
-  <p>Once the mark is in, the <b>TABLE MOVEMENT</b> row has a setting built around it: <b>SNAP TO
-  THE EDGES</b>. Stand at your real table's edge and the virtual table squares itself to the edge you
-  marked — the outer wood of the frame lands exactly on your real edge, so when you rest your
-  bridge hand on the rail it is resting on real timber.</p>
-  <ul>
-    <li><b>The slide stick slides the table along that edge</b>, and nothing else. There is no
-    forward or back, so the table can never drift off your real edge.</li>
-    <li><b>The turn stick snap-turns</b>: each push brings the next side of the table round to
-    you, square on your real edge again. You can work all the way round the table without it ever
-    leaving your furniture.</li>
-    <li><b>Or point at the side you want.</b> <b>POINT AT THE EDGE</b>, on the <b>SNAP TURN</b>
-    row underneath, changes what the turn stick means: instead of stepping round one edge at a time, the stick becomes a picture
-    of the table seen from where you stand. The edge under your hands is six o'clock, so pushing
-    away brings the far side round in one press, and pushing left or right takes you to that side.
-    On a hexagon or an octagon it still works, because the stick is read as an angle and rounded to
-    whichever edge is nearest it.</li>
-    <li><b>Hold the stick forward for a second</b> and you step <em>into</em> the table, for the
-    shots no edge can reach. Inside, you have full movement and 90° turns about the cue ball; the
-    table goes back to your edge by itself after the shot, or when a new frame starts.</li>
-  </ul>
-
-  <div class="note">
-    <b>The far edge is what moves when you change the depth.</b> A table made deeper or shallower
-    used to grow at both ends, which pushed the near cushion off the real edge you had just squared
-    it to — the one thing this mode exists to hold still. It now extends away from you instead, so
-    the edge under your hands stays exactly where it is and the far end goes out to meet the size
-    you asked for.
-  </div>
-
-  <div class="note">
-    <b>A longer cue, when you want one.</b> With the ordinary two-controller cue, sliding your grip
-    hand off the back of the butt fits an extension: your hand stays where it is, the tip goes
-    further out, and 200 mm of timber appears behind your hand. Slide back on and it comes off
-    again.
-  </div>
-</section>
+  </section>
 
 <section id="stroke">
   <h2>Playing a shot</h2>
@@ -1401,7 +828,7 @@
   and pull that hand back to shorten the cue. If you play over a real table,
   <a href="#snap">snap mode</a> can step you into the table instead.</p>
 
-  <h3>Playing off the rest</h3>
+  <h3 id="rest">Playing off the rest</h3>
   <p>For a shot you cannot stretch to, take up the rest with <b>Y</b> on your bridge hand. A brass
   head goes down on the cloth on the end of an ash stick, and your cue lies in one of its notches:
   the head is the pivot, and the shot runs through it.</p>
@@ -1462,641 +889,6 @@
   <figure><a href="img/cuevr/glass/lagpick.jpg"><img src="img/cuevr/glass/lagpick.jpg" alt="Who breaks" loading="lazy"></a>
     <figcaption><b>You won the lag</b>: break yourself, or hand it to your opponent.</figcaption></figure>
   </div>
-
-</section>
-
-<section id="challenges">
-  <h2>Practice and challenges</h2>
-  <p class="lede">Two ways to play without an opponent.</p>
-
-  <p><b>Free practice</b> gives you the table on your own with no rules and no scoring. Put the
-  balls wherever you like and hit them.</p>
-
-  <div class="note">
-    <b>Breaks are still counted at snooker.</b> Practice has no rules, but it does keep your break:
-    pot in the right order and the total climbs on the scoreboard and the referee calls it as he
-    would in a frame — a red, then a colour, then a red, and once the reds are gone one colour of
-    your choice and then the colours in order. Anything else ends it: two reds in two shots is two
-    pots and not a break of two. Miss, go in-off, or pot out of turn and the referee says
-    "end of break" and the count starts again from zero. Nothing is judged and nothing is
-    penalised, so you can practise a break and still know what you built.
-  </div>
-
-  <div class="note">
-    <b>And you can play a clearance.</b> <b>AUTO RESPOT</b> keeps the colours on the table while
-    you practise, so you never run out of things to take after a red. Once the reds are gone it
-    stops: the colour after the last red goes back up as it would in a frame, and from there the
-    colours stay down and you can clear the table. Turn it off and practice follows the frame
-    rules throughout.
-  </div>
-
-    <div class="shots">
-    <figure class="shot"><a href="img/cuevr/glass/vs-practice.jpg"><img src="img/cuevr/glass/vs-practice.jpg" alt="The Practice tab" loading="lazy"></a><span class="lab">Practice</span><figcaption><b>Practice</b>: <b>PRACTISE</b> gives you a free table where nothing counts and
-    <kbd>B</kbd> takes a shot back. <b>CHALLENGES</b> opens the challenges.</figcaption></figure>
-    <figure class="shot"><a href="img/cuevr/glass/pause-practice.jpg"><img src="img/cuevr/glass/pause-practice.jpg" alt="The pause menu in practice" loading="lazy"></a><span class="lab">The pause menu in practice</span><figcaption><b>The pause menu in practice.</b> Two more rows: <b>PRACTICE</b> (<b>Move the
-    balls</b>, <b>Timed six</b>, <b>Challenges</b> and <b>Show the shot off</b>) and
-    <b>TARGET</b> (<b>Target on</b>, and <b>Auto set position target</b>).</figcaption></figure>
-    <figure class="shot"><a href="img/cuevr/glass/challenges.jpg"><img src="img/cuevr/glass/challenges.jpg" alt="The challenges" loading="lazy"></a><span class="lab">CHALLENGES</span><figcaption><b>CHALLENGES</b>: the <b>TIMED SIX</b>, <b>FROM A CODE</b> (one somebody has
-    shared), <b>MAKE ONE</b>, and every challenge you have kept, each with its best result.
-    <b>DELETE</b> sits on your own. <b>GALLERY</b> beside the title has other players'.</figcaption></figure>
-  </div>
-  
-
-  
-
-  <h3 id="target">The target</h3>
-  <p>A chalk bullseye on the cloth to play the cue ball to: a <b>50</b> in the middle, then
-  <b>20</b> and <b>10</b> rings, 26 cm across. Tap <kbd>MENU</kbd> in practice or a challenge and
-  choose <b>Target on</b>; it is chalked where you last left it. <b>Move the target</b> puts it in
-  your free hand, the same as a ball in hand: take it anywhere on the table and pull the trigger to
-  put it down. <b>Target off</b> rubs it out.</p>
-  <p>When the cue ball comes to rest inside the target, the ring it stopped in &mdash; the 50, the
-  20 or the 10 &mdash; lights up. It goes out as soon as the cue ball moves again or you move the
-  target.</p>
-  <p>A challenge can have its own target. In the layout editor, <b>PUT THE TARGET ON</b>, then pull
-  the trigger near it to pick it up and carry it like a ball. It is saved with the challenge and
-  chalked on the table whenever the challenge is played; your practice target comes back when the
-  challenge ends.</p>
-
-  <figure>
-    <img src="img/cuevr/practice-target.png" alt="The practice target chalked on a snooker table">
-    <figcaption>The target, chalked on the cloth between the blue and the pink.</figcaption>
-  </figure>
-
-  <p><b>Challenges</b> set you a goal on a fixed layout: a position to play from, a ball to pot, a
-  score to reach or a table to clear. Each one is judged over a single visit, so a miss ends the
-  attempt and you start again.</p>
-
-  <p><b>VS &rarr; Challenge</b> on the main menu opens them as a page of cards; in free practice
-  they are a chip on the pause menu. Each card is a picture of the layout with its name, what it asks and your best
-  result underneath. Point at one and pull the trigger to open it. The first two cards are always
-  there: <b>THE TIMED SIX</b>, six reds against the clock, and <b>MAKE ONE</b>. You can keep
-  thirty-two challenges of your own.</p>
-
-  <h3>A challenge's page</h3>
-  <figure>
-    <img src="img/cuevr/glass/challenge-page.jpg" alt="A challenge's page">
-    <figcaption>A challenge's page. <b>PLAY IT</b> starts it, <b>MOVE THE BALLS</b> opens the
-    layout, <b>SHARE</b> gives its code. On the right, what it asks and which balls count.</figcaption>
-  </figure>
-  <table>
-    <tr><th>Row</th><th>What it does</th></tr>
-    <tr><td><b>NAME</b></td><td>Opens a keyboard. Type a name and press <b>KEEP IT</b>;
-      <b>SUGGEST</b> starts you from a description of what it asks. A challenge with no name is
-      described that way on its card, such as <span class="cap-t">POT THE 1 TO THE 4 - US
-      8-BALL</span>.</td></tr>
-    <tr><td><b>WHAT IT ASKS</b></td><td><b>JUST THE POSITION</b> (play on from here, nothing is
-      judged), <b>POT A BALL</b>, <b>SCORE</b> or <b>CLEAR THE TABLE</b>.</td></tr>
-    <tr><td><b>No clock</b> / <b>Against the clock</b></td><td>Whether it is timed.</td></tr>
-    <tr><td>The target</td><td>If the challenge has <a href="#target">a target</a>, it can also
-      ask the cue ball to finish inside the 50, the 20 or the 10.</td></tr>
-    <tr><td><b>WHICH BALLS</b></td><td>For POT A BALL, the balls to pot. Pick more than one and
-      all of them have to go down in the visit.</td></tr>
-    <tr><td><b>SHARE</b></td><td>Gives a six-letter code for it. See
-      <a href="#gallery">Sharing and the gallery</a>.</td></tr>
-    <tr><td><b>DELETE</b></td><td>Throws it away. Press it twice.</td></tr>
-  </table>
-
-  <figure>
-    <img src="img/cuevr/chal-name.jpg" alt="Naming a challenge">
-    <figcaption>Naming a challenge. <b>SUGGEST</b> fills the box with what it asks, so a name is
-    an edit rather than typing from nothing.</figcaption>
-  </figure>
-
-  <h3>Making your own</h3>
-  <p><b>MAKE ONE</b>, or <b>Workshop &rarr; Challenge</b>, opens the layout editor with the balls
-  <b>as they are on the table</b>. So the
-  quickest way to make a challenge is to set a position up in practice, or stop at one you keep
-  getting wrong, and press MAKE ONE. A table with no balls on it starts from a full rack.</p>
-
-  <figure>
-    <img src="img/cuevr/glass/challenge-layout.jpg" alt="The layout editor">
-    <figcaption>Setting the balls out. Pull the trigger near a ball to pick it up and again to put
-    it down; the panel holds the rest — save the position, take a ball off, put one back,
-    <b>START FROM A FULL RACK</b>, take them all off, or throw the changes away.</figcaption>
-  </figure>
-
-  <h3>From a code</h3>
-  <p><b>FROM A CODE</b>, on the MAKE ONE card, takes a challenge somebody has shared: type the six
-  letters and press <b>GET THE CHALLENGE</b>. It joins your cards and opens on its page. Or pick
-  one in the <a href="#gallery">gallery</a>, where players put the challenges they want others to
-  try.</p>
-
-  <div class="note">
-    <b>Challenges wait until your game is over.</b> A challenge sets out its own table, so PLAY IT,
-    MOVE THE BALLS, MAKE ONE and the timed six are shut while you are in a game, and the page says
-    so. Adding one from the gallery waits too. Getting one from a code does not change the table,
-    so you can do that any time.
-  </div>
-
-  <h3>Leaving one and coming back</h3>
-  <p>Go to Home in the middle of a challenge and it waits for you. Home names it and offers
-  <b>CONTINUE</b>, which puts you back at the table where you left it, and <b>END CHALLENGE</b>,
-  which takes you to the challenge list. Tapping <kbd>MENU</kbd> goes back to the table too.</p>
-
-  <h3>A match position</h3>
-  <p>Set out a position by hand, from a classic match or one of your own, and see how you would
-  have done. <b>MAKE ONE</b>, lay the balls out, then on its page choose <b>WIN THE FRAME</b> or
-  <b>WIN THE MATCH</b>. Two chips under the goals set it up:</p>
-  <table>
-    <tr><th>Chip</th><th>What you choose</th></tr>
-    <tr><td><b>THE MATCH</b></td><td>The opponent, the match length and the frames each.</td></tr>
-    <tr><td><b>THIS FRAME</b></td><td>The points each (in the games that score points), who is
-      to play, ball in hand, and at 8-ball whose balls are whose: open, 1 to 7 or 9 to 15.</td></tr>
-  </table>
-  <p>The rest is read off the balls: at snooker, a red is on while any are left, then the colours
-  in order. <b>MOVE THE BALLS</b> still works. <b>PLAY IT</b> puts the position on the table,
-  and it is judged at the end of the frame or the match. Share it by code like any challenge.</p>
-
-  <h3>Win from here</h3>
-  <p>Or take the position from a match you are playing against the computer. Press <b>MAKE A
-  CHALLENGE</b> on the pause panel, or on a match in SAVED MATCHES, and the balls, the score and the
-  game are kept as they stand. Choose who you play and what the score is, then WIN THE FRAME or WIN
-  THE MATCH from there.</p>
-</section>
-
-<section id="opponents">
-  <h2>Opponents</h2>
-  <p class="lede">Eight computer players. They differ in how straight they hit the ball, how much
-  they think about where the cue ball finishes, how much risk they take, and how well they get out
-  of trouble. The bars below are their actual settings.</p>
-
-  <figure>
-    <img src="img/cuevr/glass/pickopp.jpg" alt="The opponent gallery">
-    <figcaption>Step <b>3 VS</b> on the main menu opens the same cards you see below — face, name,
-    rating, style and five bars. The chips across the top switch between the computer players, a
-    game online, a career, an event and practice; SINGLES and DOUBLES pick the format.</figcaption>
-  </figure>
-
-  <div class="grid g2">
-
-    <div class="opp">
-      <img src="img/cuevr/face-rick.png" alt="Rookie Rick">
-      <div>
-        <h4>Rookie Rick</h4><div class="elo">Rating 1278 · beginner</div>
-        <p>Takes on everything and misses most of it. Hits the ball far too hard and has no idea
-        where the cue ball will finish. Start here.</p>
-        <div class="bars">
-          <span>Aiming</span><div class="bar"><span style="width:8%"></span></div>
-          <span>Power control</span><div class="bar"><span style="width:10%"></span></div>
-          <span>Position</span><div class="bar"><span style="width:4%"></span></div>
-          <span>Spin</span><div class="bar"><span style="width:30%"></span></div>
-          <span>Aggression</span><div class="bar warm"><span style="width:100%"></span></div>
-        </div>
-      </div>
-    </div>
-
-    <div class="opp">
-      <img src="img/cuevr/face-sue.png" alt="Steady Sue">
-      <div>
-        <h4>Steady Sue</h4><div class="elo">Rating 1382 · cautious</div>
-        <p>Will not take on a pot she does not fancy, and plays safe instead. You will not get many
-        free chances, but she will not punish you hard either.</p>
-        <div class="bars">
-          <span>Aiming</span><div class="bar"><span style="width:42%"></span></div>
-          <span>Power control</span><div class="bar"><span style="width:32%"></span></div>
-          <span>Position</span><div class="bar"><span style="width:40%"></span></div>
-          <span>Spin</span><div class="bar"><span style="width:50%"></span></div>
-          <span>Aggression</span><div class="bar warm"><span style="width:10%"></span></div>
-        </div>
-      </div>
-    </div>
-
-    <div class="opp">
-      <img src="img/cuevr/face-pete.png" alt="Professor Pete">
-      <div>
-        <h4>Professor Pete</h4><div class="elo">Rating 1428 · thinker</div>
-        <p>Plans properly and is good at breaking up awkward clusters, but he is not the straightest
-        potter. He will build a break if you let him.</p>
-        <div class="bars">
-          <span>Aiming</span><div class="bar"><span style="width:67%"></span></div>
-          <span>Power control</span><div class="bar"><span style="width:55%"></span></div>
-          <span>Position</span><div class="bar"><span style="width:70%"></span></div>
-          <span>Spin</span><div class="bar"><span style="width:70%"></span></div>
-          <span>Aggression</span><div class="bar warm"><span style="width:4%"></span></div>
-        </div>
-      </div>
-    </div>
-
-    <div class="opp">
-      <img src="img/cuevr/face-hank.png" alt="Hustler Hank">
-      <div>
-        <h4>Hustler Hank</h4><div class="elo">Rating 1447 · aggressive</div>
-        <p>Fast and attacking. Hits everything with pace and takes on pots other players would leave
-        alone. Streaky, and dangerous when it comes off.</p>
-        <div class="bars">
-          <span>Aiming</span><div class="bar"><span style="width:58%"></span></div>
-          <span>Power control</span><div class="bar"><span style="width:45%"></span></div>
-          <span>Position</span><div class="bar"><span style="width:20%"></span></div>
-          <span>Spin</span><div class="bar"><span style="width:60%"></span></div>
-          <span>Aggression</span><div class="bar warm"><span style="width:70%"></span></div>
-        </div>
-      </div>
-    </div>
-
-    <div class="opp">
-      <img src="img/cuevr/face-clara.png" alt="Clara CueQueen">
-      <div>
-        <h4>Clara CueQueen</h4><div class="elo">Rating 1501 · all-rounder</div>
-        <p>Accurate, balanced and hard to fault. The first opponent who will make you work for the
-        frame rather than wait for a mistake.</p>
-        <div class="bars">
-          <span>Aiming</span><div class="bar"><span style="width:79%"></span></div>
-          <span>Power control</span><div class="bar"><span style="width:64%"></span></div>
-          <span>Position</span><div class="bar"><span style="width:60%"></span></div>
-          <span>Spin</span><div class="bar"><span style="width:80%"></span></div>
-          <span>Aggression</span><div class="bar warm"><span style="width:20%"></span></div>
-        </div>
-      </div>
-    </div>
-
-    <div class="opp">
-      <img src="img/cuevr/face-dave.png" alt="Deadshot Dave">
-      <div>
-        <h4>Deadshot Dave</h4><div class="elo">Rating 1633 · potter</div>
-        <p>Pots nearly everything he looks at, from anywhere. He does not think much about the next
-        shot, so his breaks tend to end by themselves.</p>
-        <div class="bars">
-          <span>Aiming</span><div class="bar"><span style="width:92%"></span></div>
-          <span>Power control</span><div class="bar"><span style="width:77%"></span></div>
-          <span>Position</span><div class="bar"><span style="width:30%"></span></div>
-          <span>Spin</span><div class="bar"><span style="width:90%"></span></div>
-          <span>Aggression</span><div class="bar warm"><span style="width:80%"></span></div>
-        </div>
-      </div>
-    </div>
-
-    <div class="opp">
-      <img src="img/cuevr/face-nina.png" alt="Iron Nina">
-      <div>
-        <h4>Iron Nina</h4><div class="elo">Rating 1715 · the toughest</div>
-        <p>Very straight and very controlled. She plays position on every shot, breaks clusters open
-        when she needs to, and will punish a loose safety.</p>
-        <div class="bars">
-          <span>Aiming</span><div class="bar"><span style="width:98%"></span></div>
-          <span>Power control</span><div class="bar"><span style="width:86%"></span></div>
-          <span>Position</span><div class="bar"><span style="width:85%"></span></div>
-          <span>Spin</span><div class="bar"><span style="width:90%"></span></div>
-          <span>Aggression</span><div class="bar warm"><span style="width:30%"></span></div>
-        </div>
-      </div>
-    </div>
-
-    <div class="opp">
-      <img src="img/cuevr/face-machine.png" alt="The Machine">
-      <div>
-        <h4>The Machine</h4><div class="elo">Rating 1616 · no mistakes</div>
-        <p>Aims perfectly and thinks about every shot for as long as it takes. It makes centuries
-        at snooker regularly, with a best break of 134.</p>
-        <div class="bars">
-          <span>Aiming</span><div class="bar"><span style="width:100%"></span></div>
-          <span>Power control</span><div class="bar"><span style="width:100%"></span></div>
-          <span>Position</span><div class="bar"><span style="width:100%"></span></div>
-          <span>Spin</span><div class="bar"><span style="width:100%"></span></div>
-          <span>Aggression</span><div class="bar warm"><span style="width:40%"></span></div>
-        </div>
-      </div>
-    </div>
-
-  </div>
-
-  <p><b>Records</b> on the main menu keeps your results against each player, and your best breaks.
-  In the pool games it also counts your break-and-runs: frames won from your own break without the
-  other player getting to the table. In 9-ball it counts your golden breaks too.
-  They count on the <b>standard table only</b> — see <a href="#which">Which table</a>. Any of the
-  three specs still counts, because a spec is the ready-made table cut to a published size; a
-  different <em>bed shape</em>, a table you built, or an opponent's table online does not, and the
-  page tells you which one it is declining.</p>
-
-  <h3>Their own cues</h3>
-  <figure>
-    <img src="img/cuevr/ai_player_cues.png" alt="The computer players' cues">
-    <figcaption>Each player plays with a cue made for them, in singles, doubles and Killer: Rick's
-    surf colours, Sue's studs and spikes, Hank's old hand splice, Pete's library, Clara's crown,
-    Dave's trench coat and one cyan eye, Nina's lace and pearls, and the Machine's circuit
-    bands.</figcaption>
-  </figure>
-
-  <h3>At the table with you</h3>
-  <figure>
-    <img src="img/cuevr/ai_standing.jpg" alt="A computer player waiting with their cue">
-    <figcaption>While it is your shot, they stand back from the table on the side away from you,
-    holding their cue upright.</figcaption>
-  </figure>
-  <p>At their shot they walk round the outside of the table to it, get down on it, and stay down
-  a moment after the stroke. After a pot they step back with the cue held ready and carry it round
-  to the next shot; after a miss or a safety they stand it upright again and go back to their
-  place. In doubles, teams and Killer you see one computer player's cue at a time: the one at the
-  table, or while you are playing, the one who plays next.</p>
-  <p><b>Settings &rarr; Opponents &rarr; THEIR CUES BETWEEN SHOTS</b> turns this off: HIDDEN shows a
-  computer player's cue only while it is down on the shot.</p>
-
-    <figure class="glass"><a href="img/cuevr/glass/settings-opponents.jpg"><img src="img/cuevr/glass/settings-opponents.jpg" alt="Settings, Opponents" loading="lazy"></a>
-    <figcaption><b>Opponents</b>: whether the computer players stand back from the table holding
-    their cues between shots, and whether you see other players' headsets and hands
-    online.</figcaption></figure>
-
-<h3 id="doubles">Doubles and Killer</h3>
-  <figure>
-    <img src="img/cuevr/glass/pickopp-doubles.jpg" alt="Doubles against the computer">
-    <figcaption><b>DOUBLES</b> beside SINGLES on step 3 VS: you and a partner against two, taking a
-    stroke each in turn. Pick each place, then the player for it; <b>YOU WATCH</b> puts the
-    computer in your place too.</figcaption>
-  </figure>
-  <p>After a foul, <b>PLAY AGAIN</b> puts the player who fouled back at the table. On a Killer
-  game, step 3 VS has a <b>PLAYERS</b> row instead, from 2 to 8, and a pick for each player. The
-  order of play is drawn, and the scoreboard shows everyone's lives.</p>
-
-  <h3>How they play</h3>
-  <p>They aim at the real opening the cushion noses leave rather than at a line through the middle
-  of the pocket, and on a cut they err towards the far jaw, which is the safer side to be wrong on.
-  Given ball in hand they work back from the shots the position offers, and they always leave
-  themselves able to reach the ball on.</p>
-  <p>They play the newer games too. English billiards has its own planner, since a <b>cannon</b> is
-  the commonest scoring stroke there and it pockets nothing, while an in-off scores here and fouls
-  everywhere else. Bar billiards has one as well: it plays in-offs, plants, contacts at five
-  thicknesses and one-cushion shots around a skittle, and it will not risk the black skittle.</p>
-  <p><b>They break off at snooker the way a snooker player does.</b> Thin on the outside red with a
-  touch of side and a little top, off the top cushion, back down between the pink and the blue and
-  into baulk — on any of the three snooker table sizes. How close they get to it is their skill:
-  the stronger players land it, and the weaker ones catch the red too thick or too thin and finish
-  short of baulk, which is a break-off you can do something with.</p>
-  <div class="note warn">
-    <b>Two things to know.</b> On <b>Russian pyramid</b> the opponent plays properly but rarely
-    reaches eight balls, so treat a pyramid frame as practice. At <b>bar billiards</b> it is very
-    strong: the black skittle only screens the 200 from a ball coming straight up the table, so the
-    opponent scores the 200 from the side.
-  </div>
-
-  <div class="note">
-    <b>What the bars mean.</b> <b>Aiming</b> is how close to the intended line they hit the ball.
-    <b>Power control</b> is how accurately they judge the weight of a shot. <b>Position</b> is how
-    much they play for the next ball rather than just the current one. <b>Spin</b> is how much
-    backspin and topspin they are willing to use. <b>Aggression</b> is how likely they are to take a pot on
-    instead of playing safe.
-  </div>
-
-</section>
-
-<section id="rules">
-  <h2>Rules and the referee</h2>
-  <p class="lede">The rules are enforced for you, and called out loud. You do not have to keep
-  score or remember what is on.</p>
-
-  <figure>
-    <img src="img/cuevr/glass/board-scoreboard.jpg" alt="The scoreboard above the table">
-    <figcaption>The scoreboard. Both players with their scores on the right, a yellow bar against
-    whoever is at the table, what is on, the points still available, and the balls left to pot. The
-    balls along the foot are the set you are playing with, drawn as they are on the cloth — so a
-    glance at the board tells you which reds are left in the colours you are looking
-    at.</figcaption>
-  </figure>
-
-  <p><b>The top line says which game this is</b>, and which rule set it is being played under —
-  UK 8-BALL and BLACKBALL, SNOOKER and MISS: PRO, BILLIARDS GOLF and 18 HOLES - MATCHPLAY. It used
-  to say POOL, which is true of thirty of the thirty-two games, and the rule set appeared nowhere
-  once you had left the menu.</p>
-
-  <p>At snooker that includes reds and colours in the right order, colours going back on their
-  spots, free balls after a foul, called misses, and the final clearance from yellow to black. At
-  the pool games it includes your group, the two-shot carry at UK 8-ball, and the push-out at
-  9-ball. Elsewhere it includes cannons and in-offs at English billiards, the called ball at
-  straight pool, the cushions counted before the second ball at carom, and the skittles and the
-  clock at bar billiards.</p>
-
-  <h3>The break has to do something</h3>
-  <p>Every rule book legislates for the player who taps the pack and leaves it standing, and
-  they do not agree on how. CueVR asks what each game's own book asks:</p>
-  <table>
-    <tr><th>Game</th><th>A legal break</th><th>If you fail it</th></tr>
-    <tr><td><b>UK 8-ball</b> — pub</td><td>Nothing is asked.</td><td>—</td></tr>
-    <tr><td><span class="cap-t">INTERNATIONAL</span></td><td>Pot a ball, or four object balls to
-      a cushion.</td><td>Re-rack, opponent breaks.</td></tr>
-    <tr><td><span class="cap-t">ULTIMATE POOL</span></td><td><b>Three points</b>: one a ball
-      potted, one a ball left wholly past the middle-pocket line.</td><td>Re-rack.</td></tr>
-    <tr><td><span class="cap-t">BLACKBALL</span></td><td>Pot a ball, or <b>two</b> object balls
-      across the line between the middle pockets. No cushion test at all.</td><td>Foul — your
-      opponent gets a free shot.</td></tr>
-    <tr><td><b>US 8-ball</b>, <b>Chinese 8-ball</b></td><td>Pot a ball, or four object balls to a
-      cushion.</td><td>Not a foul: re-rack and your opponent breaks.</td></tr>
-    <tr><td><b>9-ball</b>, <b>10-ball</b></td><td>Hit the 1 first, and pot a ball or drive four
-      object balls to a cushion.</td><td>Foul — ball in hand.</td></tr>
-    <tr><td><b>Straight pool</b></td><td>Pot the called ball, or drive two object balls
-      <em>and the cue ball</em> to a cushion. Both.</td><td><b>Two</b> points off, not the usual
-      one.</td></tr>
-    <tr><td><b>Rotation, Filipino, 15-ball</b></td><td>Pot a ball, or four object balls to a
-      cushion.</td><td>Foul.</td></tr>
-    <tr><td><b>Bank pool</b></td><td>Pot a ball, or four object balls to a cushion.</td>
-      <td>You owe a ball.</td></tr>
-    <tr><td><b>One pocket</b></td><td>Pot a ball, or send <b>one</b> object ball or the cue ball
-      to a cushion.</td><td>You owe a ball.</td></tr>
-  </table>
-  <div class="note">
-    <b>One pocket's is deliberately the weakest.</b> A one pocket break is meant to be soft — it
-    moves almost nothing, and that is the whole character of the game. The four-ball rule the
-    eight-balls use would foul nearly every legitimate break in it.
-  </div>
-
-  <h3>The rules of the game you are playing</h3>
-  <p>The referee is exact and it is silent: it will foul you for something you did not know was a
-  foul, and until now the only place to look it up was this page, on a screen you are not wearing.
-  So every game carries its own <b>short rule book</b>. Press <kbd>MENU</kbd> and choose
-  <b>RULES OF THIS GAME</b>, and there it is — what you are trying to do, how you score, what a
-  foul costs and how the frame ends. Snooker, one pocket and bank pool run past a page: hold the
-  trigger on it and drag to scroll. The thumbstick still moves the table.</p>
-  <p><b>It is the rules of the frame in front of you, not of the family it belongs to.</b> The
-  variant is named under the title and only its rules are printed: choose PUB and it tells you
-  about two shots, choose BLACKBALL and it tells you about the free shot, the jump foul and the
-  sixty-second clock. It never lists four rule sets and leaves you to work out which one you are
-  on.</p>
-
-  <p>Hold <kbd>X</kbd> at any point and the board is replaced by a <b>live photograph of the table
-  from above</b>, for as long as you hold it.</p>
-
-  <figure>
-    <img src="img/cuevr/table-above.png" alt="The table seen from directly above">
-    <figcaption>What the board shows while you hold <kbd>X</kbd>: the whole table from directly
-    above, balls and all, updating as they move.</figcaption>
-  </figure>
-
-  <div class="note">
-    <b>The ball you cued is the ball you struck.</b> Nothing lifts or steers your cue onto the
-    white for you, so if another ball is standing on the line, your tip reaches that one first and
-    that is the ball you have played. It is a foul, charged in each game's own currency: four away
-    at snooker, two at billiards, ball in hand at 9-ball and pyramid, minus two at straight pool,
-    the turn at UK 8-ball, your break at bar billiards. Anything the wrong ball knocked in stays
-    potted.
-  </div>
-
-  <div class="note">
-    <b>A cushion can snooker you.</b> On a rectangle only balls can get in the way. On an L-shaped
-    or many-sided bed you can be laid behind the elbow, so anything the cue ball cannot pass
-    through counts as a snooker.
-  </div>
-
-    <div class="grid g2">
-  <figure><a href="img/cuevr/glass/board-rules.jpg"><img src="img/cuevr/glass/board-rules.jpg" alt="The rules of this game" loading="lazy"></a><figcaption><b>RULES OF THIS GAME</b>, on the scoreboard, from the pause menu.</figcaption></figure>
-  </div>
-
-<h3 id="rules-clock">Playing against the clock</h3>
-  <p>Some rule sets are timed. The shot clock starts when the table becomes yours and runs while
-  you line up; the scoreboard counts it down, it turns amber under ten seconds and red under
-  five, and each of the last five seconds beeps. When it runs out you hear a klaxon and the board
-  says <b>OUT OF TIME</b>. Online, a menu does not stop it: you cannot pause your opponent's
-  clock from your headset.</p>
-  <table class="stack">
-    <tr><th>Rule set</th><th>The clock</th><th>Out of time</th></tr>
-    <tr><td>UK 8-ball, <b>ULTIMATE POOL</b></td><td>30 seconds a shot, and a match clock of four
-      minutes for each frame needed to win.</td><td>A foul: ball in hand.</td></tr>
-    <tr><td>UK 8-ball, <b>BLACKBALL (WPA)</b></td><td>60 seconds a shot.</td><td>A foul.</td></tr>
-    <tr><td>9-ball, <b>SHOT CLOCK</b></td><td>30 seconds a shot, 60 for the first shot after the
-      break and for a push-out and the shot after it. Once a rack each player has a 30 second
-      <b>extension</b>: when your shot's time is up the clock runs on into it by itself, the board
-      counts it down after <b>EXT</b>, and it says <b>EXTENSION: 30 SECONDS</b> with a beep.</td><td>A foul: ball in
-      hand.</td></tr>
-    <tr><td>Snooker, <b>SHOOTOUT</b></td><td>A ten-minute frame; 15 seconds a shot, 10 in the
-      last five minutes.</td><td>A foul.</td></tr>
-    <tr><td>Snooker, <b>THE 900</b></td><td>A fifteen-minute frame; 20 seconds a shot.</td><td>A
-      foul.</td></tr>
-    <tr><td>English billiards against the clock</td><td>5, 10, 15 or 30 minutes, and 60 seconds a
-      shot.</td><td>The turn passes, with no score and no foul.</td></tr>
-  </table>
-  <p>Online, only the player at the table can run out of time, and only their game calls the end
-  of a timed frame; the other player's game takes it from theirs, so both always agree on the
-  result.</p>
-
-  <h3>When your opponent fouls</h3>
-  <p>You are asked what you want to do. You can play on from where the balls have finished, or make
-  your opponent play the shot again. If a miss was called and the table can be put back as it was,
-  that is offered too. The referee announces what you chose.</p>
-
-    <div class="grid g2">
-  <figure><a href="img/cuevr/glass/decide-foul.jpg"><img src="img/cuevr/glass/decide-foul.jpg" alt="Opponent fouled" loading="lazy"></a>
-    <figcaption><b>Opponent fouled</b>: take the shot from where the balls lie, or make them
-    play again. Snooker adds <b>FREE BALL</b> and the replay after a miss.</figcaption></figure>
-  </div>
-
-<h3>Foul and a miss</h3>
-  <p>In the snooker games, failing to hit the ball on is always a foul — but whether it is also
-  called a <b>miss</b> depends on the effort you made, exactly as a real referee judges it.</p>
-  <p><b>Where to set it.</b> The <b>RULES</b> row on the snooker games. It has three strictnesses,
-  and it can be turned off, in which case there is no judgement at all and every failure to hit the
-  ball on is a miss, as it always was before the rule existed.</p>
-  <table>
-    <tr><td><b>MISS: AMATEUR</b></td><td>A genuine try is enough — within about three ball widths,
-      with most of the pace to get there.</td></tr>
-    <tr><td><b>MISS: CLUB</b></td><td>The default. Within a ball and a half, at nearly full
-      pace.</td></tr>
-    <tr><td><b>MISS: PRO</b></td><td>As on television: almost every failure is called. Within about
-      a third of a ball, and the cue ball must have had the pace to pass the ball on.</td></tr>
-  </table>
-
-  <p><b>How the referee decides.</b> He judges the stroke against the ball you came
-  <b>nearest</b> to, not against every legal ball on the table — a stroke aimed at one red is not
-  marked down for the fourteen it ignored. Two things then settle it:</p>
-  <table>
-    <tr><td><b>How close you came</b></td><td>Measured in ball widths — roughly three balls at
-      AMATEUR, a ball and a half at CLUB, a third of a ball at PRO.</td></tr>
-    <tr><td><b>Whether it was a real attempt</b></td><td>How far the cue ball travelled against how
-      far it had to go. A dribble that stops short is a miss however well aimed it was.</td></tr>
-  </table>
-  <p>Two allowances are made on top of that, because a referee makes them. You get <b>three times
-  the room</b> when you were snookered — an escape off three cushions that finishes a ball's width
-  away is a good attempt by anybody's reckoning — and more room the longer the shot, so nobody is
-  called for drift on a twelve-foot roll that the same drift on a tap from a foot away would be
-  called for. Three called misses in a row lose the frame — but only ones you were not snookered
-  for: an attempt the referee accepted, or a miss played from a snooker, does not count towards
-  the three, and a single accepted attempt clears the tally.</p>
-
-  <p>The same row has two more stops, <b>SHOOTOUT</b> and <b>THE 900</b>. They <b>replace</b> the
-  miss rule rather than sitting beside it: each is a different frame altogether, played against a
-  clock — see <a href="#games">The games</a>.</p>
-
-  <h3>Calling a pocket</h3>
-  <p>To call a shot is to say, before you play it, which ball you are potting and where it is
-  going. Four games can ask for it.</p>
-
-  <div class="note">
-    <b>Most of the time you say nothing at all.</b> When the pot in front of you is the obvious one,
-    the game calls it for you and you simply play the shot. That is how it behaves already;
-    it is not a setting and there is nothing to switch on. You only ever have to do anything on the
-    strokes that are genuinely ambiguous — which is what stops a call-shot game turning into
-    paperwork.
-  </div>
-
-  <p><b>Where you set it</b> is the <b>RULES</b> row on the main menu, and each game words it its
-  own way:</p>
-  <table>
-    <tr><td><b>Straight pool</b></td><td><b>CALL THE BALL</b>, the default, wants the ball only, and
-      it may go down any pocket. <b>CALL BALL AND POCKET</b> wants both — nothing counts unless it
-      was declared first, and that is the real game.</td></tr>
-    <tr><td><b>10-ball</b></td><td><b>CALL SHOT (WPA)</b>. Every stroke is called; the break is not.</td></tr>
-    <tr><td><b>US 8-ball</b></td><td><b>CALL THE BLACK</b> asks only for the last one, which is how most
-      people play. <b>CALL SHOT (WPA)</b> asks for every stroke, which is how the rule book has
-      it.</td></tr>
-    <tr><td><b>Chinese 8-ball</b></td><td>The same two, with <b>CALL SHOT (CBSA)</b> for the tournament
-      reading.</td></tr>
-  </table>
-
-  <figure>
-    <img src="img/cuevr/call-pockets.png" alt="A called pocket, its lamp lit green in the timber">
-    <figcaption>A small lamp is set into the timber beside every pocket. This one is solid green:
-    that pocket has been called.</figcaption>
-  </figure>
-
-  <p><b>What the lamps mean.</b> There is one behind each pocket:</p>
-  <table>
-    <tr><td><b>Flashing green</b></td><td>The game's own call. It has picked this pocket for you;
-      play the shot and it stands.</td></tr>
-    <tr><td><b>Solid green</b></td><td>A pocket <em>you</em> declared.</td></tr>
-    <tr><td><b>Red</b></td><td>A call is owed on this stroke, and this is not the pocket it is
-      on.</td></tr>
-    <tr><td><b>Amber, filling up</b></td><td>The pocket you are looking at now, filling as the dwell
-      runs. Let it fill and it is called.</td></tr>
-    <tr><td><b>Grey</b></td><td>Nothing needs calling this stroke.</td></tr>
-  </table>
-  <p>The called ball gets a <b>chalk ring</b> on the cloth as well, so one glance tells you both
-  halves of what is booked. <b>Nothing is ever called on the break</b>, and the scoreboard says
-  <b>NO CALL NEEDED</b> so you are not left wondering.</p>
-
-  <p><b>Overruling the game's choice</b> — or making the call yourself when the shot is ambiguous —
-  is the <b>CALL A POCKET</b> row on CONTROLS, and there are three ways to do it:</p>
-  <table>
-    <tr><td><b>LOOK + TRIGGER</b></td><td>Hold the trigger on your free hand, look at a ball or a
-      pocket, and release to call it.</td></tr>
-    <tr><td><b>LOOK, STOOD UP</b></td><td>Look and hold, no trigger. It only listens while you are
-      stood up off the shot, so looking around while you are down on the ball changes
-      nothing.</td></tr>
-    <tr><td><b>POINT + TRIGGER</b></td><td>A laser from your free hand — or from the cue itself,
-      if you have a real cue attached.</td></tr>
-  </table>
-  <p>The computer players call their pockets too, from the plan they actually made, and you see
-  their call light up while their shot is still rolling.</p>
-
-  <h3>Calling the break</h3>
-  <p>At snooker, English billiards, Sinuca Brasileira, carom and straight pool the referee calls
-  your break as you build it: the running total after each scoring shot.</p>
-
-  <h3>Turning the referee off</h3>
-  <p><b>Settings &rarr; Sound &rarr; REFEREE</b> sets a female voice, a male voice, or no voice at
-  all. The scoreboard stays either way.</p>
-
-  <h3>When the match is over</h3>
-  <p>After every frame and every match a page of figures comes up, laid out the way the TV
-  graphics show them: your figure, what it is, your opponent's. Pot success, long pots, pots off
-  the rest, safety success, breaks of 20, 30, 50 and 100, average break, table time and fouls,
-  then the best break of the match by each of you, shown as the balls themselves in the order they
-  went down. In a match, the break alternates from frame to frame unless the rule set is
-  <b>WINNER BREAKS</b> (9-ball and 10-ball), where the winner of each frame breaks the next.</p>
-
-  <div class="shots">
-    <figure class="shot"><a href="img/cuevr/glass/over-match.jpg"><img src="img/cuevr/glass/over-match.jpg" alt="The end-of-match figures" loading="lazy"></a><span class="lab">Records</span><figcaption>The end of a match. The same figures are kept in <b>Records</b>, so a match you
-    played last week is still there.</figcaption></figure>
-    <figure class="shot"><a href="img/cuevr/glass/pause-stats.jpg"><img src="img/cuevr/glass/pause-stats.jpg" alt="Match stats" loading="lazy"></a><span class="lab">MATCH STATS</span><figcaption><b>MATCH STATS</b>, from the pause menu: the frame so far, your figures on the
-    left and your opponent's on the right, and the best break of each. <b>BACK TO THE MATCH</b>
-    returns to the pause menu.</figcaption></figure>
-  </div>
-  
 
 </section>
 
@@ -3142,6 +1934,641 @@
   out, and <b>billiards golf</b> ends when the round does.</p>
 </section>
 
+<section id="challenges">
+  <h2>Practice and challenges</h2>
+  <p class="lede">Two ways to play without an opponent.</p>
+
+  <p><b>Free practice</b> gives you the table on your own with no rules and no scoring. Put the
+  balls wherever you like and hit them.</p>
+
+  <div class="note">
+    <b>Breaks are still counted at snooker.</b> Practice has no rules, but it does keep your break:
+    pot in the right order and the total climbs on the scoreboard and the referee calls it as he
+    would in a frame — a red, then a colour, then a red, and once the reds are gone one colour of
+    your choice and then the colours in order. Anything else ends it: two reds in two shots is two
+    pots and not a break of two. Miss, go in-off, or pot out of turn and the referee says
+    "end of break" and the count starts again from zero. Nothing is judged and nothing is
+    penalised, so you can practise a break and still know what you built.
+  </div>
+
+  <div class="note">
+    <b>And you can play a clearance.</b> <b>AUTO RESPOT</b> keeps the colours on the table while
+    you practise, so you never run out of things to take after a red. Once the reds are gone it
+    stops: the colour after the last red goes back up as it would in a frame, and from there the
+    colours stay down and you can clear the table. Turn it off and practice follows the frame
+    rules throughout.
+  </div>
+
+    <div class="shots">
+    <figure class="shot"><a href="img/cuevr/glass/vs-practice.jpg"><img src="img/cuevr/glass/vs-practice.jpg" alt="The Practice tab" loading="lazy"></a><span class="lab">Practice</span><figcaption><b>Practice</b>: <b>PRACTISE</b> gives you a free table where nothing counts and
+    <kbd>B</kbd> takes a shot back. <b>CHALLENGES</b> opens the challenges.</figcaption></figure>
+    <figure class="shot"><a href="img/cuevr/glass/pause-practice.jpg"><img src="img/cuevr/glass/pause-practice.jpg" alt="The pause menu in practice" loading="lazy"></a><span class="lab">The pause menu in practice</span><figcaption><b>The pause menu in practice.</b> Two more rows: <b>PRACTICE</b> (<b>Move the
+    balls</b>, <b>Timed six</b>, <b>Challenges</b> and <b>Show the shot off</b>) and
+    <b>TARGET</b> (<b>Target on</b>, and <b>Auto set position target</b>).</figcaption></figure>
+    <figure class="shot"><a href="img/cuevr/glass/challenges.jpg"><img src="img/cuevr/glass/challenges.jpg" alt="The challenges" loading="lazy"></a><span class="lab">CHALLENGES</span><figcaption><b>CHALLENGES</b>: the <b>TIMED SIX</b>, <b>FROM A CODE</b> (one somebody has
+    shared), <b>MAKE ONE</b>, and every challenge you have kept, each with its best result.
+    <b>DELETE</b> sits on your own. <b>GALLERY</b> beside the title has other players'.</figcaption></figure>
+  </div>
+  
+
+  
+
+  <h3 id="target">The target</h3>
+  <p>A chalk bullseye on the cloth to play the cue ball to: a <b>50</b> in the middle, then
+  <b>20</b> and <b>10</b> rings, 26 cm across. Tap <kbd>MENU</kbd> in practice or a challenge and
+  choose <b>Target on</b>; it is chalked where you last left it. <b>Move the target</b> puts it in
+  your free hand, the same as a ball in hand: take it anywhere on the table and pull the trigger to
+  put it down. <b>Target off</b> rubs it out.</p>
+  <p>When the cue ball comes to rest inside the target, the ring it stopped in &mdash; the 50, the
+  20 or the 10 &mdash; lights up. It goes out as soon as the cue ball moves again or you move the
+  target.</p>
+  <p>A challenge can have its own target. In the layout editor, <b>PUT THE TARGET ON</b>, then pull
+  the trigger near it to pick it up and carry it like a ball. It is saved with the challenge and
+  chalked on the table whenever the challenge is played; your practice target comes back when the
+  challenge ends.</p>
+
+  <figure>
+    <img src="img/cuevr/practice-target.png" alt="The practice target chalked on a snooker table">
+    <figcaption>The target, chalked on the cloth between the blue and the pink.</figcaption>
+  </figure>
+
+  <p><b>Challenges</b> set you a goal on a fixed layout: a position to play from, a ball to pot, a
+  score to reach or a table to clear. Each one is judged over a single visit, so a miss ends the
+  attempt and you start again.</p>
+
+  <p><b>VS &rarr; Challenge</b> on the main menu opens them as a page of cards; in free practice
+  they are a chip on the pause menu. Each card is a picture of the layout with its name, what it asks and your best
+  result underneath. Point at one and pull the trigger to open it. The first two cards are always
+  there: <b>THE TIMED SIX</b>, six reds against the clock, and <b>MAKE ONE</b>. You can keep
+  thirty-two challenges of your own.</p>
+
+  <h3>A challenge's page</h3>
+  <figure>
+    <img src="img/cuevr/glass/challenge-page.jpg" alt="A challenge's page">
+    <figcaption>A challenge's page. <b>PLAY IT</b> starts it, <b>MOVE THE BALLS</b> opens the
+    layout, <b>SHARE</b> gives its code. On the right, what it asks and which balls count.</figcaption>
+  </figure>
+  <table>
+    <tr><th>Row</th><th>What it does</th></tr>
+    <tr><td><b>NAME</b></td><td>Opens a keyboard. Type a name and press <b>KEEP IT</b>;
+      <b>SUGGEST</b> starts you from a description of what it asks. A challenge with no name is
+      described that way on its card, such as <span class="cap-t">POT THE 1 TO THE 4 - US
+      8-BALL</span>.</td></tr>
+    <tr><td><b>WHAT IT ASKS</b></td><td><b>JUST THE POSITION</b> (play on from here, nothing is
+      judged), <b>POT A BALL</b>, <b>SCORE</b> or <b>CLEAR THE TABLE</b>.</td></tr>
+    <tr><td><b>No clock</b> / <b>Against the clock</b></td><td>Whether it is timed.</td></tr>
+    <tr><td>The target</td><td>If the challenge has <a href="#target">a target</a>, it can also
+      ask the cue ball to finish inside the 50, the 20 or the 10.</td></tr>
+    <tr><td><b>WHICH BALLS</b></td><td>For POT A BALL, the balls to pot. Pick more than one and
+      all of them have to go down in the visit.</td></tr>
+    <tr><td><b>SHARE</b></td><td>Gives a six-letter code for it. See
+      <a href="#gallery">Sharing and the gallery</a>.</td></tr>
+    <tr><td><b>DELETE</b></td><td>Throws it away. Press it twice.</td></tr>
+  </table>
+
+  <figure>
+    <img src="img/cuevr/chal-name.jpg" alt="Naming a challenge">
+    <figcaption>Naming a challenge. <b>SUGGEST</b> fills the box with what it asks, so a name is
+    an edit rather than typing from nothing.</figcaption>
+  </figure>
+
+  <h3>Making your own</h3>
+  <p><b>MAKE ONE</b>, or <b>Workshop &rarr; Challenge</b>, opens the layout editor with the balls
+  <b>as they are on the table</b>. So the
+  quickest way to make a challenge is to set a position up in practice, or stop at one you keep
+  getting wrong, and press MAKE ONE. A table with no balls on it starts from a full rack.</p>
+
+  <figure>
+    <img src="img/cuevr/glass/challenge-layout.jpg" alt="The layout editor">
+    <figcaption>Setting the balls out. Pull the trigger near a ball to pick it up and again to put
+    it down; the panel holds the rest — save the position, take a ball off, put one back,
+    <b>START FROM A FULL RACK</b>, take them all off, or throw the changes away.</figcaption>
+  </figure>
+
+  <h3>From a code</h3>
+  <p><b>FROM A CODE</b>, on the MAKE ONE card, takes a challenge somebody has shared: type the six
+  letters and press <b>GET THE CHALLENGE</b>. It joins your cards and opens on its page. Or pick
+  one in the <a href="#gallery">gallery</a>, where players put the challenges they want others to
+  try.</p>
+
+  <div class="note">
+    <b>Challenges wait until your game is over.</b> A challenge sets out its own table, so PLAY IT,
+    MOVE THE BALLS, MAKE ONE and the timed six are shut while you are in a game, and the page says
+    so. Adding one from the gallery waits too. Getting one from a code does not change the table,
+    so you can do that any time.
+  </div>
+
+  <h3>Leaving one and coming back</h3>
+  <p>Go to Home in the middle of a challenge and it waits for you. Home names it and offers
+  <b>CONTINUE</b>, which puts you back at the table where you left it, and <b>END CHALLENGE</b>,
+  which takes you to the challenge list. Tapping <kbd>MENU</kbd> goes back to the table too.</p>
+
+  <h3>A match position</h3>
+  <p>Set out a position by hand, from a classic match or one of your own, and see how you would
+  have done. <b>MAKE ONE</b>, lay the balls out, then on its page choose <b>WIN THE FRAME</b> or
+  <b>WIN THE MATCH</b>. Two chips under the goals set it up:</p>
+  <table>
+    <tr><th>Chip</th><th>What you choose</th></tr>
+    <tr><td><b>THE MATCH</b></td><td>The opponent, the match length and the frames each.</td></tr>
+    <tr><td><b>THIS FRAME</b></td><td>The points each (in the games that score points), who is
+      to play, ball in hand, and at 8-ball whose balls are whose: open, 1 to 7 or 9 to 15.</td></tr>
+  </table>
+  <p>The rest is read off the balls: at snooker, a red is on while any are left, then the colours
+  in order. <b>MOVE THE BALLS</b> still works. <b>PLAY IT</b> puts the position on the table,
+  and it is judged at the end of the frame or the match. Share it by code like any challenge.</p>
+
+  <h3>Win from here</h3>
+  <p>Or take the position from a match you are playing against the computer. Press <b>MAKE A
+  CHALLENGE</b> on the pause panel, or on a match in SAVED MATCHES, and the balls, the score and the
+  game are kept as they stand. Choose who you play and what the score is, then WIN THE FRAME or WIN
+  THE MATCH from there.</p>
+</section>
+
+<section id="opponents">
+  <h2>Opponents</h2>
+  <p class="lede">Eight computer players. They differ in how straight they hit the ball, how much
+  they think about where the cue ball finishes, how much risk they take, and how well they get out
+  of trouble. The bars below are their actual settings.</p>
+
+  <figure>
+    <img src="img/cuevr/glass/pickopp.jpg" alt="The opponent gallery">
+    <figcaption>Step <b>3 VS</b> on the main menu opens the same cards you see below — face, name,
+    rating, style and five bars. The chips across the top switch between the computer players, a
+    game online, a career, an event and practice; SINGLES and DOUBLES pick the format.</figcaption>
+  </figure>
+
+  <div class="grid g2">
+
+    <div class="opp">
+      <img src="img/cuevr/face-rick.png" alt="Rookie Rick">
+      <div>
+        <h4>Rookie Rick</h4><div class="elo">Rating 1278 · beginner</div>
+        <p>Takes on everything and misses most of it. Hits the ball far too hard and has no idea
+        where the cue ball will finish. Start here.</p>
+        <div class="bars">
+          <span>Aiming</span><div class="bar"><span style="width:8%"></span></div>
+          <span>Power control</span><div class="bar"><span style="width:10%"></span></div>
+          <span>Position</span><div class="bar"><span style="width:4%"></span></div>
+          <span>Spin</span><div class="bar"><span style="width:30%"></span></div>
+          <span>Aggression</span><div class="bar warm"><span style="width:100%"></span></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="opp">
+      <img src="img/cuevr/face-sue.png" alt="Steady Sue">
+      <div>
+        <h4>Steady Sue</h4><div class="elo">Rating 1382 · cautious</div>
+        <p>Will not take on a pot she does not fancy, and plays safe instead. You will not get many
+        free chances, but she will not punish you hard either.</p>
+        <div class="bars">
+          <span>Aiming</span><div class="bar"><span style="width:42%"></span></div>
+          <span>Power control</span><div class="bar"><span style="width:32%"></span></div>
+          <span>Position</span><div class="bar"><span style="width:40%"></span></div>
+          <span>Spin</span><div class="bar"><span style="width:50%"></span></div>
+          <span>Aggression</span><div class="bar warm"><span style="width:10%"></span></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="opp">
+      <img src="img/cuevr/face-pete.png" alt="Professor Pete">
+      <div>
+        <h4>Professor Pete</h4><div class="elo">Rating 1428 · thinker</div>
+        <p>Plans properly and is good at breaking up awkward clusters, but he is not the straightest
+        potter. He will build a break if you let him.</p>
+        <div class="bars">
+          <span>Aiming</span><div class="bar"><span style="width:67%"></span></div>
+          <span>Power control</span><div class="bar"><span style="width:55%"></span></div>
+          <span>Position</span><div class="bar"><span style="width:70%"></span></div>
+          <span>Spin</span><div class="bar"><span style="width:70%"></span></div>
+          <span>Aggression</span><div class="bar warm"><span style="width:4%"></span></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="opp">
+      <img src="img/cuevr/face-hank.png" alt="Hustler Hank">
+      <div>
+        <h4>Hustler Hank</h4><div class="elo">Rating 1447 · aggressive</div>
+        <p>Fast and attacking. Hits everything with pace and takes on pots other players would leave
+        alone. Streaky, and dangerous when it comes off.</p>
+        <div class="bars">
+          <span>Aiming</span><div class="bar"><span style="width:58%"></span></div>
+          <span>Power control</span><div class="bar"><span style="width:45%"></span></div>
+          <span>Position</span><div class="bar"><span style="width:20%"></span></div>
+          <span>Spin</span><div class="bar"><span style="width:60%"></span></div>
+          <span>Aggression</span><div class="bar warm"><span style="width:70%"></span></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="opp">
+      <img src="img/cuevr/face-clara.png" alt="Clara CueQueen">
+      <div>
+        <h4>Clara CueQueen</h4><div class="elo">Rating 1501 · all-rounder</div>
+        <p>Accurate, balanced and hard to fault. The first opponent who will make you work for the
+        frame rather than wait for a mistake.</p>
+        <div class="bars">
+          <span>Aiming</span><div class="bar"><span style="width:79%"></span></div>
+          <span>Power control</span><div class="bar"><span style="width:64%"></span></div>
+          <span>Position</span><div class="bar"><span style="width:60%"></span></div>
+          <span>Spin</span><div class="bar"><span style="width:80%"></span></div>
+          <span>Aggression</span><div class="bar warm"><span style="width:20%"></span></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="opp">
+      <img src="img/cuevr/face-dave.png" alt="Deadshot Dave">
+      <div>
+        <h4>Deadshot Dave</h4><div class="elo">Rating 1633 · potter</div>
+        <p>Pots nearly everything he looks at, from anywhere. He does not think much about the next
+        shot, so his breaks tend to end by themselves.</p>
+        <div class="bars">
+          <span>Aiming</span><div class="bar"><span style="width:92%"></span></div>
+          <span>Power control</span><div class="bar"><span style="width:77%"></span></div>
+          <span>Position</span><div class="bar"><span style="width:30%"></span></div>
+          <span>Spin</span><div class="bar"><span style="width:90%"></span></div>
+          <span>Aggression</span><div class="bar warm"><span style="width:80%"></span></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="opp">
+      <img src="img/cuevr/face-nina.png" alt="Iron Nina">
+      <div>
+        <h4>Iron Nina</h4><div class="elo">Rating 1715 · the toughest</div>
+        <p>Very straight and very controlled. She plays position on every shot, breaks clusters open
+        when she needs to, and will punish a loose safety.</p>
+        <div class="bars">
+          <span>Aiming</span><div class="bar"><span style="width:98%"></span></div>
+          <span>Power control</span><div class="bar"><span style="width:86%"></span></div>
+          <span>Position</span><div class="bar"><span style="width:85%"></span></div>
+          <span>Spin</span><div class="bar"><span style="width:90%"></span></div>
+          <span>Aggression</span><div class="bar warm"><span style="width:30%"></span></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="opp">
+      <img src="img/cuevr/face-machine.png" alt="The Machine">
+      <div>
+        <h4>The Machine</h4><div class="elo">Rating 1616 · no mistakes</div>
+        <p>Aims perfectly and thinks about every shot for as long as it takes. It makes centuries
+        at snooker regularly, with a best break of 134.</p>
+        <div class="bars">
+          <span>Aiming</span><div class="bar"><span style="width:100%"></span></div>
+          <span>Power control</span><div class="bar"><span style="width:100%"></span></div>
+          <span>Position</span><div class="bar"><span style="width:100%"></span></div>
+          <span>Spin</span><div class="bar"><span style="width:100%"></span></div>
+          <span>Aggression</span><div class="bar warm"><span style="width:40%"></span></div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <p><b>Records</b> on the main menu keeps your results against each player, and your best breaks.
+  In the pool games it also counts your break-and-runs: frames won from your own break without the
+  other player getting to the table. In 9-ball it counts your golden breaks too.
+  They count on the <b>standard table only</b> — see <a href="#which">Which table</a>. Any of the
+  three specs still counts, because a spec is the ready-made table cut to a published size; a
+  different <em>bed shape</em>, a table you built, or an opponent's table online does not, and the
+  page tells you which one it is declining.</p>
+
+  <h3>Their own cues</h3>
+  <figure>
+    <img src="img/cuevr/ai_player_cues.png" alt="The computer players' cues">
+    <figcaption>Each player plays with a cue made for them, in singles, doubles and Killer: Rick's
+    surf colours, Sue's studs and spikes, Hank's old hand splice, Pete's library, Clara's crown,
+    Dave's trench coat and one cyan eye, Nina's lace and pearls, and the Machine's circuit
+    bands.</figcaption>
+  </figure>
+
+  <h3>At the table with you</h3>
+  <figure>
+    <img src="img/cuevr/ai_standing.jpg" alt="A computer player waiting with their cue">
+    <figcaption>While it is your shot, they stand back from the table on the side away from you,
+    holding their cue upright.</figcaption>
+  </figure>
+  <p>At their shot they walk round the outside of the table to it, get down on it, and stay down
+  a moment after the stroke. After a pot they step back with the cue held ready and carry it round
+  to the next shot; after a miss or a safety they stand it upright again and go back to their
+  place. In doubles, teams and Killer you see one computer player's cue at a time: the one at the
+  table, or while you are playing, the one who plays next.</p>
+  <p><b>Settings &rarr; Opponents &rarr; THEIR CUES BETWEEN SHOTS</b> turns this off: HIDDEN shows a
+  computer player's cue only while it is down on the shot.</p>
+
+    <figure class="glass"><a href="img/cuevr/glass/settings-opponents.jpg"><img src="img/cuevr/glass/settings-opponents.jpg" alt="Settings, Opponents" loading="lazy"></a>
+    <figcaption><b>Opponents</b>: whether the computer players stand back from the table holding
+    their cues between shots, and whether you see other players' headsets and hands
+    online.</figcaption></figure>
+
+<h3 id="doubles">Doubles and Killer</h3>
+  <figure>
+    <img src="img/cuevr/glass/pickopp-doubles.jpg" alt="Doubles against the computer">
+    <figcaption><b>DOUBLES</b> beside SINGLES on step 3 VS: you and a partner against two, taking a
+    stroke each in turn. Pick each place, then the player for it; <b>YOU WATCH</b> puts the
+    computer in your place too.</figcaption>
+  </figure>
+  <p>After a foul, <b>PLAY AGAIN</b> puts the player who fouled back at the table. On a Killer
+  game, step 3 VS has a <b>PLAYERS</b> row instead, from 2 to 8, and a pick for each player. The
+  order of play is drawn, and the scoreboard shows everyone's lives.</p>
+
+  <h3>How they play</h3>
+  <p>They aim at the real opening the cushion noses leave rather than at a line through the middle
+  of the pocket, and on a cut they err towards the far jaw, which is the safer side to be wrong on.
+  Given ball in hand they work back from the shots the position offers, and they always leave
+  themselves able to reach the ball on.</p>
+  <p>They play the newer games too. English billiards has its own planner, since a <b>cannon</b> is
+  the commonest scoring stroke there and it pockets nothing, while an in-off scores here and fouls
+  everywhere else. Bar billiards has one as well: it plays in-offs, plants, contacts at five
+  thicknesses and one-cushion shots around a skittle, and it will not risk the black skittle.</p>
+  <p><b>They break off at snooker the way a snooker player does.</b> Thin on the outside red with a
+  touch of side and a little top, off the top cushion, back down between the pink and the blue and
+  into baulk — on any of the three snooker table sizes. How close they get to it is their skill:
+  the stronger players land it, and the weaker ones catch the red too thick or too thin and finish
+  short of baulk, which is a break-off you can do something with.</p>
+  <div class="note warn">
+    <b>Two things to know.</b> On <b>Russian pyramid</b> the opponent plays properly but rarely
+    reaches eight balls, so treat a pyramid frame as practice. At <b>bar billiards</b> it is very
+    strong: the black skittle only screens the 200 from a ball coming straight up the table, so the
+    opponent scores the 200 from the side.
+  </div>
+
+  <div class="note">
+    <b>What the bars mean.</b> <b>Aiming</b> is how close to the intended line they hit the ball.
+    <b>Power control</b> is how accurately they judge the weight of a shot. <b>Position</b> is how
+    much they play for the next ball rather than just the current one. <b>Spin</b> is how much
+    backspin and topspin they are willing to use. <b>Aggression</b> is how likely they are to take a pot on
+    instead of playing safe.
+  </div>
+
+</section>
+
+<section id="rules">
+  <h2>Rules and the referee</h2>
+  <p class="lede">The rules are enforced for you, and called out loud. You do not have to keep
+  score or remember what is on.</p>
+
+  <figure>
+    <img src="img/cuevr/glass/board-scoreboard.jpg" alt="The scoreboard above the table">
+    <figcaption>The scoreboard. Both players with their scores on the right, a yellow bar against
+    whoever is at the table, what is on, the points still available, and the balls left to pot. The
+    balls along the foot are the set you are playing with, drawn as they are on the cloth — so a
+    glance at the board tells you which reds are left in the colours you are looking
+    at.</figcaption>
+  </figure>
+
+  <p><b>The top line says which game this is</b>, and which rule set it is being played under —
+  UK 8-BALL and BLACKBALL, SNOOKER and MISS: PRO, BILLIARDS GOLF and 18 HOLES - MATCHPLAY. It used
+  to say POOL, which is true of thirty of the thirty-two games, and the rule set appeared nowhere
+  once you had left the menu.</p>
+
+  <p>At snooker that includes reds and colours in the right order, colours going back on their
+  spots, free balls after a foul, called misses, and the final clearance from yellow to black. At
+  the pool games it includes your group, the two-shot carry at UK 8-ball, and the push-out at
+  9-ball. Elsewhere it includes cannons and in-offs at English billiards, the called ball at
+  straight pool, the cushions counted before the second ball at carom, and the skittles and the
+  clock at bar billiards.</p>
+
+  <h3>The break has to do something</h3>
+  <p>Every rule book legislates for the player who taps the pack and leaves it standing, and
+  they do not agree on how. CueVR asks what each game's own book asks:</p>
+  <table>
+    <tr><th>Game</th><th>A legal break</th><th>If you fail it</th></tr>
+    <tr><td><b>UK 8-ball</b> — pub</td><td>Nothing is asked.</td><td>—</td></tr>
+    <tr><td><span class="cap-t">INTERNATIONAL</span></td><td>Pot a ball, or four object balls to
+      a cushion.</td><td>Re-rack, opponent breaks.</td></tr>
+    <tr><td><span class="cap-t">ULTIMATE POOL</span></td><td><b>Three points</b>: one a ball
+      potted, one a ball left wholly past the middle-pocket line.</td><td>Re-rack.</td></tr>
+    <tr><td><span class="cap-t">BLACKBALL</span></td><td>Pot a ball, or <b>two</b> object balls
+      across the line between the middle pockets. No cushion test at all.</td><td>Foul — your
+      opponent gets a free shot.</td></tr>
+    <tr><td><b>US 8-ball</b>, <b>Chinese 8-ball</b></td><td>Pot a ball, or four object balls to a
+      cushion.</td><td>Not a foul: re-rack and your opponent breaks.</td></tr>
+    <tr><td><b>9-ball</b>, <b>10-ball</b></td><td>Hit the 1 first, and pot a ball or drive four
+      object balls to a cushion.</td><td>Foul — ball in hand.</td></tr>
+    <tr><td><b>Straight pool</b></td><td>Pot the called ball, or drive two object balls
+      <em>and the cue ball</em> to a cushion. Both.</td><td><b>Two</b> points off, not the usual
+      one.</td></tr>
+    <tr><td><b>Rotation, Filipino, 15-ball</b></td><td>Pot a ball, or four object balls to a
+      cushion.</td><td>Foul.</td></tr>
+    <tr><td><b>Bank pool</b></td><td>Pot a ball, or four object balls to a cushion.</td>
+      <td>You owe a ball.</td></tr>
+    <tr><td><b>One pocket</b></td><td>Pot a ball, or send <b>one</b> object ball or the cue ball
+      to a cushion.</td><td>You owe a ball.</td></tr>
+  </table>
+  <div class="note">
+    <b>One pocket's is deliberately the weakest.</b> A one pocket break is meant to be soft — it
+    moves almost nothing, and that is the whole character of the game. The four-ball rule the
+    eight-balls use would foul nearly every legitimate break in it.
+  </div>
+
+  <h3>The rules of the game you are playing</h3>
+  <p>The referee is exact and it is silent: it will foul you for something you did not know was a
+  foul, and until now the only place to look it up was this page, on a screen you are not wearing.
+  So every game carries its own <b>short rule book</b>. Press <kbd>MENU</kbd> and choose
+  <b>RULES OF THIS GAME</b>, and there it is — what you are trying to do, how you score, what a
+  foul costs and how the frame ends. Snooker, one pocket and bank pool run past a page: hold the
+  trigger on it and drag to scroll. The thumbstick still moves the table.</p>
+  <p><b>It is the rules of the frame in front of you, not of the family it belongs to.</b> The
+  variant is named under the title and only its rules are printed: choose PUB and it tells you
+  about two shots, choose BLACKBALL and it tells you about the free shot, the jump foul and the
+  sixty-second clock. It never lists four rule sets and leaves you to work out which one you are
+  on.</p>
+
+  <p>Hold <kbd>X</kbd> at any point and the board is replaced by a <b>live photograph of the table
+  from above</b>, for as long as you hold it.</p>
+
+  <figure>
+    <img src="img/cuevr/table-above.png" alt="The table seen from directly above">
+    <figcaption>What the board shows while you hold <kbd>X</kbd>: the whole table from directly
+    above, balls and all, updating as they move.</figcaption>
+  </figure>
+
+  <div class="note">
+    <b>The ball you cued is the ball you struck.</b> Nothing lifts or steers your cue onto the
+    white for you, so if another ball is standing on the line, your tip reaches that one first and
+    that is the ball you have played. It is a foul, charged in each game's own currency: four away
+    at snooker, two at billiards, ball in hand at 9-ball and pyramid, minus two at straight pool,
+    the turn at UK 8-ball, your break at bar billiards. Anything the wrong ball knocked in stays
+    potted.
+  </div>
+
+  <div class="note">
+    <b>A cushion can snooker you.</b> On a rectangle only balls can get in the way. On an L-shaped
+    or many-sided bed you can be laid behind the elbow, so anything the cue ball cannot pass
+    through counts as a snooker.
+  </div>
+
+    <div class="grid g2">
+  <figure><a href="img/cuevr/glass/board-rules.jpg"><img src="img/cuevr/glass/board-rules.jpg" alt="The rules of this game" loading="lazy"></a><figcaption><b>RULES OF THIS GAME</b>, on the scoreboard, from the pause menu.</figcaption></figure>
+  </div>
+
+<h3 id="rules-clock">Playing against the clock</h3>
+  <p>Some rule sets are timed. The shot clock starts when the table becomes yours and runs while
+  you line up; the scoreboard counts it down, it turns amber under ten seconds and red under
+  five, and each of the last five seconds beeps. When it runs out you hear a klaxon and the board
+  says <b>OUT OF TIME</b>. Online, a menu does not stop it: you cannot pause your opponent's
+  clock from your headset.</p>
+  <table class="stack">
+    <tr><th>Rule set</th><th>The clock</th><th>Out of time</th></tr>
+    <tr><td>UK 8-ball, <b>ULTIMATE POOL</b></td><td>30 seconds a shot, and a match clock of four
+      minutes for each frame needed to win.</td><td>A foul: ball in hand.</td></tr>
+    <tr><td>UK 8-ball, <b>BLACKBALL (WPA)</b></td><td>60 seconds a shot.</td><td>A foul.</td></tr>
+    <tr><td>9-ball, <b>SHOT CLOCK</b></td><td>30 seconds a shot, 60 for the first shot after the
+      break and for a push-out and the shot after it. Once a rack each player has a 30 second
+      <b>extension</b>: when your shot's time is up the clock runs on into it by itself, the board
+      counts it down after <b>EXT</b>, and it says <b>EXTENSION: 30 SECONDS</b> with a beep.</td><td>A foul: ball in
+      hand.</td></tr>
+    <tr><td>Snooker, <b>SHOOTOUT</b></td><td>A ten-minute frame; 15 seconds a shot, 10 in the
+      last five minutes.</td><td>A foul.</td></tr>
+    <tr><td>Snooker, <b>THE 900</b></td><td>A fifteen-minute frame; 20 seconds a shot.</td><td>A
+      foul.</td></tr>
+    <tr><td>English billiards against the clock</td><td>5, 10, 15 or 30 minutes, and 60 seconds a
+      shot.</td><td>The turn passes, with no score and no foul.</td></tr>
+  </table>
+  <p>Online, only the player at the table can run out of time, and only their game calls the end
+  of a timed frame; the other player's game takes it from theirs, so both always agree on the
+  result.</p>
+
+  <h3>When your opponent fouls</h3>
+  <p>You are asked what you want to do. You can play on from where the balls have finished, or make
+  your opponent play the shot again. If a miss was called and the table can be put back as it was,
+  that is offered too. The referee announces what you chose.</p>
+
+    <div class="grid g2">
+  <figure><a href="img/cuevr/glass/decide-foul.jpg"><img src="img/cuevr/glass/decide-foul.jpg" alt="Opponent fouled" loading="lazy"></a>
+    <figcaption><b>Opponent fouled</b>: take the shot from where the balls lie, or make them
+    play again. Snooker adds <b>FREE BALL</b> and the replay after a miss.</figcaption></figure>
+  </div>
+
+<h3>Foul and a miss</h3>
+  <p>In the snooker games, failing to hit the ball on is always a foul — but whether it is also
+  called a <b>miss</b> depends on the effort you made, exactly as a real referee judges it.</p>
+  <p><b>Where to set it.</b> The <b>RULES</b> row on the snooker games. It has three strictnesses,
+  and it can be turned off, in which case there is no judgement at all and every failure to hit the
+  ball on is a miss, as it always was before the rule existed.</p>
+  <table>
+    <tr><td><b>MISS: AMATEUR</b></td><td>A genuine try is enough — within about three ball widths,
+      with most of the pace to get there.</td></tr>
+    <tr><td><b>MISS: CLUB</b></td><td>The default. Within a ball and a half, at nearly full
+      pace.</td></tr>
+    <tr><td><b>MISS: PRO</b></td><td>As on television: almost every failure is called. Within about
+      a third of a ball, and the cue ball must have had the pace to pass the ball on.</td></tr>
+  </table>
+
+  <p><b>How the referee decides.</b> He judges the stroke against the ball you came
+  <b>nearest</b> to, not against every legal ball on the table — a stroke aimed at one red is not
+  marked down for the fourteen it ignored. Two things then settle it:</p>
+  <table>
+    <tr><td><b>How close you came</b></td><td>Measured in ball widths — roughly three balls at
+      AMATEUR, a ball and a half at CLUB, a third of a ball at PRO.</td></tr>
+    <tr><td><b>Whether it was a real attempt</b></td><td>How far the cue ball travelled against how
+      far it had to go. A dribble that stops short is a miss however well aimed it was.</td></tr>
+  </table>
+  <p>Two allowances are made on top of that, because a referee makes them. You get <b>three times
+  the room</b> when you were snookered — an escape off three cushions that finishes a ball's width
+  away is a good attempt by anybody's reckoning — and more room the longer the shot, so nobody is
+  called for drift on a twelve-foot roll that the same drift on a tap from a foot away would be
+  called for. Three called misses in a row lose the frame — but only ones you were not snookered
+  for: an attempt the referee accepted, or a miss played from a snooker, does not count towards
+  the three, and a single accepted attempt clears the tally.</p>
+
+  <p>The same row has two more stops, <b>SHOOTOUT</b> and <b>THE 900</b>. They <b>replace</b> the
+  miss rule rather than sitting beside it: each is a different frame altogether, played against a
+  clock — see <a href="#games">The games</a>.</p>
+
+  <h3>Calling a pocket</h3>
+  <p>To call a shot is to say, before you play it, which ball you are potting and where it is
+  going. Four games can ask for it.</p>
+
+  <div class="note">
+    <b>Most of the time you say nothing at all.</b> When the pot in front of you is the obvious one,
+    the game calls it for you and you simply play the shot. That is how it behaves already;
+    it is not a setting and there is nothing to switch on. You only ever have to do anything on the
+    strokes that are genuinely ambiguous — which is what stops a call-shot game turning into
+    paperwork.
+  </div>
+
+  <p><b>Where you set it</b> is the <b>RULES</b> row on the main menu, and each game words it its
+  own way:</p>
+  <table>
+    <tr><td><b>Straight pool</b></td><td><b>CALL THE BALL</b>, the default, wants the ball only, and
+      it may go down any pocket. <b>CALL BALL AND POCKET</b> wants both — nothing counts unless it
+      was declared first, and that is the real game.</td></tr>
+    <tr><td><b>10-ball</b></td><td><b>CALL SHOT (WPA)</b>. Every stroke is called; the break is not.</td></tr>
+    <tr><td><b>US 8-ball</b></td><td><b>CALL THE BLACK</b> asks only for the last one, which is how most
+      people play. <b>CALL SHOT (WPA)</b> asks for every stroke, which is how the rule book has
+      it.</td></tr>
+    <tr><td><b>Chinese 8-ball</b></td><td>The same two, with <b>CALL SHOT (CBSA)</b> for the tournament
+      reading.</td></tr>
+  </table>
+
+  <figure>
+    <img src="img/cuevr/call-pockets.png" alt="A called pocket, its lamp lit green in the timber">
+    <figcaption>A small lamp is set into the timber beside every pocket. This one is solid green:
+    that pocket has been called.</figcaption>
+  </figure>
+
+  <p><b>What the lamps mean.</b> There is one behind each pocket:</p>
+  <table>
+    <tr><td><b>Flashing green</b></td><td>The game's own call. It has picked this pocket for you;
+      play the shot and it stands.</td></tr>
+    <tr><td><b>Solid green</b></td><td>A pocket <em>you</em> declared.</td></tr>
+    <tr><td><b>Red</b></td><td>A call is owed on this stroke, and this is not the pocket it is
+      on.</td></tr>
+    <tr><td><b>Amber, filling up</b></td><td>The pocket you are looking at now, filling as the dwell
+      runs. Let it fill and it is called.</td></tr>
+    <tr><td><b>Grey</b></td><td>Nothing needs calling this stroke.</td></tr>
+  </table>
+  <p>The called ball gets a <b>chalk ring</b> on the cloth as well, so one glance tells you both
+  halves of what is booked. <b>Nothing is ever called on the break</b>, and the scoreboard says
+  <b>NO CALL NEEDED</b> so you are not left wondering.</p>
+
+  <p><b>Overruling the game's choice</b> — or making the call yourself when the shot is ambiguous —
+  is the <b>CALL A POCKET</b> row on CONTROLS, and there are three ways to do it:</p>
+  <table>
+    <tr><td><b>LOOK + TRIGGER</b></td><td>Hold the trigger on your free hand, look at a ball or a
+      pocket, and release to call it.</td></tr>
+    <tr><td><b>LOOK, STOOD UP</b></td><td>Look and hold, no trigger. It only listens while you are
+      stood up off the shot, so looking around while you are down on the ball changes
+      nothing.</td></tr>
+    <tr><td><b>POINT + TRIGGER</b></td><td>A laser from your free hand — or from the cue itself,
+      if you have a real cue attached.</td></tr>
+  </table>
+  <p>The computer players call their pockets too, from the plan they actually made, and you see
+  their call light up while their shot is still rolling.</p>
+
+  <h3>Calling the break</h3>
+  <p>At snooker, English billiards, Sinuca Brasileira, carom and straight pool the referee calls
+  your break as you build it: the running total after each scoring shot.</p>
+
+  <h3>Turning the referee off</h3>
+  <p><b>Settings &rarr; Sound &rarr; REFEREE</b> sets a female voice, a male voice, or no voice at
+  all. The scoreboard stays either way.</p>
+
+  <h3>When the match is over</h3>
+  <p>After every frame and every match a page of figures comes up, laid out the way the TV
+  graphics show them: your figure, what it is, your opponent's. Pot success, long pots, pots off
+  the rest, safety success, breaks of 20, 30, 50 and 100, average break, table time and fouls,
+  then the best break of the match by each of you, shown as the balls themselves in the order they
+  went down. In a match, the break alternates from frame to frame unless the rule set is
+  <b>WINNER BREAKS</b> (9-ball and 10-ball), where the winner of each frame breaks the next.</p>
+
+  <div class="shots">
+    <figure class="shot"><a href="img/cuevr/glass/over-match.jpg"><img src="img/cuevr/glass/over-match.jpg" alt="The end-of-match figures" loading="lazy"></a><span class="lab">Records</span><figcaption>The end of a match. The same figures are kept in <b>Records</b>, so a match you
+    played last week is still there.</figcaption></figure>
+    <figure class="shot"><a href="img/cuevr/glass/pause-stats.jpg"><img src="img/cuevr/glass/pause-stats.jpg" alt="Match stats" loading="lazy"></a><span class="lab">MATCH STATS</span><figcaption><b>MATCH STATS</b>, from the pause menu: the frame so far, your figures on the
+    left and your opponent's on the right, and the best break of each. <b>BACK TO THE MATCH</b>
+    returns to the pause menu.</figcaption></figure>
+  </div>
+  
+
+</section>
+
 <section id="which">
   <h2>Which table</h2>
   <p class="lede">Every game has more than one table to play it on, and the table you choose changes
@@ -3993,6 +3420,473 @@
   main menu browse what you have kept, twelve to a page. <b>DELETE THE ONE HIGHLIGHTED</b> is a row on the panel, and it
   leaves the gallery open so you can carry on tidying up. A replay carries the table it was played on inside it, so a shot
   saved on one table still plays back on that table after you have moved on to another.</p>
+</section>
+
+<section id="realcue">
+  <h2>Real cue attachment</h2>
+  <p class="lede">Fix a controller to a real cue and you play with the cue in your hands: your own
+  bridge, your own stroke. First you show the game, once, where the controller sits on your cue.
+  After that the cue on the table goes wherever your real one goes.</p>
+
+  <div class="note">
+    <b>What you need.</b> A cue, and something to hold a controller on it: a clamp, a strap or a
+    bracket. Put it on the butt or part way up the shaft, wherever it holds firm. It does not need
+    to be straight or in the middle of the cue. The set-up works that out for you.
+  </div>
+
+  <p>Once it is set up, the cue plays the ball when its tip reaches the ball, just like a real one.
+  There is no button to press to strike.</p>
+
+  <h3>Before you start</h3>
+  <ol>
+    <li><b>Fix the controller on tight.</b> If it can wobble or twist on the cue, the drawn cue
+    wobbles too. If you move it later, you will need to set the cue up again.</li>
+    <li><b>Find a clear spot of floor</b> in front of you, with room to tilt the cue about a
+    foot either way. A rug or a mat stops the tip sliding.</li>
+  </ol>
+
+  <div class="note">
+    <b>Standard controllers: keep the controller where the headset can see it.</b> The Quest's
+    standard controllers are tracked by the headset's cameras. If your hand, the cue or your body
+    hides the controller, the headset loses it and guesses, and the set-up has to start again.
+    Hold the cue out in front of you at arm's length all the way through. Pro controllers track
+    themselves and are not affected.
+  </div>
+
+  <h3>Open the set-up screen</h3>
+  <p>Go to <b>Settings &rarr; Controls</b> and press <b>CALIBRATE A CUE</b> (it says
+  <b>CALIBRATE AGAIN</b> once a cue is set up). The table disappears while you are on this
+  screen, and you see your own room, so you can see your cue.</p>
+
+  <figure>
+    <img src="img/cuevr/glass/rca-start.jpg" alt="The Real cue attachment screen: a row of steps, the controller choice, and START">
+    <figcaption>The set-up screen. Top right, choose the controller that is on your cue. The row
+    underneath the title shows the three steps; the picture on the right shows what to do.</figcaption>
+  </figure>
+
+  <ol>
+    <li><b>Say which controller is on your cue:</b> press <b>Left controller</b> or <b>Right
+    controller</b>, top right.</li>
+    <li><b>Press START.</b></li>
+  </ol>
+
+  <p>From here on you do not need to look at the big screen, or press anything except the one
+  trigger pull in step 1. The big screen goes away and a small card appears just above the
+  controller on your cue, where you are already looking. It names the step, says what to do, and
+  has a bar that fills as you go.</p>
+
+  <ul>
+    <li><b>Each step ends by itself.</b> As it fills you hear soft ticks that rise in pitch. When
+    it is done you hear a chime, the controller buzzes, and the card flashes green with
+    <b>DONE</b> and the next step.</li>
+    <li><b>Dots round your cue show the progress</b> as well, so you can keep your eyes on the
+    cue. They start grey and turn blue as they fill.</li>
+    <li><b>To give up, press B</b> (or X or Y). You go back to the set-up screen and the cue you
+    had before is kept, unchanged.</li>
+  </ul>
+
+  <h3>Step 1 &mdash; cue upright, tip down</h3>
+  <figure>
+    <img src="img/cuevr/rca-card-tip.png" alt="The card: STEP 1 OF 3, CUE UPRIGHT, TIP DOWN">
+  </figure>
+  <ol>
+    <li>Stand the cue upright with its tip on the floor in front of you, held out so you can see
+    the controller.</li>
+    <li>Turn the cue in your hands so that the side you normally have facing up when you play
+    &mdash; the side with the badge, or where the points are &mdash; is facing towards you. When
+    you lower the butt to play, that side ends up on top. This tells the game which way up your
+    cue is, so the markings on the drawn cue match yours. If they come out turned, <b>Cue rotation</b> on the set-up screen
+    puts them right.</li>
+    <li>Pull either trigger, the one under your first finger. The tip now stays on that spot for
+    steps 2 and 3.</li>
+  </ol>
+
+  <h3>Step 2 &mdash; twist the cue</h3>
+  <div class="grid g2">
+    <figure>
+      <svg viewBox="0 0 320 230" width="100%" role="img" aria-label="An upright cue with a ring of dots round it at the controller, half blue, and a line of dots down its middle to the floor">
+        <line x1="16" y1="212" x2="304" y2="212" style="stroke:var(--dim);stroke-width:2"/>
+        <g id="ring"><circle cx="112.0" cy="66.3" r="3.5" style="fill:#5aa9e6"/><circle cx="123.2" cy="61.4" r="3.5" style="fill:#98a693;opacity:.45"/><circle cx="140.1" cy="58.1" r="3.5" style="fill:#98a693;opacity:.45"/><circle cx="160.0" cy="57.0" r="3.5" style="fill:#98a693;opacity:.45"/><circle cx="179.9" cy="58.1" r="3.5" style="fill:#98a693;opacity:.45"/><circle cx="196.8" cy="61.4" r="3.5" style="fill:#98a693;opacity:.45"/><circle cx="208.0" cy="66.3" r="3.5" style="fill:#98a693;opacity:.45"/></g><polyline points="181.0,28.5 184.1,29.0 187.0,29.6 189.7,30.2 192.2,30.9 194.4,31.7 196.4,32.5 198.1,33.4 199.5,34.2 200.6,35.2 201.4,36.1 201.8,37.0" style="stroke:var(--gold);stroke-width:2.2;fill:none;stroke-linecap:round;opacity:.45"/><polyline points="118.0,38.0 118.2,37.0 118.6,36.1 119.4,35.2 120.5,34.2 121.9,33.4 123.6,32.5 125.6,31.7 127.8,30.9 130.3,30.2 133.0,29.6 135.9,29.0 139.0,28.5" style="stroke:var(--gold);stroke-width:2.2;fill:none;stroke-linecap:round;opacity:.45"/><line x1="160" y1="210" x2="160" y2="14" style="stroke:#c9a36a;stroke-width:6;stroke-linecap:round"/><rect x="149" y="54" width="22" height="30" rx="4" style="fill:#3a4a39;stroke:var(--ink);stroke-width:1"/><circle cx="212.0" cy="72.0" r="3.5" style="fill:#5aa9e6"/><circle cx="208.0" cy="77.7" r="4.5" style="fill:#5aa9e6"/><circle cx="196.8" cy="82.6" r="4.5" style="fill:#5aa9e6"/><circle cx="179.9" cy="85.9" r="4.5" style="fill:#5aa9e6"/><circle cx="160.0" cy="87.0" r="4.5" style="fill:#5aa9e6"/><circle cx="140.1" cy="85.9" r="4.5" style="fill:#5aa9e6"/><circle cx="123.2" cy="82.6" r="4.5" style="fill:#5aa9e6"/><circle cx="112.0" cy="77.7" r="4.5" style="fill:#5aa9e6"/><circle cx="108.0" cy="72.0" r="3.5" style="fill:#5aa9e6"/><circle cx="160" cy="100" r="2.5" style="fill:#5aa9e6"/><circle cx="160" cy="120" r="2.5" style="fill:#5aa9e6"/><circle cx="160" cy="140" r="2.5" style="fill:#5aa9e6"/><circle cx="160" cy="160" r="2.5" style="fill:#98a693;opacity:.45"/><circle cx="160" cy="180" r="2.5" style="fill:#98a693;opacity:.45"/><polyline points="201.8,37.0 202.0,38.0 201.8,39.0 201.4,39.9 200.6,40.8 199.5,41.8 198.1,42.6 196.4,43.5 194.4,44.3 192.2,45.1 189.7,45.8 187.0,46.4 184.1,47.0 181.0,47.5 177.7,48.0 174.4,48.3 170.9,48.6 167.3,48.8 163.7,49.0 160.0,49.0 156.3,49.0 152.7,48.8 149.1,48.6 145.6,48.3 142.3,48.0 139.0,47.5 135.9,47.0 133.0,46.4 130.3,45.8 127.8,45.1 125.6,44.3 123.6,43.5 121.9,42.6 120.5,41.8 119.4,40.8 118.6,39.9 118.2,39.0 118.0,38.0" style="stroke:var(--gold);stroke-width:2.2;fill:none;stroke-linecap:round"/><path d="M130.5 25.5 L139.0 28.5 L131.8 33.8" style="stroke:var(--gold);stroke-width:2.2;fill:none;stroke-linecap:round"/><path d="M188.2 33.8 L181.0 28.5 L189.5 25.5" style="stroke:var(--gold);stroke-width:2.2;fill:none;stroke-linecap:round"/><text x="212" y="20" style="fill:var(--gold);font-size:12px">turn it in your</text><text x="212" y="34" style="fill:var(--gold);font-size:12px">fingers, one way,</text><text x="212" y="48" style="fill:var(--gold);font-size:12px">then the other</text>
+        <circle cx="160" cy="210" r="5" style="fill:var(--gold)"/>
+        <text x="172" y="206" style="fill:var(--ink);font-size:12px">tip stays on its spot</text>
+      </svg>
+      <figcaption>What you see round your cue: a ring of dots at the controller that fills as you
+      twist, and a line of dots down the middle of the cue to the floor.</figcaption>
+    </figure>
+    <figure>
+      <img src="img/cuevr/rca-card-twist.png" alt="The card: STEP 2 OF 3, TWIST THE CUE, tip still until the ring is full, with its bar part filled">
+      <figcaption>The card for step 2, part way through.</figcaption>
+    </figure>
+  </div>
+  <div class="note">
+    <b>Keep the cue on exactly the same line.</b> This is the one thing that matters in this step.
+    Only twist the cue round its own length, like turning a key: do not let it lean, sway or wander
+    while you turn it. The game measures the line the cue turns about, so any lean goes straight
+    into your calibration as an aim error. Hold it lightly at the top, keep the tip planted, and
+    turn it slowly rather than quickly.
+  </div>
+  <ol>
+    <li>Keep the tip on its spot and the cue on the same line, and turn the cue in your fingers,
+    about half a turn one way, then half a turn the other way, back and forth.</li>
+    <li>Keep going until the ring is full. It takes about four half turns, five seconds or so.</li>
+  </ol>
+  <p>The dotted line shows where the game thinks the middle of your cue is. When it runs down the
+  middle of your real cue to the tip, it has found it.</p>
+
+  <h3>Step 3 &mdash; tilt it back and forth</h3>
+  <div class="grid g2">
+    <figure>
+      <svg viewBox="0 0 320 230" width="100%" role="img" aria-label="An upright cue tilted to each side, with an arc of dots at the butt, one side blue">
+        <line x1="16" y1="212" x2="304" y2="212" style="stroke:var(--dim);stroke-width:2"/>
+        <line x1="160" y1="210" x2="112" y2="34" style="stroke:#c9a36a;stroke-width:5;stroke-linecap:round;opacity:.3"/>
+        <line x1="160" y1="210" x2="208" y2="34" style="stroke:#c9a36a;stroke-width:5;stroke-linecap:round;opacity:.3"/>
+        <line x1="160" y1="210" x2="160" y2="28" style="stroke:#c9a36a;stroke-width:6;stroke-linecap:round"/>
+        <rect x="149" y="62" width="22" height="30" rx="4" style="fill:#3a4a39;stroke:var(--ink);stroke-width:1"/>
+        <circle cx="160" cy="28" r="4" style="fill:#5aa9e6"/>
+        <circle cx="172" cy="28.4" r="4" style="fill:#5aa9e6"/><circle cx="184" cy="29.6" r="4" style="fill:#5aa9e6"/>
+        <circle cx="196" cy="31.6" r="4" style="fill:#5aa9e6"/><circle cx="208" cy="34.4" r="6" style="fill:#5aa9e6"/>
+        <circle cx="148" cy="28.4" r="4" style="fill:#5aa9e6"/><circle cx="136" cy="29.6" r="4" style="fill:#98a693;opacity:.45"/>
+        <circle cx="124" cy="31.6" r="4" style="fill:#98a693;opacity:.45"/><circle cx="112" cy="34.4" r="6" style="fill:#98a693;opacity:.45"/>
+        <text x="226" y="40" style="fill:var(--gold);font-size:12px">this end reached</text>
+        <text x="10" y="58" style="fill:var(--dim);font-size:12px">this end still to go</text>
+        <circle cx="160" cy="210" r="5" style="fill:var(--gold)"/>
+        <text x="172" y="206" style="fill:var(--ink);font-size:12px">tip stays on its spot</text>
+      </svg>
+      <figcaption>An arc of dots at the butt, like a seesaw. Each half fills as you tilt the butt
+      out that way; the big dot at each end is how far to go.</figcaption>
+    </figure>
+    <figure>
+      <img src="img/cuevr/rca-card-tilt.png" alt="The card: STEP 3 OF 3, TILT IT BACK AND FORTH, with its bar part filled">
+      <figcaption>The card for step 3, one end done.</figcaption>
+    </figure>
+  </div>
+  <ol>
+    <li>Keep the tip on its spot and tilt the butt back and forth, whichever way is comfortable:
+    away from you and back, or side to side. The arc starts out side to side and turns to follow
+    the way you are tilting.</li>
+    <li>Go about 25 cm, ten inches, out at the butt each way, until both ends of the arc are
+    full.</li>
+  </ol>
+
+  <h3>When it is done</h3>
+  <figure>
+    <img src="img/cuevr/glass/rca-done.jpg" alt="The set-up screen after calibrating: CALIBRATION COMPLETED, with SAVE, tip length, cue rotation and saved calibrations">
+    <figcaption>Finished. Check it, then press <b>SAVE</b>. Underneath are the small adjustments
+    and your saved calibrations.</figcaption>
+  </figure>
+  <ol>
+    <li>The card says <b>CALIBRATION COMPLETED</b> and the set-up screen comes back.</li>
+    <li><b>Check it:</b> turn your cue in your hand. The virtual cue should turn with the real one
+    and stay on it all the way round. If it swings away from your cue as you turn it, press
+    <b>START AGAIN</b>.</li>
+    <li><b>Press SAVE.</b> Your cue is now switched on.</li>
+  </ol>
+
+  <h3>If it sends you back</h3>
+  <p>The card turns orange and says why. It only does this when a step clearly did not work.</p>
+  <figure>
+    <img src="img/cuevr/rca-card-refused.png" alt="The card back at step 1 saying THE TIP MOVED - PUT IT DOWN AGAIN in orange">
+  </figure>
+  <table>
+    <tr><th>The card says</th><th>What happened, and what to do</th></tr>
+    <tr><td><b>THE TIP MOVED - PUT IT DOWN AGAIN</b></td><td>The tip slid or lifted during step 2
+      or 3. Put it down again, on something grippy, and pull the trigger.</td></tr>
+    <tr><td><b>LOST THE CONTROLLER - KEEP IT IN VIEW</b></td><td>The headset could not see the
+      controller for too long. Hold the cue further out in front of you, and keep your hand off
+      the front of the controller.</td></tr>
+    <tr><td><b>IT LEANED - KEEP IT ON THE SAME LINE</b></td><td>The cue leaned about too much while
+      you twisted it. You go back to step 2 with the tip still down: twist again, more slowly, only
+      twisting the cue and keeping it on the same line.</td></tr>
+  </table>
+
+  <h3>Saved calibrations</h3>
+  <p>If you use more than one cue, or more than one clamp, you can keep a calibration for each and
+  switch between them without setting up again.</p>
+  <figure>
+    <img src="img/cuevr/rca-saveas.jpg" alt="Save this calibration as: a name field, SAVE and CANCEL, and a keyboard">
+    <figcaption><b>SAVE AS...</b> asks for a name, typed on this keyboard.</figcaption>
+  </figure>
+  <ul>
+    <li><b>SAVE AS...</b>, on the finished screen under <b>SAVED CALIBRATIONS</b>, keeps the
+    calibration you have just made under a name, for example the name of the cue.</li>
+    <li><b>LOAD</b> beside a saved one puts it back in use. Press <b>SAVE</b> to keep it.</li>
+    <li><b>DELETE</b> removes it.</li>
+  </ul>
+
+  <h3 id="finetune">Fine-tuning it with the side trigger</h3>
+  <p>A calibration is fixed to the controller and does not wear out. What does drift is the
+  headset's own tracking: over a session it can come to see the controller a few millimetres or a
+  fraction of a degree from where it really is, and then the whole cue sits a little off. This
+  puts that right, and you can do it whenever you like, even at the table in the middle of a
+  frame. The side trigger is the grip button on the side of the controller, under your middle
+  finger.</p>
+
+  <figure>
+    <svg viewBox="0 0 320 150" width="100%" style="max-width:460px;display:block" role="img" aria-label="Seen from above: the real cue slid across the table until it lies under the frozen drawn cue">
+      <rect x="10" y="14" width="300" height="116" rx="6" style="fill:var(--panel2);stroke:var(--line)"/>
+      <line x1="40" y1="58" x2="290" y2="58" style="stroke:var(--ink);stroke-width:7;stroke-linecap:round;opacity:.35"/>
+      <text x="40" y="44" style="fill:var(--ink);font-size:12px">the drawn cue, frozen while you hold the side trigger</text>
+      <line x1="46" y1="100" x2="292" y2="88" style="stroke:#c9a36a;stroke-width:6;stroke-linecap:round"/>
+      <text x="46" y="122" style="fill:#c9a36a;font-size:12px">your real cue, flat on the table</text>
+      <path d="M100 92 L100 68" style="stroke:var(--gold);stroke-width:1.5;fill:none"/>
+      <path d="M95 74 L100 66 L105 74" style="stroke:var(--gold);stroke-width:1.5;fill:none"/>
+      <path d="M240 86 L240 68" style="stroke:var(--gold);stroke-width:1.5;fill:none"/>
+      <path d="M235 74 L240 66 L245 74" style="stroke:var(--gold);stroke-width:1.5;fill:none"/>
+      <text x="252" y="80" style="fill:var(--gold);font-size:11px">slide it</text>
+    </svg>
+    <figcaption>Seen from above. Hold the side trigger and the drawn cue stops still. Slide your real
+    cue until it lies exactly under it, then let go.</figcaption>
+  </figure>
+
+  <ol>
+    <li><b>Lay your real cue on something flat,</b> like a table or a desk, so it is still and you
+    can see it clearly against the drawn cue.</li>
+    <li><b>Tap the side trigger on the cue's controller, then press it again and hold it.</b> The
+    drawn cue freezes in the air and stops following you. The tap has to come first: your hand
+    rests on that button all through a game, and the tap tells the game you mean it.</li>
+    <li><b>Keep holding, and slide your real cue</b> until it lies exactly under the drawn one: tip
+    under tip, shaft under shaft.</li>
+    <li><b>Let go of the side trigger.</b> The drawn cue now follows your real cue from where you
+    put it.</li>
+  </ol>
+  <ul>
+    <li><b>It moves the whole cue, not your calibration,</b> so it cannot make the cue swing about
+    when you turn it in your hand. Do it as often as you like: each one adds to the last.</li>
+    <li><b>It lasts until you quit the game.</b> Next time you start, you begin from your
+    calibration as it was measured.</li>
+    <li><b>To undo it, double tap the side trigger.</b> The cue goes back to your calibration as
+    measured. <b>RESET NUDGE</b> on the set-up screen does the same, and the line beside it says
+    how far you have nudged.</li>
+    <li><b>If nudging does not fix it,</b> or you have moved the clamp, calibrate again. It takes
+    about twenty seconds.</li>
+  </ul>
+
+  <div class="note">
+    <b>Where it works.</b> On the set-up screen, and at the table during a frame, on your turn or
+    your opponent's. It does not work in the menus, where the side trigger does other jobs.
+  </div>
+
+  <h3>Small adjustments on the set-up screen</h3>
+  <p>Open the set-up screen when your cue is already set up, and it opens on your calibration with
+  two adjustments under it. Point at a <b>&minus;</b> or <b>+</b> with your other hand and pull
+  its trigger.</p>
+  <table>
+    <tr><th>Row</th><th>What each press does</th></tr>
+    <tr><td><b>Tip length</b></td><td>How far the tip is from the controller, 1 mm a press, or 1 cm
+      a press with <b>-1 CM</b> and <b>+1 CM</b> beside it. Use it if the drawn tip ends short of
+      your real tip, or past it.</td></tr>
+    <tr><td><b>Cue rotation</b></td><td>Turns the drawn cue round its own length, a degree a press,
+      so its points and badge face the same way as your real cue's. It only turns the picture of
+      the cue: your aim and your tip do not move.</td></tr>
+  </table>
+  <p>Every press saves straight away.</p>
+
+  <h3 id="onestick">One stick has to do everything</h3>
+  <p class="lede">A controller clamped to a cue is on the end of a metre and a half of timber. The
+  game assumes you cannot reach it, so with a real cue set up, everything you need is on the hand
+  that is free.</p>
+
+  <p>Nothing here is different for the ordinary two-controller cue — those controls are exactly as
+  they always were. It only changes once a cue is calibrated and <b>CUE</b> is set to <b>REAL CUE</b>.</p>
+
+  <div class="note">
+    <b>But it is on both hands anyway.</b> Every one of these is mirrored onto the cue controller as
+    well, in case your clamp does leave it usable. If it does, nothing is taken away from you. Set
+    <b>TABLE MOVEMENT</b> to <b>ONE STICK, EITHER</b> and both hands do the same job.
+  </div>
+
+  <div class="note">
+    <b>Which hand is which comes from your cue, not from the handedness setting.</b> Once a cue is
+    calibrated, the game takes the controller you clamped it to as the answer: that hand is the cue
+    hand and the other is your free hand. The rest, the overhead view, the scoreboard and the mark
+    all follow it. Nothing to set — but it is why picking the other controller on the set-up screen
+    changes more than the calibration.
+  </div>
+
+  <p>One stick cannot do two things at once, so <b>the side trigger switches what it is doing</b>.
+  It is the same gesture on all three screens that need it, and <b>the panel always says which job
+  the stick is on</b> — you never have to remember.</p>
+
+  <table>
+    <tr><th>Where</th><th>The stick</th><th>The side trigger</th></tr>
+    <tr><td><b>Placing the table</b><br>(<kbd>MENU</kbd> &rarr; <b>Table</b>)</td>
+        <td>Sets the height, and turns the table left and right.</td>
+        <td>Switches the stick to sliding the table about instead — forward, back and sideways.
+        Squeeze it again to go back to the height.</td></tr>
+    <tr><td><b>The mark round your real table</b><br>(the square)</td>
+        <td>Moves it.</td>
+        <td>Steps the stick through <b>move</b>, <b>size</b> and <b>turn</b>. It turns both ways.</td></tr>
+    <tr><td><b>The scoreboard</b><br>(<b>Scoreboard</b> on the placement screen, from
+        <b>Environment &rarr; Table</b>)</td>
+        <td>Carries it.</td>
+        <td>Steps the stick through <b>move</b>, <b>turn and raise</b>, and <b>size</b>.</td></tr>
+    <tr><td><b>At the table, during a frame</b></td>
+        <td>Moves the table — see <a href="#movetable">the next section</a>.</td>
+        <td>Holds the drawn cue still so you can line your real one up on it. It does nothing else
+        while you are at the table, so it can never be doing the wrong job when you reach for
+        it.</td></tr>
+    <tr><td><b>Setting up the cue</b><br>(CALIBRATE A CUE)</td>
+        <td>Nothing: the three steps need no stick.</td>
+        <td>The fine-tune, as at the table: holds the drawn cue still, and moves it onto your real
+        one when you let go.</td></tr>
+  </table>
+
+  <h3>The buttons a clamped hand cannot reach</h3>
+  <table>
+    <tr><th>Control</th><th>What it does</th></tr>
+    <tr><td><b>Press the thumbstick in</b> (tap)</td>
+        <td>Shows the mark round your real table for a couple of seconds. Normally that is the cue
+        hand's upper button, which is the one you cannot get to.</td></tr>
+    <tr><td><b>Press the thumbstick in</b> (hold)</td>
+        <td>Takes the last shot back, in practice. A hold rather than a tap, so a stray press
+        cannot rewind the table. The bar on the panel shows how long is left.</td></tr>
+    <tr><td><b>Point with the cue</b></td>
+        <td>Menus can be pointed at with the cue itself, as well as with either hand. Whichever is
+        easier where you are stood.</td></tr>
+    <tr><td><b><kbd>A</kbd> on the levelling screen</b></td>
+        <td>Works from either hand.</td></tr>
+    <tr><td><b>MENU row on the scoreboard</b></td>
+        <td>Only the left controller has a <kbd>MENU</kbd> button. If your cue is clamped to the
+        left one, your free hand has no way of opening the pause menu — so the scoreboard grows a
+        <b>MENU</b> row you can point at instead. It appears only when you need it.</td></tr>
+  </table>
+
+  <div class="note">
+    <b>Placing the white.</b> With a cue attached and a mark drawn round your real table, the cue
+    ball comes onto the line through the middle of that mark and the stick runs it up and down that
+    line. It stays wherever it already is — it does not jump to a new position each time you touch
+    the stick, and it does not depend on which way you are facing, so you can walk round your own
+    table without it flying across to the other side.
+  </div>
+
+  <h3>The rest of the settings</h3>
+  <p>How your real cue feels (smoothing, how the drawn cue turns, deflection, the tip and stroke
+  weight) is on <a href="#cuefeel">Settings &rarr; Cue feel</a>.</p>
+
+  <h3 id="mxink">The Logitech MX Ink</h3>
+  <p>The pen is a cue in its own right. Its buttons map to the ones the game uses:</p>
+  <table>
+    <tr><th>On the pen</th><th>What it is</th></tr>
+    <tr><td>Middle pad</td><td>The trigger.</td></tr>
+    <tr><td>Pressing the tip</td><td>The grip.</td></tr>
+    <tr><td>Front cluster button</td><td>The lower button — <kbd>A</kbd> or <kbd>X</kbd>.</td></tr>
+    <tr><td>Back cluster button</td><td>The upper button — <kbd>B</kbd> or <kbd>Y</kbd>.</td></tr>
+    <tr><td>Front button, double tap</td><td><kbd>MENU</kbd>.</td></tr>
+    <tr><td>Back button, double tap</td><td>Clicking the stick.</td></tr>
+  </table>
+  <p>The double taps are the pen's own, not a gesture timed by the game, so they feel the same as
+  they do everywhere else on the pen.</p>
+  <p><b>Your other controller stays live</b> — it still points at menus, still bridges, still
+  presses things. If you would rather it stood down while the pen is in play, <b>Settings &rarr;
+  Controls &rarr; OFF HAND</b> has that; the row only appears once the game has actually seen a
+  pen.</p>
+  <div class="note">
+    <b>If you have one, we would like to hear how it goes.</b> None of us owns a pen, so this is
+    written from the headset's own device reports rather than from playing with it.
+  </div>
+
+  <h3 id="movetable">Moving the table with a cue in your hands</h3>
+  <p>The table can be moved at any time, mid-frame included — that is how you bring a shot to you
+  in a small room rather than walking round a twelve-foot table. With a controller clamped to a
+  cue, though, one of your two sticks is on the end of a metre and a half of timber and the other
+  hand may be empty. The <b>TABLE MOVEMENT</b> row on <b>Settings &rarr; Controls</b> chooses
+  between three ways of working. Two
+  are below; the third, <b>SNAP TO THE EDGES</b>, is for playing over a real table and has its
+  <a href="#snap">own section</a> further down.</p>
+
+  <table>
+    <tr><th></th><th>TWO STICKS</th><th>ONE STICK</th></tr>
+    <tr><td><b>Left stick</b></td>
+        <td>Slides the table about the floor.</td>
+        <td rowspan="2">The hand that is not on the cue keeps sliding the table about the floor,
+        exactly as it does in two-stick mode. Nothing is lost by switching.</td></tr>
+    <tr><td><b>Right stick</b></td>
+        <td>Turns the table.</td></tr>
+    <tr><td><b>The cue hand's stick</b></td>
+        <td>—</td>
+        <td><b>Up and down</b> brings the table nearer and pushes it away, along the line you are
+        looking down. <b>Left and right</b> turns the table about the cue ball.</td></tr>
+    <tr><td><b>On each fresh push</b></td>
+        <td>Nothing.</td>
+        <td>The table swings so the cue ball is directly in front of you, at the range it already
+        had — nothing comes towards you or moves away, it only comes round. Then the stick works
+        along that line until you let go.</td></tr>
+  </table>
+
+  <p>The cue hand is the controller you clamped the cue to when you calibrated; with the
+  ordinary two-controller cue it is whichever hand holds the butt. The table swings round once per
+  push rather than continuously, so it cannot chase you around the room: let go, stand where you
+  like, push again and the ball comes round from there.</p>
+
+  <div class="note">
+    <b>Two things that do not change.</b> On the levelling screen, up and down is still the table's
+    height, whichever mode you are in. <b>INVERT SLIDE</b> and <b>INVERT TURN</b> still apply too,
+    so if pushing forward moves the table the wrong way for your taste, that is where you flip it.
+  </div>
+
+  <h3 id="marktable">Marking your real table</h3>
+  <p>This is the first step of the table panel, and the one worth doing properly. If the cloth is
+  drawn over a real piece of furniture you can lean on it, rest a bridge hand on its edge and walk
+  into it safely — and the game table stands on whatever you mark, so marking it well is how the
+  cloth ends up at the right height and the right way round.</p>
+
+  <p>Stand at the edge of your desk, <b>point along it and hold the trigger</b>: the outline comes
+  to your hand, at your hand's height, running the way you are pointing. Let go and it stays. From
+  there the left stick slides it, the right stick sizes it, grip with the right stick turns and
+  raises it, and you can grip any corner and drag it onto your real corner. <b>RESET THE
+  OUTLINE</b> puts it back under the table if you lose it.</p>
+
+  <p>Or use both hands: <b>hold both triggers</b> and the line between them is the near edge, so
+  the width comes from your reach along with the angle and the height. A hand on each corner of
+  your desk sets the whole thing in one go.</p>
+
+  <p>The bright edge is the side you play from; amber means you are standing at a different one and
+  should rotate the outline round to you. Show it while you play — <b>Never</b>, <b>Always</b>,
+  or <b>On press</b> — from the same panel.</p>
+
+  <figure>
+    <img src="img/cuevr/table-mark.jpg" alt="A faint translucent rectangle lying on the table surface">
+    <figcaption>The mark. It lies in the room rather than on the cloth — it is your furniture it
+    describes, not the table.</figcaption>
+  </figure>
+
+
+  <h3 id="snap">Snap to the edges</h3>
+  <p>Once the mark is in, the <b>TABLE MOVEMENT</b> row has a setting built around it: <b>SNAP TO
+  THE EDGES</b>. Stand at your real table's edge and the virtual table squares itself to the edge you
+  marked — the outer wood of the frame lands exactly on your real edge, so when you rest your
+  bridge hand on the rail it is resting on real timber.</p>
+  <ul>
+    <li><b>The slide stick slides the table along that edge</b>, and nothing else. There is no
+    forward or back, so the table can never drift off your real edge.</li>
+    <li><b>The turn stick snap-turns</b>: each push brings the next side of the table round to
+    you, square on your real edge again. You can work all the way round the table without it ever
+    leaving your furniture.</li>
+    <li><b>Or point at the side you want.</b> <b>POINT AT THE EDGE</b>, on the <b>SNAP TURN</b>
+    row underneath, changes what the turn stick means: instead of stepping round one edge at a time, the stick becomes a picture
+    of the table seen from where you stand. The edge under your hands is six o'clock, so pushing
+    away brings the far side round in one press, and pushing left or right takes you to that side.
+    On a hexagon or an octagon it still works, because the stick is read as an angle and rounded to
+    whichever edge is nearest it.</li>
+    <li><b>Hold the stick forward for a second</b> and you step <em>into</em> the table, for the
+    shots no edge can reach. Inside, you have full movement and 90° turns about the cue ball; the
+    table goes back to your edge by itself after the shot, or when a new frame starts.</li>
+  </ul>
+
+  <div class="note">
+    <b>The far edge is what moves when you change the depth.</b> A table made deeper or shallower
+    used to grow at both ends, which pushed the near cushion off the real edge you had just squared
+    it to — the one thing this mode exists to hold still. It now extends away from you instead, so
+    the edge under your hands stays exactly where it is and the far end goes out to meet the size
+    you asked for.
+  </div>
+
+  <div class="note">
+    <b>A longer cue, when you want one.</b> With the ordinary two-controller cue, sliding your grip
+    hand off the back of the butt fits an extension: your hand stays where it is, the tip goes
+    further out, and 200 mm of timber appears behind your hand. Slide back on and it comes off
+    again.
+  </div>
 </section>
 
 <section id="look">
@@ -5680,6 +5574,16 @@
   window.addEventListener('scroll',function(){ if(!pop.classList.contains('tap')) hide(); },{passive:true});
   document.addEventListener('keydown',function(e){ if(e.key==='Escape') hide(); });
 })();
+</script>
+<script>
+/* A LABELLED SCREEN: point at a number on the picture or in the list and its partner lights */
+document.querySelectorAll('figure.annot').forEach(function(f){
+  function lit(n,on){ f.querySelectorAll('[data-n="'+n+'"]').forEach(function(e){ e.classList.toggle('on',on); }); }
+  f.querySelectorAll('[data-n]').forEach(function(e){
+    e.addEventListener('mouseenter',function(){lit(e.dataset.n,true);});
+    e.addEventListener('mouseleave',function(){lit(e.dataset.n,false);});
+  });
+});
 </script>
 </body>
 </html>
