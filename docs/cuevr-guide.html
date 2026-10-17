@@ -115,6 +115,7 @@
   .showcase figure.big{grid-row:span 2}
   .showcase img{width:100%;height:100%;object-fit:cover;display:block;border-radius:10px;transition:transform .4s}
   .showcase figure:hover img{transform:scale(1.04)}
+  .showcase figure.wide{grid-column:span 2}
   .showcase figcaption{position:absolute;left:0;right:0;bottom:0;margin:0;padding:22px 12px 9px;color:#fff;font-size:.88rem;
     background:linear-gradient(transparent,rgba(0,0,0,.78));max-width:none}
   .showcase figure.big figcaption{font-size:1.05rem;font-weight:600}
@@ -306,6 +307,9 @@
     <figure><img src="img/cuevr/trophy_held.png" alt="A trophy held up over the table"><figcaption>Win a title, lift the trophy</figcaption></figure>
     <figure><img src="img/cuevr/club_room.jpg" alt="The snooker club"><figcaption>Down the club, with other players</figcaption></figure>
     <figure><img src="img/cuevr/venue_poolhall.jpg" alt="A pool hall"><figcaption>A pool hall</figcaption></figure>
+    <figure><img src="img/cuevr/tile-tables.jpg" alt="An L-shaped table"><figcaption>Seven table bodies, and beds of every shape</figcaption></figure>
+    <figure><img src="img/cuevr/tile-balls.jpg" alt="Four ball sets"><figcaption>27 ball sets</figcaption></figure>
+    <figure class="wide"><img src="img/cuevr/tile-cues.jpg" alt="Cue butts"><figcaption>30 cues, and a workshop to build more</figcaption></figure>
   </div>
 
 
@@ -4377,13 +4381,15 @@
   people who would be there &mdash; friends, diners or drinkers &mdash; if CROWD is set to
   ALL GAMES.</p>
   <div class="grid g2">
-    <figure><img src="img/cuevr/crowd_avatars.jpg" alt="The crowd as avatars"><figcaption><span class="cap-t">AVATARS</span> — people in their own clothes, of every build, lit by the room. This is how it starts.</figcaption></figure>
-    <figure><img src="img/cuevr/crowd_splats.jpg" alt="The crowd as swaying splats"><figcaption><span class="cap-t">SWAYING SPLATS</span> — soft dark shapes in the seats, moving a little. Brightened here so you can see them.</figcaption></figure>
+    <figure><img src="img/cuevr/crowd_avatars.jpg" alt="The crowd as people, in headsets"><figcaption><span class="cap-t">PEOPLE</span> — people in their own clothes, of every build, lit by the room. This is how it starts. Here with CROWD HEADSETS on.</figcaption></figure>
+    <figure><img src="img/cuevr/crowd_splats.jpg" alt="The crowd as silhouettes, in headsets"><figcaption><span class="cap-t">SILHOUETTES</span> — dark shapes in the seats, moving a little. Brightened here so you can see them, and with CROWD HEADSETS on.</figcaption></figure>
   </div>
   <table>
     <tr><th>Setting</th><th>Where</th><th>What it does</th></tr>
     <tr><td><b>VENUE CROWD</b></td><td>Environment &rarr; Surroundings</td><td>How the people
-      look: <b>Avatars</b> or <b>Swaying splats</b>.</td></tr>
+      look: <b>People</b>, <b>Silhouettes</b>, or <b>Off</b> for empty seats.</td></tr>
+    <tr><td><b>CROWD HEADSETS</b></td><td>Environment &rarr; Surroundings</td><td><b>On</b>
+      puts a Quest 3 on every face in the crowd, either look.</td></tr>
     <tr><td><b>ADVERTISING BOARDS</b></td><td>Environment &rarr; Surroundings</td><td>The
       sponsors' names on the venues' boards, or plain boards.</td></tr>
     <tr><td><b>CROWD</b></td><td>Settings &rarr; Sound</td><td><b>OFF</b>; <b>EVENTS</b> (the
