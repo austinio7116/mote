@@ -569,8 +569,10 @@ class TournClub(ClubRoom):
     # WATCHERS (7.5): places 16.. -- anyone may come in and watch, and nobody
     # in the room knows they are there. They are never announced (no MEMBERS,
     # JOINED or LEFT names them), nothing they send goes anywhere (a pose, a
-    # name, a table: dropped), and they are sent no voice: they hear the room
-    # and the referee, not the players' talk (Mark, 2026-10-12).
+    # name, a table, their voice: dropped). They HEAR the players (7.6.4, Mark,
+    # 2026-10-17: "can we have spectators able to hear the players in the
+    # room?" -- it was the room and the referee only, 2026-10-12), and are
+    # never heard.
     WATCH_BASE, WATCH_MAX = 16, 40
 
     def __init__(self, gid, tid, watch_max=40):
@@ -595,17 +597,8 @@ class TournClub(ClubRoom):
 
     def voice(self, frm, pkt, udp, vcap):
         if frm >= self.WATCH_BASE:
-            return
-        # the players' talk is the players': lent the watchers' tokens away for the length of the call
-        held = {k: o.vtok for k, o in self.members.items() if k >= self.WATCH_BASE}
-        for k in held:
-            self.members[k].vtok = None
-        try:
-            super().voice(frm, pkt, udp, vcap)
-        finally:
-            for k, v in held.items():
-                if k in self.members:
-                    self.members[k].vtok = v
+            return                          # a watcher is never heard
+        super().voice(frm, pkt, udp, vcap)  # ...and hears the players, as everyone in the room does
 
     def drop(self, m, why):
         if m.k < self.WATCH_BASE:
