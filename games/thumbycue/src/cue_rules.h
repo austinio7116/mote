@@ -703,6 +703,25 @@ typedef struct {
      *   14 and 15). cue_rules_mz_choose answers it. */
     int mz_take;
     int mz_pick;
+
+    /* ---- NINE-BALL AGAINST THE CLOCK, AND WINNER BREAKS (CueVR 7.6.5) -----
+     *
+     * rot_clock: the match is played to the shot clock (the World Nineball
+     *   Tour's): 30 s a shot, 60 s for the first shot after the break and for
+     *   a push-out and the shot after it (clk_long), and once a rack each
+     *   player may run 30 s over (clk_ext[p], set when they do). The clock
+     *   itself is the host's (CueVR); a time foul is a foul like any other.
+     * winner_breaks: the match's next frame is broken by the winner of the
+     *   last, not alternated. Both match settings, kept across frames. */
+    int rot_clock;
+    int clk_long;
+    int clk_ext[2];
+    int winner_breaks;
+    /* TIMED ENGLISH BILLIARDS' SHOT CLOCK (7.6.5, Mark: "time out passes the
+     * turn with no points"): the host sets it on the stroke it plays for a
+     * player whose time ran out; that stroke scores nothing, is no foul and
+     * hands the table over, and the flag is gone with it. */
+    int bil_time_out;
 } CueRules;
 
 enum { CUE_SN_OPEN = 0, CUE_SN_ON, CUE_SN_FREE, CUE_SN_CAST };
@@ -980,6 +999,10 @@ int  cue_rules_should_concede(const CueRules *r, int player);
 
 /* Nominate the colour `value` (2..7) as the ball on. Ignored unless the striker
  * is on a colour in the reds phase. */
+/* Nine-ball's shot clock and winner-breaks (CueVR 7.6.5): set after
+ * cue_rules_init, kept for the match like the UK code. */
+void cue_rules_set_rot(CueRules *r, int clock, int winner_breaks);
+
 /* Who breaks the first frame. The break used to be player 0's, always — the
  * human's against the CPU, the host's online, every frame of every match. Set
  * this after cue_rules_init and the per-frame alternation follows from it. */

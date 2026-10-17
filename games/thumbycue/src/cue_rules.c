@@ -745,6 +745,7 @@ typedef struct {
     /* KILLER'S TABLE OF PLAYERS is the match's too: who is playing, in what
      * order, with how many lives, and the frames each has won. */
     uint8_t kl_n, kl_lives0, kl_first, kl_order[8], kl_frames[8];
+    int   rot_clock, winner_breaks;    /* 9-ball's shot clock, winner breaks (7.6.5) */
 } RulesKeep;
 
 static void rules_keep_take(const CueRules *r, RulesKeep *k) {
@@ -758,6 +759,7 @@ static void rules_keep_take(const CueRules *r, RulesKeep *k) {
     k->kl_n = r->kl_n; k->kl_lives0 = r->kl_lives0; k->kl_first = r->kl_first;
     memcpy(k->kl_order, r->kl_order, sizeof k->kl_order);
     memcpy(k->kl_frames, r->kl_frames, sizeof k->kl_frames);
+    k->rot_clock = r->rot_clock;   k->winner_breaks = r->winner_breaks;
 }
 
 static void rules_keep_put(CueRules *r, const RulesKeep *k) {
@@ -770,6 +772,7 @@ static void rules_keep_put(CueRules *r, const RulesKeep *k) {
     r->break_first = k->break_first;
     r->match_over = k->match_over; r->match_winner = k->match_winner;
     r->pyr_free = k->pyr_free;     r->snk_again = k->snk_again;
+    r->rot_clock = k->rot_clock;   r->winner_breaks = k->winner_breaks;
     if (CUE_GAME_IS_KILLER(r->mode)) {
         r->kl_n = k->kl_n; r->kl_lives0 = k->kl_lives0; r->kl_first = k->kl_first;
         memcpy(r->kl_order, k->kl_order, sizeof r->kl_order);
@@ -834,6 +837,9 @@ void cue_rules_next_frame(CueRules *r, const CueTable *t) {
     RulesKeep k;
     rules_keep_take(r, &k);
     int first = (bf + f0 + f1) & 1;
+    /* WINNER BREAKS (7.6.5, Mark: "a 9/10 ball ruleset that allows winner
+     * breaks in multi frame matches"): the frame just won decides it */
+    if (r->winner_breaks && (r->winner == 0 || r->winner == 1)) first = r->winner;
     cue_rules_init(r, t, cpu);
     rules_keep_put(r, &k);
     r->frames[0] = f0; r->frames[1] = f1; r->best_of = bo;
@@ -858,6 +864,12 @@ void cue_rules_set_uk(CueRules *r, int ruleset) {
 void cue_rules_respot(CueRules *r, CueBall *b, int n, int id) {
     if (!r->kind || !is_colour(id)) return;
     respot_colour(r, b, n, id);
+}
+
+void cue_rules_set_rot(CueRules *r, int clock, int winner_breaks) {
+    if (!r) return;
+    r->rot_clock = clock ? 1 : 0;
+    r->winner_breaks = winner_breaks ? 1 : 0;
 }
 
 void cue_rules_set_break(CueRules *r, int who) {
@@ -1859,6 +1871,9 @@ static void resolve_9ball(CueRules *r, CueBall *b, int n, const CueWorld *w,
                           int scratch, int cushion, const int *potted, int np) {
     int was_break = r->break_shot;
     const int money = rot_money(r);
+    /* THE LONG CLOCK (the shot clock's 60 s) is for the shot after the break
+     * and after a push-out, whatever this stroke does -- a foul included */
+    r->clk_long = was_break || r->is_pushout;
     /* The call, read and consumed whatever happens next — a call outlives
      * nothing, exactly as at straight pool. */
     const int called_id  = r->nominated;
@@ -4971,6 +4986,20 @@ static void resolve_billiards(CueRules *r, CueBall *b, int n, const CueWorld *w,
      * like one played from hand and put Rule 6 on a shot it does not bind. */
     const int from_hand = r->bil_from_hand;
     r->bil_from_hand = 0;
+    /* OUT OF TIME (the shot clock of a timed game, 7.6.5): nothing was played,
+     * so nothing is scored and nothing is a foul -- the table passes as after
+     * a legal stroke that scored nothing, and the break ends with it */
+    if (r->bil_time_out) {
+        r->bil_time_out = 0;
+        r->last_foul = 0;
+        r->brk = 0;
+        r->bil_cannons = r->bil_hazards = r->bil_spot_pots = 0;
+        r->turn = you;
+        r->bil_yellow = !r->bil_yellow;
+        snprintf(r->msg, sizeof r->msg, "OUT OF TIME - NO SCORE");
+        if (r->bil_timeup) cue_rules_bil_expire(r);
+        return;
+    }
 
     /* WHAT THE CUE BALL TOUCHED, and in what order. Only the two object balls
      * matter; a cushion between them changes nothing in billiards (it is
