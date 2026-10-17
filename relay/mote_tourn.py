@@ -777,6 +777,16 @@ class Organiser:
     def player_answer(self, sub, a):
         """a player's request the relay does not know itself (so a new one goes
         out by RELOAD): HISTORY <uid>"""
+        if sub == "STATE":
+            # ONE TOURNAMENT'S WHOLE DRAW for the headset's Records (Mark,
+            # 2026-10-17): the TS lines the room's board is painted from
+            try:
+                t = self.t.get(int(a[1]))
+            except (IndexError, ValueError):
+                return "BAD\n"
+            if t is None:
+                return "NONE\nEND\n"
+            return "".join(l + "\n" for l in state_lines(t))
         if sub == "HISTORY":
             uid = a[1] if len(a) > 1 and a[1].isdigit() and len(a[1]) <= 20 else ""
             if not uid:
