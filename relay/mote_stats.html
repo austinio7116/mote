@@ -124,11 +124,12 @@ function tbracket(v){
   h += `<div style="display:flex;flex-direction:column;justify-content:center;min-width:120px"><div class="tiny dim">Champion</div><div class=acc style="font-weight:700">${v.champion ? e(nm(v.champion)) : '-'}</div></div>`;
   return h + '</div></div>';
 }
-const TGAMES = [[0, 'UK 8-ball'], [2, '9-ball'], [6, 'Snooker, 6 reds']];
+const TGAMES = [[0, 'UK 8-ball'], [2, '9-ball'], [13, '10-ball'], [6, 'Snooker, 6 reds']];
 // each game's rulesets, in the game's own order (CueVR rules_stops): the
 // tournament's "rules" is the index, set on both ends of every match
 const TRULES = {0: ['Pub (2 shots)', 'International', 'Ultimate Pool', 'Blackball (WPA)', 'Killer'],
-                2: ['WPA 9-ball'],
+                2: ['WPA 9-ball', 'Shot clock (7.6.5)', 'Winner breaks (7.6.5)'],
+                13: ['Slop counts', 'Call shot (WPA)', 'Winner breaks (7.6.5)'],
                 6: ['Miss: amateur', 'Miss: club', 'Miss: pro', 'Shootout', 'The 900']};
 const ruleName = (k, r) => (TRULES[k] || [])[r] || ('rules ' + r);
 // THE TABLE every match is played on (the game's bed numbers, CUE_TAB_*); -1 the game's own
