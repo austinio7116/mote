@@ -82,6 +82,18 @@
 
   figure{margin:22px 0}
   figcaption{color:var(--dim);font-size:.9rem;margin-top:8px;max-width:76ch}
+  /* SCREENS BATCHED (a strip of thumbnails; hover or tap pops one out, with its explanation) */
+  .shots{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:12px;margin:18px 0 22px}
+  .shots figure.shot{margin:0;cursor:zoom-in}
+  .shots figure.shot img{width:100%;height:110px;object-fit:cover;object-position:top left;border:1px solid #2a3442}
+  .shots figure.shot .lab{display:block;font-size:.8rem;color:var(--dim);margin-top:5px;line-height:1.25}
+  .shots figure.shot figcaption{display:none}
+  #shotpop{position:fixed;z-index:50;display:none;max-width:min(900px,92vw);background:#0b1118;border:1px solid #3a4658;
+    border-radius:10px;padding:10px;box-shadow:0 12px 40px rgba(0,0,0,.6);pointer-events:none}
+  #shotpop.tap{pointer-events:auto}
+  #shotpop img{width:100%;height:auto;max-height:70vh;object-fit:contain}
+  #shotpop .cap{color:var(--dim);font-size:.9rem;margin-top:8px;max-width:none}
+  #shotpop .cap b{color:var(--ink)}
   /* EVERY SCREEN: the glass flat and straight on, the whole width, a click opens it full size */
   /* A NARROW PANEL (the table set-up glass) stands beside its text, at its own size */
   figure.panel{float:right;width:300px;margin:4px 0 16px 24px}
@@ -1393,18 +1405,19 @@
     rules throughout.
   </div>
 
-    <figure class="glass"><a href="img/cuevr/glass/vs-practice.jpg"><img src="img/cuevr/glass/vs-practice.jpg" alt="The Practice tab" loading="lazy"></a>
-    <figcaption><b>Practice</b>: <b>PRACTISE</b> gives you a free table where nothing counts and
+    <div class="shots">
+    <figure class="shot"><a href="img/cuevr/glass/vs-practice.jpg"><img src="img/cuevr/glass/vs-practice.jpg" alt="The Practice tab" loading="lazy"></a><span class="lab">Practice</span><figcaption><b>Practice</b>: <b>PRACTISE</b> gives you a free table where nothing counts and
     <kbd>B</kbd> takes a shot back. <b>CHALLENGES</b> opens the challenges.</figcaption></figure>
-  <figure class="glass"><a href="img/cuevr/glass/pause-practice.jpg"><img src="img/cuevr/glass/pause-practice.jpg" alt="The pause menu in practice" loading="lazy"></a>
-    <figcaption><b>The pause menu in practice.</b> Two more rows: <b>PRACTICE</b> (<b>Move the
+    <figure class="shot"><a href="img/cuevr/glass/pause-practice.jpg"><img src="img/cuevr/glass/pause-practice.jpg" alt="The pause menu in practice" loading="lazy"></a><span class="lab">The pause menu in practice</span><figcaption><b>The pause menu in practice.</b> Two more rows: <b>PRACTICE</b> (<b>Move the
     balls</b>, <b>Timed six</b>, <b>Challenges</b> and <b>Show the shot off</b>) and
     <b>TARGET</b> (<b>Target on</b>, and <b>Auto set position target</b>).</figcaption></figure>
-
-  <figure class="glass"><a href="img/cuevr/glass/challenges.jpg"><img src="img/cuevr/glass/challenges.jpg" alt="The challenges" loading="lazy"></a>
-    <figcaption><b>CHALLENGES</b>: the <b>TIMED SIX</b>, <b>FROM A CODE</b> (one somebody has
+    <figure class="shot"><a href="img/cuevr/glass/challenges.jpg"><img src="img/cuevr/glass/challenges.jpg" alt="The challenges" loading="lazy"></a><span class="lab">CHALLENGES</span><figcaption><b>CHALLENGES</b>: the <b>TIMED SIX</b>, <b>FROM A CODE</b> (one somebody has
     shared), <b>MAKE ONE</b>, and every challenge you have kept, each with its best result.
     <b>DELETE</b> sits on your own. <b>GALLERY</b> beside the title has other players'.</figcaption></figure>
+  </div>
+  
+
+  
 
   <h3 id="target">The target</h3>
   <p>A chalk bullseye on the cloth to play the cue ball to: a <b>50</b> in the middle, then
@@ -1991,15 +2004,14 @@
   went down. In a match, the break alternates from frame to frame unless the rule set is
   <b>WINNER BREAKS</b> (9-ball and 10-ball), where the winner of each frame breaks the next.</p>
 
-  <figure class="glass">
-    <a href="img/cuevr/glass/over-match.jpg"><img src="img/cuevr/glass/over-match.jpg" alt="The end-of-match figures" loading="lazy"></a>
-    <figcaption>The end of a match. The same figures are kept in <b>Records</b>, so a match you
-    played last week is still there.</figcaption>
-  </figure>
-  <figure class="glass"><a href="img/cuevr/glass/pause-stats.jpg"><img src="img/cuevr/glass/pause-stats.jpg" alt="Match stats" loading="lazy"></a>
-    <figcaption><b>MATCH STATS</b>, from the pause menu: the frame so far, your figures on the
+  <div class="shots">
+    <figure class="shot"><a href="img/cuevr/glass/over-match.jpg"><img src="img/cuevr/glass/over-match.jpg" alt="The end-of-match figures" loading="lazy"></a><span class="lab">Records</span><figcaption>The end of a match. The same figures are kept in <b>Records</b>, so a match you
+    played last week is still there.</figcaption></figure>
+    <figure class="shot"><a href="img/cuevr/glass/pause-stats.jpg"><img src="img/cuevr/glass/pause-stats.jpg" alt="Match stats" loading="lazy"></a><span class="lab">MATCH STATS</span><figcaption><b>MATCH STATS</b>, from the pause menu: the frame so far, your figures on the
     left and your opponent's on the right, and the best break of each. <b>BACK TO THE MATCH</b>
     returns to the pause menu.</figcaption></figure>
+  </div>
+  
 
 </section>
 
@@ -2257,17 +2269,14 @@
   <div class="mode rev">
     <figure><img src="img/cuevr/game-us10.png" alt="A 10-ball table"></figure>
     <div>
-        <figure class="glass"><a href="img/cuevr/glass/pickrules-9ball.jpg"><img src="img/cuevr/glass/pickrules-9ball.jpg" alt="The rules page, 9-ball" loading="lazy"></a>
-    <figcaption><b>9-ball</b>: WPA 9-BALL, SHOT CLOCK and WINNER BREAKS. See
+        <div class="shots">
+    <figure class="shot"><a href="img/cuevr/glass/pickrules-9ball.jpg"><img src="img/cuevr/glass/pickrules-9ball.jpg" alt="The rules page, 9-ball" loading="lazy"></a><span class="lab">9-ball</span><figcaption><b>9-ball</b>: WPA 9-BALL, SHOT CLOCK and WINNER BREAKS. See
     <a href="#rules-clock">Playing against the clock</a>.</figcaption></figure>
-  <div class="grid g2">
-  <figure><a href="img/cuevr/glass/decide-pushout.jpg"><img src="img/cuevr/glass/decide-pushout.jpg" alt="Push out" loading="lazy"></a>
-    <figcaption>9-ball, after the break: <b>PUSH OUT</b> (a free shot) or <b>PLAY ON</b>.</figcaption></figure>
-  <figure><a href="img/cuevr/glass/decide-pushresp.jpg"><img src="img/cuevr/glass/decide-pushresp.jpg" alt="Opponent pushed out" loading="lazy"></a>
-    <figcaption>...and after your opponent's push-out: <b>PLAY ON</b> from there, or <b>HAND IT
+    <figure class="shot"><a href="img/cuevr/glass/decide-pushout.jpg"><img src="img/cuevr/glass/decide-pushout.jpg" alt="Push out" loading="lazy"></a><span class="lab">PUSH OUT</span><figcaption>9-ball, after the break: <b>PUSH OUT</b> (a free shot) or <b>PLAY ON</b>.</figcaption></figure>
+    <figure class="shot"><a href="img/cuevr/glass/decide-pushresp.jpg"><img src="img/cuevr/glass/decide-pushresp.jpg" alt="Opponent pushed out" loading="lazy"></a><span class="lab">PLAY ON</span><figcaption>...and after your opponent's push-out: <b>PLAY ON</b> from there, or <b>HAND IT
     BACK</b>.</figcaption></figure>
   </div>
-
+  
 <h3>10-ball</h3>
       <div class="spec">9FT TABLE · 10 BALLS · TRIANGLE RACK</div>
       <p>The same bed and the same rotation game as 9-ball: lowest ball first, any ball may then go
@@ -3501,23 +3510,26 @@
   <p class="lede">A player's career on one of eight tours, from a club league to the top of the sport.
   Up to twelve careers are kept at once.</p>
 
-  <figure>
-    <img src="img/cuevr/glass/careers.jpg" alt="The careers page">
-    <figcaption><b>Career</b> on step 3 VS opens your careers: each card shows its tour, where you
+  <div class="shots">
+    <figure class="shot"><a href="img/cuevr/glass/careers.jpg"><img src="img/cuevr/glass/careers.jpg" alt="The careers page" loading="lazy"></a><span class="lab">Career</span><figcaption><b>Career</b> on step 3 VS opens your careers: each card shows its tour, where you
     are, your ranking, titles and money, and when you last played it. <b>PLAY THIS CAREER</b>
     carries on with the one picked, <b>NEW CAREER</b> starts another. A career from 6.0 is kept in
-    the first slot as a simple career, three leagues as before.</figcaption>
-  </figure>
+    the first slot as a simple career, three leagues as before.</figcaption></figure>
+    <figure class="shot"><a href="img/cuevr/glass/vs-career.jpg"><img src="img/cuevr/glass/vs-career.jpg" alt="The Career tab" loading="lazy"></a><span class="lab">Career</span><figcaption><b>Career</b>: your current career, and the way to the others.</figcaption></figure>
+  </div>
 
-    <figure class="glass"><a href="img/cuevr/glass/vs-career.jpg"><img src="img/cuevr/glass/vs-career.jpg" alt="The Career tab" loading="lazy"></a>
-    <figcaption><b>Career</b>: your current career, and the way to the others.</figcaption></figure>
+    
 
 <h3>Starting one</h3>
-  <figure>
-    <img src="img/cuevr/glass/career-newtour.jpg" alt="Starting a tour career">
-    <figcaption>Pick the tour, the level you start at, your name and country, and how long the
-    matches are.</figcaption>
-  </figure>
+  <div class="shots">
+    <figure class="shot"><a href="img/cuevr/glass/career-newtour.jpg"><img src="img/cuevr/glass/career-newtour.jpg" alt="Starting a tour career" loading="lazy"></a><span class="lab">Starting a tour career</span><figcaption>Pick the tour, the level you start at, your name and country, and how long the
+    matches are.</figcaption></figure>
+    <figure class="shot"><a href="img/cuevr/glass/career-new.jpg"><img src="img/cuevr/glass/career-new.jpg" alt="A new career" loading="lazy"></a><span class="lab">NEW CAREER</span><figcaption><b>NEW CAREER</b>: <b>SIMPLE</b> (a league on each table you pick) or
+    <b>TOUR</b> (five tiers, from the pub to the pros).</figcaption></figure>
+    <figure class="shot"><a href="img/cuevr/glass/career-leaguetable.jpg"><img src="img/cuevr/glass/career-leaguetable.jpg" alt="A simple career's league table" loading="lazy"></a><span class="lab">A simple career</span><figcaption><b>A simple career</b>: a league table for each table you play on, and
+    <b>SEASON FINISHED</b> when it is.</figcaption></figure>
+    <figure class="shot"><a href="img/cuevr/glass/career-achievements.jpg"><img src="img/cuevr/glass/career-achievements.jpg" alt="Achievements" loading="lazy"></a><span class="lab">ACHIEVEMENTS</span><figcaption><b>ACHIEVEMENTS</b> of a simple career, the ones you have won lit.</figcaption></figure>
+  </div>
   <table>
     <tr><th>Choice</th><th>What it does</th></tr>
     <tr><td><b>TOUR</b></td><td>Snooker on a 12 ft table, UK Ultimate pool on a 7 ft table, US
@@ -3540,14 +3552,9 @@
       so a 6-red career counts 50+ breaks where a full-reds one counts centuries.</td></tr>
   </table>
 
-    <figure class="glass"><a href="img/cuevr/glass/career-new.jpg"><img src="img/cuevr/glass/career-new.jpg" alt="A new career" loading="lazy"></a>
-    <figcaption><b>NEW CAREER</b>: <b>SIMPLE</b> (a league on each table you pick) or
-    <b>TOUR</b> (five tiers, from the pub to the pros).</figcaption></figure>
-  <figure class="glass"><a href="img/cuevr/glass/career-leaguetable.jpg"><img src="img/cuevr/glass/career-leaguetable.jpg" alt="A simple career's league table" loading="lazy"></a>
-    <figcaption><b>A simple career</b>: a league table for each table you play on, and
-    <b>SEASON FINISHED</b> when it is.</figcaption></figure>
-  <figure class="glass"><a href="img/cuevr/glass/career-achievements.jpg"><img src="img/cuevr/glass/career-achievements.jpg" alt="Achievements" loading="lazy"></a>
-    <figcaption><b>ACHIEVEMENTS</b> of a simple career, the ones you have won lit.</figcaption></figure>
+    
+  
+  
 
 <h3 id="newtours">The newer tours</h3>
   <p>Four tours added in 7.2 are run the way their own sports run, not as copies of the snooker
@@ -3576,18 +3583,19 @@
   page.</p>
 
   <h3>The hub</h3>
-  <figure>
-    <img src="img/cuevr/glass/career-hub.jpg" alt="The career hub">
-    <figcaption>Your next match, the event and round, and who you are playing. The tabs across the
-    top open the calendar, the rankings, the season's stats and the season review.</figcaption>
-  </figure>
+  <div class="shots">
+    <figure class="shot"><a href="img/cuevr/glass/career-hub.jpg"><img src="img/cuevr/glass/career-hub.jpg" alt="The career hub" loading="lazy"></a><span class="lab">The career hub</span><figcaption>Your next match, the event and round, and who you are playing. The tabs across the
+    top open the calendar, the rankings, the season's stats and the season review.</figcaption></figure>
+    <figure class="shot"><a href="img/cuevr/glass/career-result.jpg"><img src="img/cuevr/glass/career-result.jpg" alt="After a match" loading="lazy"></a><span class="lab">After a match</span><figcaption><b>After a match</b>, back at the hub: the result is at the foot, and the next
+    event at the top.</figcaption></figure>
+    <figure class="shot"><a href="img/cuevr/glass/career-draw.jpg"><img src="img/cuevr/glass/career-draw.jpg" alt="An event's draw" loading="lazy"></a><span class="lab">An event's draw</span><figcaption><b>An event's draw</b>: two rounds at a time, every result in it, and you
+    picked out.</figcaption></figure>
+  </div>
   <p><b>PLAY NEXT MATCH</b> puts it on the table. <b>SIMULATE TO MY NEXT MATCH</b> plays every
   other match up to your next one. When you have a match already started, the first button says
   <b>CONTINUE MATCH</b> and takes you back to it. When you have no events left in the season, it
   says <b>FINISH THE SEASON</b>: it plays the rest of the season out and opens the review.</p>
-  <figure class="glass"><a href="img/cuevr/glass/career-result.jpg"><img src="img/cuevr/glass/career-result.jpg" alt="After a match" loading="lazy"></a>
-    <figcaption><b>After a match</b>, back at the hub: the result is at the foot, and the next
-    event at the top.</figcaption></figure>
+  
 
   <figure>
     <img src="img/cuevr/trophy_finish_season.png" alt="The hub with nothing left this season">
@@ -3595,41 +3603,28 @@
     <b>TROPHY CABINET</b> under your titles (see <a href="#trophies">Trophies</a>).</figcaption>
   </figure>
 
-    <figure class="glass"><a href="img/cuevr/glass/career-draw.jpg"><img src="img/cuevr/glass/career-draw.jpg" alt="An event's draw" loading="lazy"></a>
-    <figcaption><b>An event's draw</b>: two rounds at a time, every result in it, and you
-    picked out.</figcaption></figure>
+    
 
 <h3>When an event finishes</h3>
-  <figure>
-    <img src="img/cuevr/glass/event-result.jpg" alt="The result of an event you won">
-    <figcaption>When an event you played in finishes, its result comes up on a page of its own:
+  <div class="shots">
+    <figure class="shot"><a href="img/cuevr/glass/event-result.jpg"><img src="img/cuevr/glass/event-result.jpg" alt="The result of an event you won" loading="lazy"></a><span class="lab">CONTINUE</span><figcaption>When an event you played in finishes, its result comes up on a page of its own:
     champion or runner-up, the final's score, how far you went, your world titles and career
     titles, and the prize. The Atlantic Cup gets one too, even when its last day is played out by
-    SIMULATE. <b>CONTINUE</b> goes back to where you were.</figcaption>
-  </figure>
-
-  <div class="grid g2">
-    <figure><img src="img/cuevr/glass/career-calendar.jpg" alt="The calendar">
-      <figcaption><b>CALENDAR</b>: a month to a page, each event across its days. Point at one for
+    SIMULATE. <b>CONTINUE</b> goes back to where you were.</figcaption></figure>
+    <figure class="shot"><a href="img/cuevr/glass/career-calendar.jpg"><img src="img/cuevr/glass/career-calendar.jpg" alt="The calendar" loading="lazy"></a><span class="lab">CALENDAR</span><figcaption><b>CALENDAR</b>: a month to a page, each event across its days. Point at one for
       its dates, format, field, prize money and last year's winner; the trigger opens its draw or
       league table.</figcaption></figure>
-    <figure><img src="img/cuevr/glass/career-rankings.jpg" alt="The rankings">
-      <figcaption><b>RANKINGS</b> for every level, with your own row picked out. Pick a player to
+    <figure class="shot"><a href="img/cuevr/glass/career-rankings.jpg"><img src="img/cuevr/glass/career-rankings.jpg" alt="The rankings" loading="lazy"></a><span class="lab">RANKINGS</span><figcaption><b>RANKINGS</b> for every level, with your own row picked out. Pick a player to
       see their page.</figcaption></figure>
-  </div>
-  <div class="grid g2">
-    <figure><img src="img/cuevr/glass/career-player.jpg" alt="A player's page">
-      <figcaption>A player's page: their career, this season, past seasons, their record against
+    <figure class="shot"><a href="img/cuevr/glass/career-player.jpg"><img src="img/cuevr/glass/career-player.jpg" alt="A player's page" loading="lazy"></a><span class="lab">HOW THEY PLAY</span><figcaption>A player's page: their career, this season, past seasons, their record against
       you, and <b>HOW THEY PLAY</b> in the same five bars as the computer players' cards.</figcaption></figure>
-    <figure><img src="img/cuevr/glass/career-stats.jpg" alt="The season's stats">
-      <figcaption><b>STATS</b>: this season's leaders on the whole tour and at your level, beside
+    <figure class="shot"><a href="img/cuevr/glass/career-stats.jpg"><img src="img/cuevr/glass/career-stats.jpg" alt="The season's stats" loading="lazy"></a><span class="lab">STATS</span><figcaption><b>STATS</b>: this season's leaders on the whole tour and at your level, beside
       the tour's all-time records.</figcaption></figure>
+    <figure class="shot"><a href="img/cuevr/glass/career-review.jpg"><img src="img/cuevr/glass/career-review.jpg" alt="The season review" loading="lazy"></a><span class="lab">SEASON</span><figcaption><b>SEASON</b>: how your season has gone and who has won what. At the end of a
+    season it becomes the review, with who went up and who went down.</figcaption></figure>
   </div>
-  <figure>
-    <img src="img/cuevr/glass/career-review.jpg" alt="The season review">
-    <figcaption><b>SEASON</b>: how your season has gone and who has won what. At the end of a
-    season it becomes the review, with who went up and who went down.</figcaption>
-  </figure>
+
+      
 
   
 
@@ -3686,11 +3681,20 @@
   <p class="lede">Any event from the tours on its own, without a career: a pub league, a ranking
   event, a World Championship or the Atlantic Cup.</p>
 
-  <figure>
-    <img src="img/cuevr/glass/event-setup.jpg" alt="Setting up an event">
-    <figcaption><b>Events</b> on step 3 VS. Pick an event, then set it up. The panel on the left
-    shows the event as it will be: its format, field, prize fund and top seeds.</figcaption>
-  </figure>
+  <div class="shots">
+    <figure class="shot"><a href="img/cuevr/glass/event-setup.jpg"><img src="img/cuevr/glass/event-setup.jpg" alt="Setting up an event" loading="lazy"></a><span class="lab">Events</span><figcaption><b>Events</b> on step 3 VS. Pick an event, then set it up. The panel on the left
+    shows the event as it will be: its format, field, prize fund and top seeds.</figcaption></figure>
+    <figure class="shot"><a href="img/cuevr/glass/event-hub.jpg"><img src="img/cuevr/glass/event-hub.jpg" alt="The event hub" loading="lazy"></a><span class="lab">The event hub</span><figcaption>The event's hub: your next match, and the draw, results and stats in the tabs.</figcaption></figure>
+    <figure class="shot"><a href="img/cuevr/glass/event-draw.jpg"><img src="img/cuevr/glass/event-draw.jpg" alt="The draw" loading="lazy"></a><span class="lab">DRAW</span><figcaption><b>DRAW</b>: every round, with your path through it. Once you are knocked out,
+      play the rest of the event a round at a time or all at once.</figcaption></figure>
+    <figure class="shot"><a href="img/cuevr/glass/event-record.jpg"><img src="img/cuevr/glass/event-record.jpg" alt="The events record" loading="lazy"></a><span class="lab">EVENTS RECORD</span><figcaption><b>EVENTS RECORD</b>: your titles, best finish, money and best break for each kind
+    of event. Twelve events are kept at once.</figcaption></figure>
+    <figure class="shot"><a href="img/cuevr/glass/vs-events.jpg"><img src="img/cuevr/glass/vs-events.jpg" alt="Events" loading="lazy"></a><span class="lab">EVENTS</span><figcaption><b>EVENTS</b>: your events in progress and finished. <b>PLAY THIS EVENT</b>,
+    <b>NEW EVENT</b>, <b>EVENTS RECORD</b> and <b>DELETE</b>.</figcaption></figure>
+    <figure class="shot"><a href="img/cuevr/glass/event-new.jpg"><img src="img/cuevr/glass/event-new.jpg" alt="A new event" loading="lazy"></a><span class="lab">NEW EVENT</span><figcaption><b>NEW EVENT</b>: the tour, then the event, from a club league to the World
+    Championship, each with its field size and prize money.</figcaption></figure>
+    <figure class="shot"><a href="img/cuevr/glass/event-results.jpg"><img src="img/cuevr/glass/event-results.jpg" alt="An event's results" loading="lazy"></a><span class="lab">RESULTS</span><figcaption><b>RESULTS</b>: every match played in it.</figcaption></figure>
+  </div>
   <table>
     <tr><th>Choice</th><th>What it does</th></tr>
     <tr><td><b>FIELD</b></td><td>How strong the other players are, from a club league up to the
@@ -3702,28 +3706,12 @@
       always gives the same event.</td></tr>
   </table>
 
-  <div class="grid g2">
-    <figure><img src="img/cuevr/glass/event-hub.jpg" alt="The event hub">
-      <figcaption>The event's hub: your next match, and the draw, results and stats in the tabs.</figcaption></figure>
-    <figure><img src="img/cuevr/glass/event-draw.jpg" alt="The draw">
-      <figcaption><b>DRAW</b>: every round, with your path through it. Once you are knocked out,
-      play the rest of the event a round at a time or all at once.</figcaption></figure>
-  </div>
-  <figure>
-    <img src="img/cuevr/glass/event-record.jpg" alt="The events record">
-    <figcaption><b>EVENTS RECORD</b>: your titles, best finish, money and best break for each kind
-    of event. Twelve events are kept at once.</figcaption>
-  </figure>
+    
   <p>An event match is played to the end in the same way as a career match: no END MATCH and no
   RE-RACK, and PAUSE MATCH to leave it.</p>
-  <figure class="glass"><a href="img/cuevr/glass/vs-events.jpg"><img src="img/cuevr/glass/vs-events.jpg" alt="Events" loading="lazy"></a>
-    <figcaption><b>EVENTS</b>: your events in progress and finished. <b>PLAY THIS EVENT</b>,
-    <b>NEW EVENT</b>, <b>EVENTS RECORD</b> and <b>DELETE</b>.</figcaption></figure>
-  <figure class="glass"><a href="img/cuevr/glass/event-new.jpg"><img src="img/cuevr/glass/event-new.jpg" alt="A new event" loading="lazy"></a>
-    <figcaption><b>NEW EVENT</b>: the tour, then the event, from a club league to the World
-    Championship, each with its field size and prize money.</figcaption></figure>
-  <figure class="glass"><a href="img/cuevr/glass/event-results.jpg"><img src="img/cuevr/glass/event-results.jpg" alt="An event's results" loading="lazy"></a>
-    <figcaption><b>RESULTS</b>: every match played in it.</figcaption></figure>
+  
+  
+  
 
 </section>
 
@@ -3798,26 +3786,27 @@
   <p class="lede">Everything you have done is kept: your best breaks, every game's figures, the
   shots you kept from replays, your career and the club tournaments you have entered.
   <b>Records</b> is the third tile down the side of the glass.</p>
-  <figure class="glass"><a href="img/cuevr/glass/records-stats.jpg"><img src="img/cuevr/glass/records-stats.jpg" alt="Records, Stats" loading="lazy"></a>
-    <figcaption><b>Stats</b>: your highest breaks on each snooker table, the breaks of 20, 30,
+  <div class="shots">
+    <figure class="shot"><a href="img/cuevr/glass/records-stats.jpg"><img src="img/cuevr/glass/records-stats.jpg" alt="Records, Stats" loading="lazy"></a><span class="lab">Stats</span><figcaption><b>Stats</b>: your highest breaks on each snooker table, the breaks of 20, 30,
     50 and 100 you have made, clearances and break-and-runs in each pool game, and frames won.
     <b>Against the CPU</b> or <b>Online</b>; <b>Overall stats</b> beside <b>Records</b>; and the
     list on the right picks the family of games.</figcaption></figure>
-  <figure class="glass"><a href="img/cuevr/glass/records-overall.jpg"><img src="img/cuevr/glass/records-overall.jpg" alt="Records, Overall stats" loading="lazy"></a>
-    <figcaption><b>Overall stats</b>: your figures over every frame of that family of games, the
+    <figure class="shot"><a href="img/cuevr/glass/records-overall.jpg"><img src="img/cuevr/glass/records-overall.jpg" alt="Records, Overall stats" loading="lazy"></a><span class="lab">Overall stats</span><figcaption><b>Overall stats</b>: your figures over every frame of that family of games, the
     same figures the end of every match shows.</figcaption></figure>
-  <figure class="glass"><a href="img/cuevr/glass/records-games.jpg"><img src="img/cuevr/glass/records-games.jpg" alt="Records, Games" loading="lazy"></a>
-    <figcaption><b>Games</b>: frames played, won and your best, for every game and rule
+    <figure class="shot"><a href="img/cuevr/glass/records-games.jpg"><img src="img/cuevr/glass/records-games.jpg" alt="Records, Games" loading="lazy"></a><span class="lab">Games</span><figcaption><b>Games</b>: frames played, won and your best, for every game and rule
     set.</figcaption></figure>
-  <figure class="glass"><a href="img/cuevr/glass/records-replays.jpg"><img src="img/cuevr/glass/records-replays.jpg" alt="Records, Replays" loading="lazy"></a>
-    <figcaption><b>Replays</b>: the shots you have kept from an instant replay, each with
+    <figure class="shot"><a href="img/cuevr/glass/records-replays.jpg"><img src="img/cuevr/glass/records-replays.jpg" alt="Records, Replays" loading="lazy"></a><span class="lab">Replays</span><figcaption><b>Replays</b>: the shots you have kept from an instant replay, each with
     <b>PLAY</b> and <b>DELETE</b>. See <a href="#replays">Instant replays</a>.</figcaption></figure>
-  <figure class="glass"><a href="img/cuevr/glass/records-career.jpg"><img src="img/cuevr/glass/records-career.jpg" alt="Records, Career" loading="lazy"></a>
-    <figcaption><b>Career</b>: your current career's record.</figcaption></figure>
-  <figure class="glass"><a href="img/cuevr/glass/records-tournaments.jpg"><img src="img/cuevr/glass/records-tournaments.jpg" alt="Records, Tournaments" loading="lazy"></a>
-    <figcaption><b>Tournaments</b>: every club tournament you have entered, how far you got, and
+    <figure class="shot"><a href="img/cuevr/glass/records-career.jpg"><img src="img/cuevr/glass/records-career.jpg" alt="Records, Career" loading="lazy"></a><span class="lab">Career</span><figcaption><b>Career</b>: your current career's record.</figcaption></figure>
+    <figure class="shot"><a href="img/cuevr/glass/records-tournaments.jpg"><img src="img/cuevr/glass/records-tournaments.jpg" alt="Records, Tournaments" loading="lazy"></a><span class="lab">Tournaments</span><figcaption><b>Tournaments</b>: every club tournament you have entered, how far you got, and
     each of your matches with the score. Open one to see its whole draw. See
     <a href="#tournaments">Club tournaments</a>.</figcaption></figure>
+  </div>
+  
+  
+  
+  
+  
 
 </section>
 
@@ -4137,20 +4126,19 @@
     in for the frame and says so in the row; your own choice is kept.
   </div>
 
-    <figure class="glass"><a href="img/cuevr/glass/pickballs.jpg"><img src="img/cuevr/glass/pickballs.jpg" alt="The ball picker" loading="lazy"></a>
-    <figcaption><b>BALLS</b>: every set, photographed on the same rack so the set is the only
+    <div class="shots">
+    <figure class="shot"><a href="img/cuevr/glass/pickballs.jpg"><img src="img/cuevr/glass/pickballs.jpg" alt="The ball picker" loading="lazy"></a><span class="lab">BALLS</span><figcaption><b>BALLS</b>: every set, photographed on the same rack so the set is the only
     difference. <b>Plain cue ball</b> or <b>Measle spots</b> sets the white. Your own sets come
     after the shipped ones.</figcaption></figure>
-  <div class="grid g2">
-  <figure><a href="img/cuevr/glass/balls-0-set.jpg"><img src="img/cuevr/glass/balls-0-set.jpg" alt="The set" loading="lazy"></a><figcaption><b>The set</b>: its name, and a shipped set to start from.</figcaption></figure>
-  <figure><a href="img/cuevr/glass/balls-1-colours.jpg"><img src="img/cuevr/glass/balls-1-colours.jpg" alt="Colours" loading="lazy"></a><figcaption><b>Colours</b>: a palette, two groups, or one colour each.</figcaption></figure>
-  <figure><a href="img/cuevr/glass/balls-2-stripes.jpg"><img src="img/cuevr/glass/balls-2-stripes.jpg" alt="Stripes" loading="lazy"></a><figcaption><b>Stripes</b>: which balls are striped, and how.</figcaption></figure>
-  <figure><a href="img/cuevr/glass/balls-3-numbers.jpg"><img src="img/cuevr/glass/balls-3-numbers.jpg" alt="Numbers" loading="lazy"></a><figcaption><b>Numbers</b>: none, in a circle, on the ball or the black only; their size, the circle's size and how solid it is; and the FONT.</figcaption></figure>
-  <figure><a href="img/cuevr/glass/balls-4-ring.jpg"><img src="img/cuevr/glass/balls-4-ring.jpg" alt="Ring and pips" loading="lazy"></a><figcaption><b>Ring and pips</b>: a ring round the number and a second ring, their thickness and size, gaps in the ring, and pips.</figcaption></figure>
-  <figure><a href="img/cuevr/glass/balls-5-pattern.jpg"><img src="img/cuevr/glass/balls-5-pattern.jpg" alt="Pattern" loading="lazy"></a><figcaption><b>Pattern</b>: camo, bands, marbled, sparkle, hex, crackle, galaxy, wood or swirl, then where it goes, its size and its strength.</figcaption></figure>
-  <figure><a href="img/cuevr/glass/balls-6-finish.jpg"><img src="img/cuevr/glass/balls-6-finish.jpg" alt="Finish" loading="lazy"></a><figcaption><b>Finish</b>: gloss, pearl, metal or glass; shine and wear; and what the balls are <b>MADE OF</b>, which sets their weight. Heavier balls play differently.</figcaption></figure>
+    <figure class="shot"><a href="img/cuevr/glass/balls-0-set.jpg"><img src="img/cuevr/glass/balls-0-set.jpg" alt="The set" loading="lazy"></a><span class="lab">The set</span><figcaption><b>The set</b>: its name, and a shipped set to start from.</figcaption></figure>
+    <figure class="shot"><a href="img/cuevr/glass/balls-1-colours.jpg"><img src="img/cuevr/glass/balls-1-colours.jpg" alt="Colours" loading="lazy"></a><span class="lab">Colours</span><figcaption><b>Colours</b>: a palette, two groups, or one colour each.</figcaption></figure>
+    <figure class="shot"><a href="img/cuevr/glass/balls-2-stripes.jpg"><img src="img/cuevr/glass/balls-2-stripes.jpg" alt="Stripes" loading="lazy"></a><span class="lab">Stripes</span><figcaption><b>Stripes</b>: which balls are striped, and how.</figcaption></figure>
+    <figure class="shot"><a href="img/cuevr/glass/balls-3-numbers.jpg"><img src="img/cuevr/glass/balls-3-numbers.jpg" alt="Numbers" loading="lazy"></a><span class="lab">Numbers</span><figcaption><b>Numbers</b>: none, in a circle, on the ball or the black only; their size, the circle's size and how solid it is; and the FONT.</figcaption></figure>
+    <figure class="shot"><a href="img/cuevr/glass/balls-4-ring.jpg"><img src="img/cuevr/glass/balls-4-ring.jpg" alt="Ring and pips" loading="lazy"></a><span class="lab">Ring and pips</span><figcaption><b>Ring and pips</b>: a ring round the number and a second ring, their thickness and size, gaps in the ring, and pips.</figcaption></figure>
+    <figure class="shot"><a href="img/cuevr/glass/balls-5-pattern.jpg"><img src="img/cuevr/glass/balls-5-pattern.jpg" alt="Pattern" loading="lazy"></a><span class="lab">Pattern</span><figcaption><b>Pattern</b>: camo, bands, marbled, sparkle, hex, crackle, galaxy, wood or swirl, then where it goes, its size and its strength.</figcaption></figure>
+    <figure class="shot"><a href="img/cuevr/glass/balls-6-finish.jpg"><img src="img/cuevr/glass/balls-6-finish.jpg" alt="Finish" loading="lazy"></a><span class="lab">Finish</span><figcaption><b>Finish</b>: gloss, pearl, metal or glass; shine and wear; and what the balls are <b>MADE OF</b>, which sets their weight. Heavier balls play differently.</figcaption></figure>
   </div>
-
+  
 <h3 id="wood">Woodwork</h3>
   <p>The <b>TIMBER</b> panel sets the rails and the body together, in three choices made one after
   another: the <b>finish</b>, the <b>colour</b>, and &mdash; for a varnished finish &mdash; the
@@ -4229,11 +4217,12 @@
   </div>
 
   <h3 id="cloth">Cloth</h3>
-  <figure>
-    <img src="img/cuevr/glass/pickcloth.jpg" alt="The cloth picker">
-    <figcaption>The cloth picker. The one on the table is outlined; point at any other to see its
-    name, and pull the trigger to fit it.</figcaption>
-  </figure>
+  <div class="shots">
+    <figure class="shot"><a href="img/cuevr/glass/pickcloth.jpg"><img src="img/cuevr/glass/pickcloth.jpg" alt="The cloth picker" loading="lazy"></a><span class="lab">The cloth picker</span><figcaption>The cloth picker. The one on the table is outlined; point at any other to see its
+    name, and pull the trigger to fit it.</figcaption></figure>
+    <figure class="shot"><a href="img/cuevr/glass/pickcloth-mix.jpg"><img src="img/cuevr/glass/pickcloth-mix.jpg" alt="Mixing a cloth" loading="lazy"></a><span class="lab">MIX A CLOTH</span><figcaption><b>MIX A CLOTH</b>: pick the colour off the strip, then how light and how strong
+    it is in the square. The table changes as you move. <b>DONE</b> keeps it.</figcaption></figure>
+  </div>
   <p>Twenty-four colours. Here are twelve of them:</p>
   <div class="grid g4">
     <figure><img src="img/cuevr/cloth0.jpg" alt="Black cloth"><figcaption><span class="cap-t">BLACK</span></figcaption></figure>
@@ -4251,9 +4240,7 @@
   </div>
   <p>The rest: <span class="tag">SILVER</span><span class="tag">TAUPE</span><span class="tag">GOLD</span><span class="tag">NUTMEG</span><span class="tag">RANGER GREEN</span><span class="tag">OLIVE</span><span class="tag">SAGE</span><span class="tag">POWDER BLUE</span><span class="tag">NAVY</span><span class="tag">LIGHT PURPLE</span><span class="tag">RED</span><span class="tag">ORANGE</span></p>
 
-    <figure class="glass"><a href="img/cuevr/glass/pickcloth-mix.jpg"><img src="img/cuevr/glass/pickcloth-mix.jpg" alt="Mixing a cloth" loading="lazy"></a>
-    <figcaption><b>MIX A CLOTH</b>: pick the colour off the strip, then how light and how strong
-    it is in the square. The table changes as you move. <b>DONE</b> keeps it.</figcaption></figure>
+    
 
 <h3 id="styles">Table styles</h3>
   <p>A <b>table style</b> is the whole look of your table kept under one name: the cloth (a
@@ -4483,13 +4470,13 @@
     and it is a rectangle or it is nothing.
   </div>
 
-    <div class="grid g2">
-  <figure><a href="img/cuevr/glass/table-0-table.jpg"><img src="img/cuevr/glass/table-0-table.jpg" alt="Table" loading="lazy"></a><figcaption><b>Table</b>: start from a shipped table, and the games it is used for.</figcaption></figure>
-  <figure><a href="img/cuevr/glass/table-1-bed.jpg"><img src="img/cuevr/glass/table-1-bed.jpg" alt="Bed" loading="lazy"></a><figcaption><b>Bed</b>: its shape, length and width, and the ball sizes.</figcaption></figure>
-  <figure><a href="img/cuevr/glass/table-2-pockets.jpg"><img src="img/cuevr/glass/table-2-pockets.jpg" alt="Pockets" loading="lazy"></a><figcaption><b>Pockets</b>: the corner and middle openings, depths and catch, and the rail width.</figcaption></figure>
-  <figure><a href="img/cuevr/glass/table-3-jaws.jpg"><img src="img/cuevr/glass/table-3-jaws.jpg" alt="Jaws" loading="lazy"></a><figcaption><b>Jaws</b>: mitred or rounded, the angles, softness, knuckle and set-in.</figcaption></figure>
-  <figure><a href="img/cuevr/glass/table-4-game.jpg"><img src="img/cuevr/glass/table-4-game.jpg" alt="Game" loading="lazy"></a><figcaption><b>Game</b>: the baulk line and D, how the cushions bounce, and their height.</figcaption></figure>
-  <figure><a href="img/cuevr/glass/table-5-fittings.jpg"><img src="img/cuevr/glass/table-5-fittings.jpg" alt="Fittings" loading="lazy"></a><figcaption><b>Fittings</b>: pocket liners, corner castings, rail sights and how the balls come back.</figcaption></figure>
+    <div class="shots">
+    <figure class="shot"><a href="img/cuevr/glass/table-0-table.jpg"><img src="img/cuevr/glass/table-0-table.jpg" alt="Table" loading="lazy"></a><span class="lab">Table</span><figcaption><b>Table</b>: start from a shipped table, and the games it is used for.</figcaption></figure>
+    <figure class="shot"><a href="img/cuevr/glass/table-1-bed.jpg"><img src="img/cuevr/glass/table-1-bed.jpg" alt="Bed" loading="lazy"></a><span class="lab">Bed</span><figcaption><b>Bed</b>: its shape, length and width, and the ball sizes.</figcaption></figure>
+    <figure class="shot"><a href="img/cuevr/glass/table-2-pockets.jpg"><img src="img/cuevr/glass/table-2-pockets.jpg" alt="Pockets" loading="lazy"></a><span class="lab">Pockets</span><figcaption><b>Pockets</b>: the corner and middle openings, depths and catch, and the rail width.</figcaption></figure>
+    <figure class="shot"><a href="img/cuevr/glass/table-3-jaws.jpg"><img src="img/cuevr/glass/table-3-jaws.jpg" alt="Jaws" loading="lazy"></a><span class="lab">Jaws</span><figcaption><b>Jaws</b>: mitred or rounded, the angles, softness, knuckle and set-in.</figcaption></figure>
+    <figure class="shot"><a href="img/cuevr/glass/table-4-game.jpg"><img src="img/cuevr/glass/table-4-game.jpg" alt="Game" loading="lazy"></a><span class="lab">Game</span><figcaption><b>Game</b>: the baulk line and D, how the cushions bounce, and their height.</figcaption></figure>
+    <figure class="shot"><a href="img/cuevr/glass/table-5-fittings.jpg"><img src="img/cuevr/glass/table-5-fittings.jpg" alt="Fittings" loading="lazy"></a><span class="lab">Fittings</span><figcaption><b>Fittings</b>: pocket liners, corner castings, rail sights and how the balls come back.</figcaption></figure>
   </div>
 
 <h3>THE BED</h3>
@@ -4771,11 +4758,21 @@
   change shows on it straight away. It holds still: a page sets which face is towards you, and
   <b>pressing either thumbstick</b> turns it an eighth of a turn.</p>
 
-  <figure>
-    <img src="img/cuevr/glass/cue-00-cue.jpg" alt="The Cue page of the cue workshop">
-    <figcaption><b>Cue.</b> The name, the rack cue to start from, and saving, sharing and
-    deleting.</figcaption>
-  </figure>
+  <div class="shots">
+    <figure class="shot"><a href="img/cuevr/glass/cue-00-cue.jpg"><img src="img/cuevr/glass/cue-00-cue.jpg" alt="The Cue page of the cue workshop" loading="lazy"></a><span class="lab">Cue</span><figcaption><b>Cue.</b> The name, the rack cue to start from, and saving, sharing and
+    deleting.</figcaption></figure>
+    <figure class="shot"><a href="img/cuevr/glass/cue-01-shaft.jpg"><img src="img/cuevr/glass/cue-01-shaft.jpg" alt="The Shaft page" loading="lazy"></a><span class="lab">Shaft</span><figcaption><b>Shaft</b></figcaption></figure>
+    <figure class="shot"><a href="img/cuevr/glass/cue-02-splice.jpg"><img src="img/cuevr/glass/cue-02-splice.jpg" alt="The Splice page" loading="lazy"></a><span class="lab">Splice</span><figcaption><b>Splice</b></figcaption></figure>
+    <figure class="shot"><a href="img/cuevr/glass/cue-03-veneers.jpg"><img src="img/cuevr/glass/cue-03-veneers.jpg" alt="The Veneers page" loading="lazy"></a><span class="lab">Veneers</span><figcaption><b>Veneers</b></figcaption></figure>
+    <figure class="shot"><a href="img/cuevr/glass/cue-04-butt.jpg"><img src="img/cuevr/glass/cue-04-butt.jpg" alt="The Butt page" loading="lazy"></a><span class="lab">Butt</span><figcaption><b>Butt</b></figcaption></figure>
+    <figure class="shot"><a href="img/cuevr/glass/cue-05-panel.jpg"><img src="img/cuevr/glass/cue-05-panel.jpg" alt="The Panel page" loading="lazy"></a><span class="lab">Panel</span><figcaption><b>Panel</b></figcaption></figure>
+    <figure class="shot"><a href="img/cuevr/glass/cue-06-panelwood.jpg"><img src="img/cuevr/glass/cue-06-panelwood.jpg" alt="The Panel wood page" loading="lazy"></a><span class="lab">Panel wood</span><figcaption><b>Panel wood</b></figcaption></figure>
+    <figure class="shot"><a href="img/cuevr/glass/cue-07-insert.jpg"><img src="img/cuevr/glass/cue-07-insert.jpg" alt="The Insert page" loading="lazy"></a><span class="lab">Insert</span><figcaption><b>Insert</b></figcaption></figure>
+    <figure class="shot"><a href="img/cuevr/glass/cue-08-plate.jpg"><img src="img/cuevr/glass/cue-08-plate.jpg" alt="The Plate page" loading="lazy"></a><span class="lab">Plate</span><figcaption><b>Plate</b></figcaption></figure>
+    <figure class="shot"><a href="img/cuevr/glass/cue-09-extras.jpg"><img src="img/cuevr/glass/cue-09-extras.jpg" alt="The Extras page" loading="lazy"></a><span class="lab">Extras</span><figcaption><b>Extras</b></figcaption></figure>
+    <figure class="shot"><a href="img/cuevr/glass/cue-10-endcap.jpg"><img src="img/cuevr/glass/cue-10-endcap.jpg" alt="The End cap page" loading="lazy"></a><span class="lab">End cap</span><figcaption><b>End cap</b></figcaption></figure>
+    <figure class="shot"><a href="img/cuevr/glass/cue-11-decoration.jpg"><img src="img/cuevr/glass/cue-11-decoration.jpg" alt="Decoration" loading="lazy"></a><span class="lab">Decoration</span><figcaption><b>Decoration</b>: up to six bands or inlays, each with a pattern.</figcaption></figure>
+  </div>
 
   <table>
     <tr><th>Page</th><th>What it sets</th></tr>
@@ -4812,23 +4809,8 @@
       pattern (a cross, a saltire, bands and so on) or a plain disc.</td></tr>
   </table>
 
-  <div class="grid g2">
-    <figure><img src="img/cuevr/glass/cue-01-shaft.jpg" alt="The Shaft page"><figcaption><b>Shaft</b></figcaption></figure>
-    <figure><img src="img/cuevr/glass/cue-02-splice.jpg" alt="The Splice page"><figcaption><b>Splice</b></figcaption></figure>
-    <figure><img src="img/cuevr/glass/cue-03-veneers.jpg" alt="The Veneers page"><figcaption><b>Veneers</b></figcaption></figure>
-    <figure><img src="img/cuevr/glass/cue-04-butt.jpg" alt="The Butt page"><figcaption><b>Butt</b></figcaption></figure>
-    <figure><img src="img/cuevr/glass/cue-05-panel.jpg" alt="The Panel page"><figcaption><b>Panel</b></figcaption></figure>
-    <figure><img src="img/cuevr/glass/cue-06-panelwood.jpg" alt="The Panel wood page"><figcaption><b>Panel wood</b></figcaption></figure>
-    <figure><img src="img/cuevr/glass/cue-07-insert.jpg" alt="The Insert page"><figcaption><b>Insert</b></figcaption></figure>
-    <figure><img src="img/cuevr/glass/cue-08-plate.jpg" alt="The Plate page"><figcaption><b>Plate</b></figcaption></figure>
-    <figure><img src="img/cuevr/glass/cue-09-extras.jpg" alt="The Extras page"><figcaption><b>Extras</b></figcaption></figure>
-    <figure><img src="img/cuevr/glass/cue-10-endcap.jpg" alt="The End cap page"><figcaption><b>End cap</b></figcaption></figure>
-  </div>
-
-    <div class="grid g2">
-  <figure><a href="img/cuevr/glass/cue-11-decoration.jpg"><img src="img/cuevr/glass/cue-11-decoration.jpg" alt="Decoration" loading="lazy"></a><figcaption><b>Decoration</b>: up to six bands or inlays, each with a pattern.</figcaption></figure>
-  </div>
-
+  
+    
 <h3 id="cue-flag">A flag on the end</h3>
   <p>On the End cap page, <b>ON THE END &rarr; COUNTRY</b> lets any of the game's flags into the
   end of the cap. The flag shows beside <b>PICK</b>; press it for the others, shown as the flags
@@ -4938,12 +4920,14 @@
   <p><b>GALLERY</b>, beside the title in the <b>Workshop</b>, opens it. The same button is on the
   cue, ball set, challenge, cloth and timber pickers, and opens on the tab for what you were
   choosing.</p>
-  <figure>
-    <img src="img/cuevr/glass/gallery-cues.jpg" alt="The gallery, on its cues tab">
-    <figcaption>The gallery. Tabs for <b>CUES</b>, <b>BALLS</b>, <b>CHALLENGES</b> and <b>TABLE
+  <div class="shots">
+    <figure class="shot"><a href="img/cuevr/glass/gallery-cues.jpg"><img src="img/cuevr/glass/gallery-cues.jpg" alt="The gallery, on its cues tab" loading="lazy"></a><span class="lab">CUES</span><figcaption>The gallery. Tabs for <b>CUES</b>, <b>BALLS</b>, <b>CHALLENGES</b> and <b>TABLE
     STYLES</b> along the top, six to a page; the heart on each picture is how many players have
-    liked it.</figcaption>
-  </figure>
+    liked it.</figcaption></figure>
+    <figure class="shot"><a href="img/cuevr/glass/gallery-balls.jpg"><img src="img/cuevr/glass/gallery-balls.jpg" alt="The gallery's ball sets" loading="lazy"></a><span class="lab">The gallery's ball sets</span><figcaption>Ball sets.</figcaption></figure>
+    <figure class="shot"><a href="img/cuevr/glass/gallery-challenges.jpg"><img src="img/cuevr/glass/gallery-challenges.jpg" alt="The gallery's challenges" loading="lazy"></a><span class="lab">The gallery's challenges</span><figcaption>Challenges, each a picture of its layout.</figcaption></figure>
+    <figure class="shot"><a href="img/cuevr/glass/gallery-styles.jpg"><img src="img/cuevr/glass/gallery-styles.jpg" alt="The gallery's table styles" loading="lazy"></a><span class="lab">The gallery's table styles</span><figcaption>Table styles.</figcaption></figure>
+  </div>
   <ul>
     <li><b>Pick one</b> to see its name and the date it went in.</li>
     <li><b>ADD TO MINE</b> keeps it, exactly as typing its code would, and takes you to it.</li>
@@ -4953,15 +4937,7 @@
     <li>The arrows at either side turn the page. A page appears straight away and its pictures
       fill in as they arrive.</li>
   </ul>
-  <div class="grid g3">
-    <figure><img src="img/cuevr/glass/gallery-balls.jpg" alt="The gallery's ball sets">
-      <figcaption>Ball sets.</figcaption></figure>
-    <figure><img src="img/cuevr/glass/gallery-challenges.jpg" alt="The gallery's challenges">
-      <figcaption>Challenges, each a picture of its layout.</figcaption></figure>
-    <figure><img src="img/cuevr/glass/gallery-styles.jpg" alt="The gallery's table styles">
-      <figcaption>Table styles.</figcaption></figure>
-  </div>
-
+  
   <h3>Putting yours in</h3>
   <p><b>Nothing goes in the gallery unless you put it there.</b> <b>SHARE</b> gives you a code
   and nothing more; the code is yours to give to whoever you like. Once it has been shared, the
@@ -5591,6 +5567,33 @@
   document.addEventListener('keydown', function (ev) {
     if (ev.key === '/' && document.activeElement !== box) { ev.preventDefault(); box.focus(); }
   });
+})();
+</script>
+<div id="shotpop"><img alt=""><div class="cap"></div></div>
+<script>
+/* SCREENS POP OUT: hover a thumbnail (a mouse) or tap it (a phone) to see the screen large with
+   its explanation; a click with a mouse, or a tap on the big one, opens it full size. */
+(function(){
+  var pop=document.getElementById('shotpop'), im=pop.querySelector('img'), cap=pop.querySelector('.cap');
+  var fine=window.matchMedia('(hover: hover) and (pointer: fine)').matches, cur=null;
+  function show(f){
+    var a=f.querySelector('a'); im.src=a.getAttribute('href');
+    cap.innerHTML=f.querySelector('figcaption').innerHTML; pop.style.display='block'; cur=f;
+    var r=f.getBoundingClientRect(), w=Math.min(900,window.innerWidth*0.92);
+    var left=(r.left+r.width/2<window.innerWidth/2)?Math.min(r.right+16,window.innerWidth-w-8):Math.max(8,r.left-w-16);
+    if(!fine||window.innerWidth<900) left=(window.innerWidth-w)/2;
+    pop.style.width=w+'px'; pop.style.left=left+'px';
+    var top=Math.max(8,Math.min(r.top-40,window.innerHeight-pop.offsetHeight-8)); pop.style.top=top+'px';
+  }
+  function hide(){pop.style.display='none';pop.classList.remove('tap');cur=null;}
+  document.querySelectorAll('.shots figure.shot').forEach(function(f){
+    if(fine){ f.addEventListener('mouseenter',function(){show(f);}); f.addEventListener('mouseleave',hide); }
+    else f.querySelector('a').addEventListener('click',function(e){ e.preventDefault(); show(f); pop.classList.add('tap'); });
+    f.querySelector('a').addEventListener('focus',function(){show(f);}); f.querySelector('a').addEventListener('blur',hide);
+  });
+  pop.addEventListener('click',function(){ if(cur) window.open(cur.querySelector('a').getAttribute('href'),'_blank'); hide(); });
+  window.addEventListener('scroll',function(){ if(!pop.classList.contains('tap')) hide(); },{passive:true});
+  document.addEventListener('keydown',function(e){ if(e.key==='Escape') hide(); });
 })();
 </script>
 </body>
