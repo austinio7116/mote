@@ -76,8 +76,9 @@ class Model:
     followed (shorter, or its first line changed) starts the totals again."""
     MATCHES_KEPT = 2000           # the newest matches, with their frames, for the Matches page
 
-    def __init__(self, store, relay, gid, journal_file="", backups=""):
+    def __init__(self, store, relay, gid, journal_file="", backups="", count_forfeits=False):
         self.store, self.relay, self.gid, self.journal_file, self.backups = store, relay, gid, journal_file, backups
+        self.count_forfeits = count_forfeits   # see _fold: walk-outs win nothing until the drop fixes are out
         self._key = None
         self._model = None
         self._hon = (0.0, None)
@@ -188,6 +189,17 @@ class Model:
         t = str(line.get("time", ""))
         if r.get("t") not in ("frame", "match"):
             return
+        # A WALK-OUT WINS NOTHING, FOR NOW (2026-10-18; Mark: "just remove wins
+        # for dropping from the history and resume only once these fixes are
+        # out"; "Noone is trying to cheat yet so we can assume all drops were
+        # bugs"). Players were thrown out of rooms by the relay's backlog cap,
+        # and the frames were given to the one who stayed -- or, with the sides
+        # reported the wrong way round, to the one who went. Such a frame stays
+        # in the list, with no winner: no wins, form, head-to-head or rating.
+        # --count-forfeits counts them again.
+        if not self.count_forfeits and (line.get("forfeit") or r.get("forfeit") or "left" in line):
+            r = dict(r, winner=None, match_winner=None)
+            line = dict(line, result=r)
         names = ([_clean(x, 30) for x in (r.get("names") or [])] + ["?", "?"])[:2]
         # ONE FRAME, ONCE: a doubles frame is reported by both pairs of seats and
         # kept twice, the same frame, result and time -- counted the once

@@ -848,6 +848,18 @@ def parse_gid(v):
 
 
 
+def is_walkout(d):
+    """A FRAME SOMEBODY LEFT (2026-10-18; Mark: "just remove wins for dropping
+    from the history and resume only once these fixes are out"; "Noone is
+    trying to cheat yet so we can assume all drops were bugs"). Players were
+    thrown out of rooms by the backlog cap, and the frames went to the one who
+    stayed -- or, with the sides reported the wrong way round, to the one who
+    went. Until --count-forfeits, such a frame counts on no honours board. It is
+    still recorded: nothing in results.jsonl changes."""
+    r = d.get("result") if isinstance(d.get("result"), dict) else {}
+    return bool(d.get("forfeit") or r.get("forfeit") or "left" in d)
+
+
 class ResultsDB:
     """results.db (2026-10-11; Mark: "do that now"): an INDEX of results.jsonl,
     which stays the record. Reading the whole file again for every honours
@@ -862,7 +874,10 @@ class ResultsDB:
     is only there. Safe from any thread: one lock, a connection per call."""
     SCHEMA_VERSION = "4"          # 2: a golden break's bnr left out (2026-10-11); 3: 9/10-ball runs need every ball down; 4: 8-ball runs need 8 of the runner's own (2026-10-12)
 
-    def __init__(self, store, hon_kind):
+    def __init__(self, store, hon_kind, count_forfeits=False):
+        self.count_forfeits = count_forfeits
+        # the switch is part of the index's version: changing it rebuilds it
+        self.SCHEMA_VERSION = ResultsDB.SCHEMA_VERSION + ("" if count_forfeits else "-noforfeit")
         self.jsonl = os.path.join(store, "results.jsonl")
         self.path = os.path.join(store, "results.db")
         self.hon_kind = hon_kind
@@ -915,6 +930,8 @@ class ResultsDB:
                          str(d.get("room", ""))[:16]))
         rid = cur.lastrowid
         if not d.get("verified") or r.get("t") != "frame":
+            return
+        if not self.count_forfeits and is_walkout(d):      # a walk-out counts for nothing, for now
             return
         names, sides = r.get("names") or [], r.get("sides") or []
         if any(" & " in str(n) for n in names):     # singles only: a team names a side "A & B"
@@ -1020,7 +1037,7 @@ class Relay:
         self.nrooms = {}           # "gid/CODE" -> RoomN (a hub of up to eight)
         self.conns = 0
         self.store = Store(args.store, args.store_cap, args.puts_per_hour) if args.store else None
-        self.results_db = ResultsDB(args.store, self.HON_KIND) if args.store else None
+        self.results_db = ResultsDB(args.store, self.HON_KIND, getattr(args, "count_forfeits", False)) if args.store else None
         # THE META KEY (7.3): the app's secret, read once from its file and
         # never logged; with it a player's proof of their account is checked
         # with Meta and their results are kept against that account
@@ -1334,6 +1351,8 @@ class Relay:
                         continue
                     r = d.get("result") or {}
                     if not d.get("verified") or r.get("t") != "frame":
+                        continue
+                    if not getattr(self.args, "count_forfeits", False) and is_walkout(d):   # a walk-out counts for nothing, for now
                         continue
                     names, sides = r.get("names") or [], r.get("sides") or []
                     if any(" & " in str(n) for n in names):     # singles only: a team names a side "A & B"
@@ -2954,6 +2973,7 @@ async def main():
     ap.add_argument("--tourn-watchers", type=int, default=40, help="most watchers in a tournament's room (7.5)")
     ap.add_argument("--tourn-trust", action="store_true", help="DESK ONLY: take a tournament entrant's account as given, without Meta")
     ap.add_argument("--resume-wait", type=float, default=300.0, help="seconds a player dropped from a frame under way has to come back to it (7.5)")
+    ap.add_argument("--count-forfeits", action="store_true", help="count frames somebody left on the honours boards (off from 2026-10-18 until the drop fixes are out)")
     ap.add_argument("--forfeit-wait", type=float, default=90.0, help="seconds a forfeit waits for the remaining player's report before the relay records it without figures (7.4.x)")
     ap.add_argument("--latest-game", action="append", default=[], help="a current game id ('CUEn', 0x4355456E): older ids of its family are told to update (7.3); also <store>/latest_games")
     ap.add_argument("--store-cap", type=int, default=200000, help="most share codes kept")

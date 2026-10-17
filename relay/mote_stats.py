@@ -549,6 +549,7 @@ def main():
     ap.add_argument("--port", type=int, default=8443)
     ap.add_argument("--bind", default="0.0.0.0")
     ap.add_argument("--relay", default="127.0.0.1:443")
+    ap.add_argument("--count-forfeits", action="store_true", help="count walk-out frames as wins (off from 2026-10-18 until the drop fixes are out)")
     ap.add_argument("--state", default="", help="keep a sample a minute here (history)")
     ap.add_argument("--journal-file", default="", help="read the relay's log from this file, not journalctl (tests)")
     ap.add_argument("--backups", default="", help="the daily snapshots' folder, listed on the Server page")
@@ -556,7 +557,7 @@ def main():
     ap.add_argument("--tourn-gid", type=int, default=0x43554574, help="the game id tournaments are made for (7.6.4: CUEt; a tournament is shown to every version of its game)")
     ap.add_argument("--tourn-ver", default="7.5", help="the game version entrants must be on")
     A = ap.parse_args()
-    MODEL = Model(A.store, A.relay, GID, A.journal_file, A.backups)
+    MODEL = Model(A.store, A.relay, GID, A.journal_file, A.backups, count_forfeits=A.count_forfeits)
     with open(A.token_file, "rb") as f:
         TOKEN = f.read().strip()
     if len(TOKEN) < 24:
