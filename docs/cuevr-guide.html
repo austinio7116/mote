@@ -98,6 +98,10 @@
   /* A SCREEN, LABELLED: numbered pins on the picture, the same numbers beside it */
   figure.annot{display:grid;grid-template-columns:minmax(0,1.25fr) minmax(0,1fr);gap:22px;margin:20px 0 30px;align-items:start}
   @media(max-width:900px){figure.annot{grid-template-columns:1fr}}
+  figure.annot.wide{grid-template-columns:1fr}
+  figure.annot.wide ol.annot-key{columns:2;column-gap:22px}
+  figure.annot.wide ol.annot-key li{break-inside:avoid}
+  @media(max-width:760px){figure.annot.wide ol.annot-key{columns:1}}
   .annot-img{position:relative}
   .annot-img img{width:100%;height:auto;display:block}
   .annot .pin{position:absolute;transform:translate(-50%,-50%);width:24px;height:24px;border-radius:50%;
@@ -392,27 +396,67 @@
 
 <section id="finding">
   <h2>Finding your way</h2>
-  <p class="lede">Almost everything lives on one of two screens: the <b>main menu</b> before a
-  frame, or the <b>pause menu</b> during one. Both open on a sheet of glass in front of you. The
-  glass does not stay where you last left it: every time you open it, it comes up facing you where
-  you are standing now.</p>
+  <p class="lede">There are two menus. <b>Home</b> is where you set up a game. The <b>pause
+  menu</b> is what you get when you press <kbd>MENU</kbd> during a frame. Both open in front of
+  you, wherever you are standing.</p>
 
-  <p>The main menu is three numbered <b>steps</b> that set the frame &mdash; <b>GAME</b>,
-  <b>RULES</b> and <b>VS</b> &mdash; with <b>PLAY</b> beside them. Under the steps is a strip of
-  five panels for how the table looks: <b>TABLE</b>, <b>CLOTH</b>, <b>TIMBER</b>, <b>BALLS</b> and
-  <b>CUE</b>. Down the side are four tiles for everything else: <b>Environment</b> (the table, the
-  scoreboard, the mark round your real table, the lights, the cloth, the room and a
-  venue of your own), <b>Settings</b> (controls, movement, comfort, cue feel, chalk, graphics,
-  sound, opponents and backup), <b>Records</b> (stats, games played, replays, career and club
-  tournaments) and <b>Workshop</b> (build a table, a ball set, a cue or a challenge, and set up
-  your headset and your cue case). Each screen is shown where this guide comes to it.</p>
+  <h3>Home</h3>
+  <figure class="annot wide">
+    <div class="annot-img"><a href="img/cuevr/glass/home.jpg"><img src="img/cuevr/glass/home.jpg" alt="Home" loading="lazy"></a>
+      <span class="pin" data-n="A" style="left:27.2%;top:12.1%">A</span>
+      <span class="pin" data-n="B" style="left:27.2%;top:31.6%">B</span>
+      <span class="pin" data-n="C" style="left:27.2%;top:51.1%">C</span>
+      <span class="pin" data-n="D" style="left:61.3%;top:59.7%">D</span>
+      <span class="pin" data-n="E" style="left:27.2%;top:70.5%">E</span>
+      <span class="pin" data-n="F" style="left:1.8%;top:9.6%">F</span>
+      <span class="pin" data-n="G" style="left:1.8%;top:31.1%">G</span>
+      <span class="pin" data-n="H" style="left:1.8%;top:52.6%">H</span>
+      <span class="pin" data-n="I" style="left:1.8%;top:74.1%">I</span>
+      <span class="pin" data-n="J" style="left:49.3%;top:95.0%">J</span>
+    </div>
+    <ol class="annot-key">
+      <li data-n="A"><b>GAME</b> &mdash; Which game: snooker, the pools, billiards, carom and the rest. Opens a page of cards, one per game.</li>
+      <li data-n="B"><b>RULES</b> &mdash; Which version of that game, such as pub rules or the official ones.</li>
+      <li data-n="C"><b>VS</b> &mdash; Who you play: a computer player, someone online, a career or event match, or practice on your own.</li>
+      <li data-n="D"><b>PLAY</b> &mdash; Starts the frame. The picture above it is the table you will play on.</li>
+      <li data-n="E"><b>The table's look</b> &mdash; The table, the cloth, the wood, the balls and your cue. Each opens a page of pictures to choose from.</li>
+      <li data-n="F"><b>Environment</b> &mdash; Where the table stands, the scoreboard, the lights and the room around you.</li>
+      <li data-n="G"><b>Settings</b> &mdash; How you hold and play the cue, moving around, comfort, graphics, sound and backups.</li>
+      <li data-n="H"><b>Records</b> &mdash; Your stats, the games you have played, replays, your career and club tournaments.</li>
+      <li data-n="I"><b>Workshop</b> &mdash; Build your own table, ball set, cue or challenge.</li>
+      <li data-n="J"><b>The buttons</b> &mdash; Point and pull the trigger to choose. Tap <kbd>MENU</kbd> to close the menu. Hold <kbd>MENU</kbd> to bring it to where you are standing.</li>
+    </ol>
+  </figure>
 
-  <p>Point at any of them, pull the trigger, and you get a page of cards or swatches to point at,
-  with the one you are on marked. Nothing steps through a dozen stops one at a time, so reaching a
-  game like COWBOY POOL is one press and then a card.</p>
-
-  <p><kbd>MENU</kbd> closes the menu. <b>Holding</b> <kbd>MENU</kbd> brings it to where you are
-  standing, from anywhere &mdash; including in the middle of a frame.</p>
+  <h3>The pause menu</h3>
+  <figure class="annot wide">
+    <div class="annot-img"><a href="img/cuevr/glass/pause.jpg"><img src="img/cuevr/glass/pause.jpg" alt="The pause menu" loading="lazy"></a>
+      <span class="pin" data-n="A" style="left:1.0%;top:9.4%">A</span>
+      <span class="pin" data-n="B" style="left:1.0%;top:28.4%">B</span>
+      <span class="pin" data-n="C" style="left:1.0%;top:37.8%">C</span>
+      <span class="pin" data-n="D" style="left:2.3%;top:50.3%">D</span>
+      <span class="pin" data-n="E" style="left:16.1%;top:50.3%">E</span>
+      <span class="pin" data-n="F" style="left:29.8%;top:50.3%">F</span>
+      <span class="pin" data-n="G" style="left:43.6%;top:50.3%">G</span>
+      <span class="pin" data-n="H" style="left:57.3%;top:50.3%">H</span>
+      <span class="pin" data-n="I" style="left:71.1%;top:50.3%">I</span>
+      <span class="pin" data-n="J" style="left:84.8%;top:50.3%">J</span>
+      <span class="pin" data-n="K" style="left:1.0%;top:95.0%">K</span>
+    </div>
+    <ol class="annot-key">
+      <li data-n="A"><b>ROOM</b> &mdash; Change the room around the table without leaving the frame: your own room in mixed reality, or one of the game's rooms.</li>
+      <li data-n="B"><b>MOVEMENT</b> &mdash; What the thumbsticks do: <b>Table</b> moves the table, <b>Camera</b> moves you. Mixed reality and the game's rooms each keep their own choice.</li>
+      <li data-n="C"><b>THIS GAME</b> &mdash; The rules of the game you are playing, and the stats for this match. Practice adds its own row here, with the drills and moving the balls.</li>
+      <li data-n="D"><b>Resume</b> &mdash; Back to the frame. Tapping <kbd>MENU</kbd> does the same.</li>
+      <li data-n="E"><b>Replay</b> &mdash; Watch the last shot again. See <a href="#replays">Instant replays</a>.</li>
+      <li data-n="F"><b>Undo</b> &mdash; Take back the last shot. In practice only.</li>
+      <li data-n="G"><b>Re-rack</b> &mdash; Set the balls up again and start the frame over.</li>
+      <li data-n="H"><b>Table</b> &mdash; Move the table or change its height.</li>
+      <li data-n="I"><b>Concede</b> &mdash; Give up the frame.</li>
+      <li data-n="J"><b>Home</b> &mdash; Go to Home. The match is kept, and you can carry on from there.</li>
+      <li data-n="K"><b>The buttons</b> &mdash; Greyed-out squares do nothing in this frame. Hold <kbd>MENU</kbd> to go straight to Home.</li>
+    </ol>
+  </figure>
 
   <details class="lookup"><summary>Where is it? A quick lookup</summary>
   <table class="stack">
@@ -575,14 +619,6 @@
   Your pinned position is not lost: it comes back the moment you go back to your own room or the
   dark hall.</p>
 
-  <figure>
-    <img src="img/cuevr/glass/pause.jpg" alt="The pause menu">
-    <figcaption>The pause menu: seven squares — <b>Resume</b>, <b>Replay</b> (see
-    <a href="#replays">Instant replays</a>), <b>Undo</b>, <b>Re-rack</b>, <b>Table</b>,
-    <b>Concede</b> and <b>Home</b> — greyed out when they do not apply. The chips above them are
-    where you are playing, the rules of this game, and whatever else the frame is offering right
-    now. <b>Home</b> leaves the frame standing; it does not end the match.</figcaption>
-  </figure>
 </section>
 
 <section id="controls">
