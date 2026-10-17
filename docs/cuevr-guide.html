@@ -95,6 +95,27 @@
   #shotpop .cap{color:var(--dim);font-size:.9rem;margin-top:8px;max-width:none}
   #shotpop .cap b{color:var(--ink)}
   /* EVERY SCREEN: the glass flat and straight on, the whole width, a click opens it full size */
+  /* THE GAME, SHOWN OFF: a mosaic at the top of Getting started, and cards for where to go next */
+  .showcase{display:grid;grid-template-columns:2fr 1fr 1fr;grid-auto-rows:190px;gap:10px;margin:22px 0 30px}
+  .showcase figure{margin:0;position:relative;overflow:hidden;border-radius:10px}
+  .showcase figure.big{grid-row:span 2}
+  .showcase img{width:100%;height:100%;object-fit:cover;display:block;border-radius:10px;transition:transform .4s}
+  .showcase figure:hover img{transform:scale(1.04)}
+  .showcase figcaption{position:absolute;left:0;right:0;bottom:0;margin:0;padding:22px 12px 9px;color:#fff;font-size:.88rem;
+    background:linear-gradient(transparent,rgba(0,0,0,.78));max-width:none}
+  .showcase figure.big figcaption{font-size:1.05rem;font-weight:600}
+  @media(max-width:760px){.showcase{grid-template-columns:1fr 1fr;grid-auto-rows:140px}.showcase figure.big{grid-column:span 2;grid-row:span 2}}
+  .cards{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin:16px 0 8px}
+  @media(max-width:860px){.cards{grid-template-columns:1fr 1fr}} @media(max-width:520px){.cards{grid-template-columns:1fr}}
+  .cards .card{display:flex;flex-direction:column;background:#11171e;border:1px solid #27313d;border-radius:10px;overflow:hidden;
+    text-decoration:none;transition:border-color .2s,transform .2s}
+  .cards .card:hover{border-color:var(--gold);transform:translateY(-2px)}
+  .cards .card img{width:100%;aspect-ratio:16/9;object-fit:cover;border-radius:0}
+  .cards .card .t{color:var(--gold);font-weight:600;padding:10px 12px 2px}
+  .cards .card .d{color:var(--dim);font-size:.86rem;padding:0 12px 12px;line-height:1.35}
+  details.lookup{margin:18px 0;border:1px solid #27313d;border-radius:8px;padding:10px 14px}
+  details.lookup summary{cursor:pointer;color:var(--gold);font-weight:600}
+  details.lookup[open] summary{margin-bottom:10px}
   /* A NARROW PANEL (the table set-up glass) stands beside its text, at its own size */
   figure.panel{float:right;width:300px;margin:4px 0 16px 24px}
   figure.panel img{width:100%;height:auto}
@@ -262,6 +283,14 @@
   <h2>Getting started</h2>
   <p class="lede">CueVR puts a full-size table in the room you are standing in. There is no shot
   meter and no aiming line: you hold a cue in both hands and play the shot.</p>
+  <div class="showcase">
+    <figure class="big"><img src="img/cuevr/venue_theatre.jpg" alt="A tour final in a theatre, a full house watching"><figcaption>Play a tour final in front of a full house</figcaption></figure>
+    <figure><img src="img/cuevr/venue_ginpalace.jpg" alt="A pool table in a gin palace"><figcaption>A Victorian gin palace</figcaption></figure>
+    <figure><img src="img/cuevr/surround5.jpg" alt="The dining room"><figcaption>A stately home's dining room</figcaption></figure>
+    <figure><img src="img/cuevr/surround6.jpg" alt="The library"><figcaption>The library</figcaption></figure>
+    <figure><img src="img/cuevr/trophy_held.png" alt="A trophy held up over the table"><figcaption>Win a title, lift the trophy</figcaption></figure>
+  </div>
+
 
   <p>You need a Quest 3 or 3S and enough clear floor to walk along one side of a table. This
   section takes you from putting the headset on to your first frame, the way the game starts:
@@ -270,6 +299,7 @@
   once you have played a frame.</p>
 
   <h3>1. Put the table in your room</h3>
+  <figure class="panel"><img src="img/cuevr/glass/setup-table.jpg" alt="The table panel"><figcaption>The table panel opens first.</figcaption></figure>
   <p>The first time you start CueVR, the table panel opens before anything else. You are looking
   at your own room, and the game wants to know where the table should stand.</p>
   <ul>
@@ -293,6 +323,7 @@
   them as they are for your first frame, point at <b>PLAY</b> and pull the trigger.</p>
 
   <h3>3. Hold the cue and play a shot</h3>
+  <figure class="panel"><img src="img/cuevr/game-uk8.png" alt="UK 8-ball racked"><figcaption>UK 8-ball, racked and waiting.</figcaption></figure>
   <p>The cue lies between your two controllers. Your <b>right hand holds the butt</b> and plays
   the stroke; your <b>left hand is the bridge</b>, where the front of the cue rests. The line
   between your hands is the line of the shot. (Left-handed? <b>Settings &rarr; Controls &rarr; CUE
@@ -323,15 +354,14 @@
   standing, from anywhere; your frame waits for you.</p>
 
   <h3>Where to go next</h3>
-  <table class="stack">
-    <tr><th>When you want to</th><th>Go to</th></tr>
-    <tr><td>Practise on your own, or try a challenge</td><td><a href="#challenges">Practice and challenges</a></td></tr>
-    <tr><td>Play the computer players properly, and learn the rules</td><td><a href="#opponents">The computer players</a> and <a href="#rules">Rules and the referee</a></td></tr>
-    <tr><td>Play with your own real cue, a controller clamped to it</td><td><a href="#realcue">Real cue attachment</a></td></tr>
-    <tr><td>Bridge with your bare hand instead of a controller</td><td><a href="#hands">Your hands</a>, <a href="#onecontroller">One controller and a bare bridge hand</a>, and <a href="#barebridge">A bare bridge hand with a real cue</a></td></tr>
-    <tr><td>Play in a virtual room (the arena, the pub, the club) and move about in it</td><td><a href="#surroundings">Surroundings</a> and <a href="#moving">Movement</a></td></tr>
-    <tr><td>Play someone online, or go down the club</td><td><a href="#online">Playing a friend</a> and <a href="#club">Down the club</a></td></tr>
-  </table>
+  <div class="cards">
+    <a class="card" href="#challenges"><img src="img/cuevr/practice-target.png" alt="" loading="lazy"><span class="t">Practice</span><span class="d">A free table, shots taken back, a target, and challenges</span></a>
+    <a class="card" href="#opponents"><img src="img/cuevr/ai_standing.jpg" alt="" loading="lazy"><span class="t">The computer players</span><span class="d">Eight of them, from Rookie Rick to The Machine</span></a>
+    <a class="card" href="#realcue"><img src="img/cuevr/ai_player_cues.png" alt="" loading="lazy"><span class="t">Your own cue</span><span class="d">Clamp a controller to a real cue, or bridge with your bare hand</span></a>
+    <a class="card" href="#surroundings"><img src="img/cuevr/surround3.jpg" alt="" loading="lazy"><span class="t">Play in another room</span><span class="d">The pub, the club, an arena, a library: and walk about in them</span></a>
+    <a class="card" href="#club"><img src="img/cuevr/club_room.jpg" alt="" loading="lazy"><span class="t">Online and the club</span><span class="d">Play a friend, or go down the club and join a table</span></a>
+    <a class="card" href="#career"><img src="img/cuevr/trophy_title.png" alt="" loading="lazy"><span class="t">Careers and trophies</span><span class="d">Climb from the pub league to a world title</span></a>
+  </div>
 </section>
 
 <section id="finding">
@@ -358,7 +388,7 @@
   <p><kbd>MENU</kbd> closes the menu. <b>Holding</b> <kbd>MENU</kbd> brings it to where you are
   standing, from anywhere &mdash; including in the middle of a frame.</p>
 
-  <h3>Where to go for what</h3>
+  <details class="lookup"><summary>Where is it? A quick lookup</summary>
   <table class="stack">
     <tr><th>What you want</th><th>Where it is</th></tr>
     <tr><td><b>Different balls</b></td><td><b>BALLS</b>, on the strip along the foot of the main
@@ -435,6 +465,7 @@
       practice or a challenge; <b>Move the target</b> puts it where you want it. See
       <a href="#target">The target</a>.</td></tr>
   </table>
+  </details>
 
 </section>
 
