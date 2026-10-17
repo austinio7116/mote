@@ -120,7 +120,8 @@
   .showcase figure.big figcaption{font-size:1.05rem;font-weight:600}
   @media(max-width:760px){.showcase{grid-template-columns:1fr 1fr;grid-auto-rows:140px}.showcase figure.big{grid-column:span 2;grid-row:span 2}}
   .cards{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin:16px 0 8px}
-  @media(max-width:860px){.cards{grid-template-columns:1fr 1fr}} @media(max-width:520px){.cards{grid-template-columns:1fr}}
+  .cards.c4{grid-template-columns:repeat(4,1fr)}
+  @media(max-width:860px){.cards,.cards.c4{grid-template-columns:1fr 1fr}} @media(max-width:520px){.cards{grid-template-columns:1fr}}
   .cards .card{display:flex;flex-direction:column;background:#11171e;border:1px solid #27313d;border-radius:10px;overflow:hidden;
     text-decoration:none;transition:border-color .2s,transform .2s}
   .cards .card:hover{border-color:var(--gold);transform:translateY(-2px)}
@@ -308,10 +309,9 @@
   </div>
 
 
-  <p>You need a Quest 3 or 3S and enough clear floor to walk along one side of a table. This
-  section takes you from putting the headset on to your first frame, the way the game starts:
-  in <b>your own room</b>, seen through the headset's cameras, with <b>two controllers</b> as
-  the cue. Everything else (a real cue, your bare hands, playing in a virtual room) is further on,
+  <p>All you need is a Quest 3 or 3S. This section takes you from putting the headset on to
+  your first frame, the way the game starts: in <b>mixed reality</b>, with your own room around
+  the table, and <b>two controllers</b> as the cue. Everything else (a real cue, your bare hands, playing in a virtual room) is further on,
   once you have played a frame.</p>
 
   <h3>1. Put the table in your room</h3>
@@ -370,13 +370,19 @@
   standing, from anywhere; your frame waits for you.</p>
 
   <h3>Where to go next</h3>
-  <div class="cards">
-    <a class="card" href="#challenges"><img src="img/cuevr/practice-target.png" alt="" loading="lazy"><span class="t">Practice</span><span class="d">A free table, shots taken back, a target, and challenges</span></a>
-    <a class="card" href="#opponents"><img src="img/cuevr/ai_standing.jpg" alt="" loading="lazy"><span class="t">The computer players</span><span class="d">Eight of them, from Rookie Rick to The Machine</span></a>
-    <a class="card" href="#realcue"><img src="img/cuevr/ai_player_cues.png" alt="" loading="lazy"><span class="t">Your own cue</span><span class="d">Clamp a controller to a real cue, or bridge with your bare hand</span></a>
-    <a class="card" href="#surroundings"><img src="img/cuevr/surround3.jpg" alt="" loading="lazy"><span class="t">Play in another room</span><span class="d">The pub, the club, an arena, a library: and walk about in them</span></a>
+  <div class="cards c4">
+    <a class="card" href="#challenges"><img src="img/cuevr/practice-target.png" alt="" loading="lazy"><span class="t">Practice</span><span class="d">A free table, shots taken back, a target to play to, and challenges</span></a>
+    <a class="card" href="#opponents"><img src="img/cuevr/card-players.jpg" alt="" loading="lazy"><span class="t">The computer players</span><span class="d">Eight of them, from Rookie Rick to The Machine</span></a>
+    <a class="card" href="#games"><img src="img/cuevr/card-games.jpg" alt="" loading="lazy"><span class="t">The games</span><span class="d">Snooker, pool, billiards, carom, pyramid and many more</span></a>
+    <a class="card" href="#which"><img src="img/cuevr/card-tables.jpg" alt="" loading="lazy"><span class="t">Tables</span><span class="d">Every size and pocket, and L-shaped, round and many-sided beds</span></a>
+    <a class="card" href="#realcue"><img src="img/cuevr/card-realcue.jpg" alt="" loading="lazy"><span class="t">Real cue attachment</span><span class="d">Clamp a controller to your own cue and play with it</span></a>
+    <a class="card" href="#onecontroller"><img src="img/cuevr/table-mark.jpg" alt="" loading="lazy"><span class="t">Bridge with your hand</span><span class="d">Put a controller down and make your bridge with your own hand</span></a>
+    <a class="card" href="#surroundings"><img src="img/cuevr/surround3.jpg" alt="" loading="lazy"><span class="t">Play in another room</span><span class="d">The pub, the club, an arena, a library, and walk about in them</span></a>
     <a class="card" href="#club"><img src="img/cuevr/club_room.jpg" alt="" loading="lazy"><span class="t">Online and the club</span><span class="d">Play a friend, or go down the club and join a table</span></a>
     <a class="card" href="#career"><img src="img/cuevr/trophy_title.png" alt="" loading="lazy"><span class="t">Careers and trophies</span><span class="d">Climb from the pub league to a world title</span></a>
+    <a class="card" href="#cues"><img src="img/cuevr/breadth-cues.jpg" alt="" loading="lazy"><span class="t">Build a cue</span><span class="d">Splice, veneers, woods, inlays and a name plate</span></a>
+    <a class="card" href="#balls"><img src="img/cuevr/breadth-balls.jpg" alt="" loading="lazy"><span class="t">Build a ball set</span><span class="d">Colours, stripes, numbers, patterns and what they are made of</span></a>
+    <a class="card" href="#workshop"><img src="img/cuevr/body-pro.png" alt="" loading="lazy"><span class="t">Build a table</span><span class="d">Its bed, pockets, jaws and cushions</span></a>
   </div>
 </section>
 
@@ -2812,7 +2818,7 @@
       switches it whenever you like, and <b>Settings &rarr; Comfort &rarr; CLUB: SWITCH
       MOVEMENT</b> turns the switching off.</li>
     <li><b>Mixed reality:</b> <b>ROOM</b> on the pause menu offers <b>THE CLUB</b> or <b>YOUR
-      ROOM</b>. In your room, the club's tables and people stand round you through the cameras.
+      ROOM</b>. In your room, the club's tables and people stand round you in mixed reality.
       You always come in to the club's room.</li>
     <li><b>Club tables are not listed in Browse.</b> They are joined from the club.</li>
     <li><b>Your scoreboard hangs on the wall board at the head of your table.</b></li>
@@ -4268,7 +4274,7 @@
 
 <h3 id="surroundings">Surroundings</h3>
   <div class="grid g3">
-    <figure><img src="img/cuevr/surround0.jpg" alt="Passthrough"><figcaption><span class="cap-t">PASSTHROUGH</span> — your own room. This is how the game is meant to be played.</figcaption></figure>
+    <figure><img src="img/cuevr/surround0.jpg" alt="Mixed reality"><figcaption><span class="cap-t">YOUR ROOM</span> — mixed reality: the table in your own room. This is how the game is meant to be played.</figcaption></figure>
     <figure><img src="img/cuevr/surround1.jpg" alt="Dark room"><figcaption><span class="cap-t">DARK ROOM</span> — a plain dark hall drawn over your room.</figcaption></figure>
     <figure><img src="img/cuevr/surround2.jpg" alt="Arena"><figcaption><span class="cap-t">ARENA</span> — a tournament arena with seating.</figcaption></figure>
   </div>
@@ -4305,7 +4311,7 @@
   and its gallery, and the library's spiral staircase.</p>
 
     <figure class="glass"><a href="img/cuevr/glass/env-surroundings.jpg"><img src="img/cuevr/glass/env-surroundings.jpg" alt="Environment, Surroundings" loading="lazy"></a>
-    <figcaption><b>Surroundings</b>: the room around the table, from your own room (passthrough)
+    <figcaption><b>Surroundings</b>: the room around the table, from your own room (mixed reality)
     to the dark hall, arena, pub, snooker club, dining room, library and your venue. Chrome can
     reflect nothing or a room. In a career, tour matches can be played in this room or at the
     event's venue. Then the crowd (<b>People</b>, <b>Silhouettes</b> or off), whether they wear
