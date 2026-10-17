@@ -82,6 +82,12 @@
 
   figure{margin:22px 0}
   figcaption{color:var(--dim);font-size:.9rem;margin-top:8px;max-width:76ch}
+  /* EVERY SCREEN: the glass flat and straight on, the whole width, a click opens it full size */
+  figure.glass{margin:26px 0}
+  figure.glass img{width:100%;height:auto;background:#0b1118}
+  figure.glass figcaption ul{margin:6px 0 0;padding-left:20px}
+  figure.glass figcaption li{margin:2px 0}
+  h4{margin:22px 0 8px;font-size:1.02rem}
   .grid{display:grid;gap:18px}
   .g2{grid-template-columns:repeat(2,1fr)}
   .closeups figure{margin:0 0 10px}
@@ -205,6 +211,7 @@
   <span id="toclinks">
   <a href="#start">Getting started</a>
   <a href="#finding">Finding your way</a>
+  <a href="#screens">Every screen</a>
   <a href="#table">Setting up the table</a>
   <a href="#controls">Controls</a>
   <a href="#stroke">Playing a shot</a>
@@ -253,7 +260,7 @@
   </ol>
 
   <figure>
-    <img src="img/cuevr/menu-main-18.png" alt="The main menu, on a carom table">
+    <img src="img/cuevr/glass/home.jpg" alt="Home">
     <figcaption>The main menu opens in front of you, wherever you are standing. The three numbered
     steps set the frame; the picture beside them is the table you are about to play on; the strip
     along the foot is how it will look &mdash; table, cloth, timber, balls and cue. Point at any of
@@ -274,11 +281,12 @@
   <b>RULES</b> and <b>VS</b> &mdash; with <b>PLAY</b> beside them. Under the steps is a strip of
   five panels for how the table looks: <b>TABLE</b>, <b>CLOTH</b>, <b>TIMBER</b>, <b>BALLS</b> and
   <b>CUE</b>. Down the side are four tiles for everything else: <b>Environment</b> (the table, the
-  scoreboard, the mark round your real table, calibrating a real cue, the lights, the room and a
-  venue of your own), <b>Settings</b> (controls, cue feel, graphics, and sound: the referee, the
-  crowd and voice chat), <b>Records</b> (stats, games
-  played, replays, career) and <b>Workshop</b> (build a table, a ball set, a cue or a
-  challenge).</p>
+  scoreboard, the mark round your real table, the lights, the cloth, the room and a
+  venue of your own), <b>Settings</b> (controls, movement, comfort, cue feel, chalk, graphics,
+  sound, opponents and backup), <b>Records</b> (stats, games played, replays, career and club
+  tournaments) and <b>Workshop</b> (build a table, a ball set, a cue or a challenge, and set up
+  your headset and your cue case). Every one of these screens is shown in
+  <a href="#screens">Every screen</a>.</p>
 
   <p>Point at any of them, pull the trigger, and you get a page of cards or swatches to point at,
   with the one you are on marked. Nothing steps through a dozen stops one at a time, so reaching a
@@ -291,7 +299,7 @@
   <table class="stack">
     <tr><th>What you want</th><th>Where it is</th></tr>
     <tr><td><b>Different balls</b></td><td><b>BALLS</b>, on the strip along the foot of the main
-      menu. It opens the gallery of all twenty-seven sets.</td></tr>
+      menu. It opens the gallery of every set.</td></tr>
     <tr><td><b>A different game</b></td><td>Step <b>1 GAME</b>. It opens the gallery of cards; step
       <b>2 RULES</b> underneath carries the variants of whatever you picked.</td></tr>
     <tr><td><b>A different opponent</b></td><td>Step <b>3 VS</b> &mdash; the computer at eight
@@ -336,7 +344,7 @@
       Graphics</b>, which also prints what the last frame cost.</td></tr>
     <tr><td><b>Move the table, or set its height again</b></td><td><b>Environment &rarr;
       Table</b>, or the <b>Table</b> square on the pause menu.</td></tr>
-    <tr><td><b>Move the scoreboard</b></td><td><b>Environment &rarr; Scoreboard</b>. See
+    <tr><td><b>Move the scoreboard</b></td><td><b>Environment &rarr; Table &rarr; SET THE TABLE UP</b>, then <b>Scoreboard</b>. See
       <a href="#table">Pinning the scoreboard</a>.</td></tr>
     <tr><td><b>Pocket size</b></td><td><b>Workshop &rarr; Table</b>, or the <b>TABLE</b> panel on
       the strip, which carries the pocket templates.</td></tr>
@@ -365,43 +373,454 @@
       <a href="#target">The target</a>.</td></tr>
   </table>
 
-  <div class="grid g3">
-    <figure><img src="img/cuevr/menu-main.jpg" alt="The main menu">
-      <figcaption>The <b>main menu</b>. Three steps, the table you will play on, and
-      <b>PLAY</b>.</figcaption></figure>
-    <figure><img src="img/cuevr/menu-pause.jpg" alt="The pause menu">
-      <figcaption>The <b>pause menu</b>, in a frame. Seven squares, and chips above them for
-      whatever else applies right now.</figcaption></figure>
-    <figure><img src="img/cuevr/menu-appear.jpg" alt="The main menu, with the strip along the foot">
-      <figcaption>The strip along the foot &mdash; <b>TABLE</b>, <b>CLOTH</b>, <b>TIMBER</b>,
-      <b>BALLS</b>, <b>CUE</b> &mdash; is how the table looks.</figcaption></figure>
-    <figure><img src="img/cuevr/menu-graphics.jpg" alt="The graphics screen">
-      <figcaption><b>Settings &rarr; Graphics</b> — per-eye resolution, anti-aliasing and how much
-      of the room the balls reflect, with what the last frame cost underneath.</figcaption></figure>
-    <figure><img src="img/cuevr/menu-controls.jpg" alt="The controls screen">
-      <figcaption><b>Settings &rarr; Controls</b> — which hand holds the cue, controllers or a real
-      cue, and how the sticks move the table.</figcaption></figure>
-    <figure><img src="img/cuevr/menu-pickgame.jpg" alt="The game gallery">
-      <figcaption>Step <b>1 GAME</b> opens the gallery: a photograph of each table rather than a
-      list of names.</figcaption></figure>
-    <figure><img src="img/cuevr/menu-pickrules.jpg" alt="The rules picker">
-      <figcaption>Step <b>2 RULES</b> opens the variants &mdash; and on US 8-ball that is where
-      the other games on its bed live.</figcaption></figure>
-    <figure><img src="img/cuevr/menu-pickballs.jpg" alt="The ball gallery">
-      <figcaption>Clicking <b>BALLS</b> opens the gallery of all twenty-six sets. One rack, one
-      camera, so the set is the only difference.</figcaption></figure>
-    <figure><img src="img/cuevr/menu-pickbed.jpg" alt="The table picker">
-      <figcaption>The <b>TABLE</b> panel offers the pocket templates, the fun shapes and anything
-      you have built.</figcaption></figure>
-    <figure><img src="img/cuevr/menu-pickopp.jpg" alt="The opponent picker">
-      <figcaption>Clicking <b>VS</b> — the machine at eight strengths, a friend online, a career, a
-      challenge, or a free table.</figcaption></figure>
-    <figure><img src="img/cuevr/menu-cloth.jpg" alt="The cloth picker">
-      <figcaption><b>CLOTH</b> — twenty-four colours, as swatches.</figcaption></figure>
-    <figure><img src="img/cuevr/menu-timber.jpg" alt="The timber card">
-      <figcaption>The <b>TIMBER</b> panel — the finish, sixteen colours and your own, and the
-      <b>BODY</b> chips along the top for which table they are built into.</figcaption></figure>
+  <p>Every one of these screens is pictured, flat and full size, in
+  <a href="#screens">Every screen</a>.</p>
+</section>
+
+<section id="screens">
+  <h2>Every screen</h2>
+  <p class="lede">Every menu in CueVR is a sheet of glass, and these are all of them, shown flat and
+  straight on, the way you see them in the headset. Point at anything on the glass and pull the
+  trigger. A line along the bottom edge of each one says which buttons do what on that screen.</p>
+
+  <h3 id="scr-home">Home</h3>
+  <figure class="glass"><a href="img/cuevr/glass/home.jpg"><img src="img/cuevr/glass/home.jpg" alt="Home" loading="lazy"></a>
+    <figcaption><b>Home</b>, before a frame. The three numbered steps set the frame:
+    <b>1 GAME</b>, <b>2 RULES</b> and <b>3 VS</b> (who you play). The picture is the table you are
+    about to play on, and <b>PLAY</b> starts it. The strip along the foot is how it looks:
+    <b>TABLE</b>, <b>CLOTH</b>, the <b>TIMBER</b> (here VARNISHED MAHOGANY), <b>BALLS</b> and
+    <b>CUE</b>. The four tiles down the side open <b>Environment</b>, <b>Settings</b>,
+    <b>Records</b> and <b>Workshop</b>. The version is in the top corner.</figcaption></figure>
+  <figure class="glass"><a href="img/cuevr/glass/home-ingame.jpg"><img src="img/cuevr/glass/home-ingame.jpg" alt="Home during a match" loading="lazy"></a>
+    <figcaption><b>Home during a match</b> (hold <kbd>MENU</kbd> in a frame). The frame and the
+    score are under the picture. <b>CONTINUE</b> goes back to the table. <b>PAUSE MATCH</b> saves
+    the match so you can finish it later (see <a href="#saving">Saving</a>). <b>NEW FRAME</b>
+    racks the next frame of the match, against the computer only. <b>END MATCH</b> drops the
+    match and gives you a clean Home. You can change the look of the table from here without
+    leaving the match.</figcaption></figure>
+
+  <h3 id="scr-pause">The pause menu</h3>
+  <figure class="glass"><a href="img/cuevr/glass/pause.jpg"><img src="img/cuevr/glass/pause.jpg" alt="The pause menu" loading="lazy"></a>
+    <figcaption><b>The pause menu</b> (tap <kbd>MENU</kbd> in a frame). Seven squares:
+    <b>Resume</b>, <b>Replay</b> (the last shot again, as an instant replay), <b>Undo</b>
+    (in practice), <b>Re-rack</b> (not online, or in a career), <b>Table</b> (move the table or
+    set its height), <b>Concede</b> (the frame) and <b>Home</b>. Above them, rows of chips for what applies now: <b>ROOM</b> changes the room
+    around the table without stopping, <b>MOVEMENT</b> switches between moving the table and
+    walking, and <b>THIS GAME</b> opens <b>RULES OF THIS GAME</b> and <b>MATCH STATS</b>.
+    Greyed squares are the ones that do nothing in this frame.</figcaption></figure>
+  <figure class="glass"><a href="img/cuevr/glass/pause-practice.jpg"><img src="img/cuevr/glass/pause-practice.jpg" alt="The pause menu in practice" loading="lazy"></a>
+    <figcaption><b>The pause menu in practice.</b> Two more rows: <b>PRACTICE</b> (<b>Move the
+    balls</b>, <b>Timed six</b>, <b>Challenges</b> and <b>Show the shot off</b>) and
+    <b>TARGET</b> (<b>Target on</b>, and <b>Auto set position target</b>). See
+    <a href="#challenges">Practice and challenges</a>.</figcaption></figure>
+  <figure class="glass"><a href="img/cuevr/glass/pause-stats.jpg"><img src="img/cuevr/glass/pause-stats.jpg" alt="Match stats" loading="lazy"></a>
+    <figcaption><b>MATCH STATS</b>, from the pause menu: the frame so far, your figures on the
+    left and your opponent's on the right, and the best break of each. <b>BACK TO THE MATCH</b>
+    returns to the pause menu.</figcaption></figure>
+
+  <h3 id="scr-game">1 Game</h3>
+  <figure class="glass"><a href="img/cuevr/glass/pickgame.jpg"><img src="img/cuevr/glass/pickgame.jpg" alt="The game gallery" loading="lazy"></a>
+    <figcaption><b>The game gallery</b>, from step <b>1 GAME</b>. One card for each game, with
+    the table it is played on. The arrows, or a thumbstick, turn the page. The card you are on
+    is underlined.</figcaption></figure>
+  <figure class="glass"><a href="img/cuevr/glass/pickgame-2.jpg"><img src="img/cuevr/glass/pickgame-2.jpg" alt="The game gallery, page two" loading="lazy"></a>
+    <figcaption>The last page.</figcaption></figure>
+
+  <h3 id="scr-rules">2 Rules</h3>
+  <p>Step <b>2 RULES</b> lists the rule sets of the game you picked. Pick one on the left to see
+  what it does in a few lines in the middle. <b>RACE TO</b> on the right is the length of the
+  match: race to 1 is a single frame. Every game has this page, even one with a single rule set,
+  because it is where the match length is set.</p>
+  <figure class="glass"><a href="img/cuevr/glass/pickrules-uk8.jpg"><img src="img/cuevr/glass/pickrules-uk8.jpg" alt="The rules page, UK 8-ball" loading="lazy"></a>
+    <figcaption><b>UK 8-ball</b>: PUB (2 SHOTS), INTERNATIONAL, ULTIMATE POOL, BLACKBALL (WPA)
+    and KILLER.</figcaption></figure>
+  <figure class="glass"><a href="img/cuevr/glass/pickrules-9ball.jpg"><img src="img/cuevr/glass/pickrules-9ball.jpg" alt="The rules page, 9-ball" loading="lazy"></a>
+    <figcaption><b>9-ball</b>: WPA 9-BALL, SHOT CLOCK and WINNER BREAKS. See
+    <a href="#rules-clock">Playing against the clock</a>.</figcaption></figure>
+  <figure class="glass"><a href="img/cuevr/glass/pickrules-snooker.jpg"><img src="img/cuevr/glass/pickrules-snooker.jpg" alt="The rules page, snooker" loading="lazy"></a>
+    <figcaption><b>Snooker</b>: how strictly the miss is called (the miss levels), the Snooker
+    Shoot Out and The 900.</figcaption></figure>
+  <figure class="glass"><a href="img/cuevr/glass/pickrules-billiards.jpg"><img src="img/cuevr/glass/pickrules-billiards.jpg" alt="The rules page, English billiards" loading="lazy"></a>
+    <figcaption><b>English billiards</b>: first to 50, 75, 100, 150 or 200 points, or the most
+    points in 5, 10, 15 or 30 minutes.</figcaption></figure>
+
+  <h3 id="scr-vs">3 VS: who you play</h3>
+  <p>Step <b>3 VS</b> has five tabs along the top.</p>
+  <figure class="glass"><a href="img/cuevr/glass/pickopp.jpg"><img src="img/cuevr/glass/pickopp.jpg" alt="The CPU player tab" loading="lazy"></a>
+    <figcaption><b>CPU player</b>: the eight computer players, each with a rating and five bars
+    for how they play (<b>AIM</b>, <b>TOUCH</b>, <b>POSITION</b>, <b>SPIN</b> and
+    <b>AGGRESSION</b>). <b>SINGLES</b> or <b>DOUBLES</b> at the top right. See
+    <a href="#opponents">Opponents</a>.</figcaption></figure>
+  <figure class="glass"><a href="img/cuevr/glass/pickopp-doubles.jpg"><img src="img/cuevr/glass/pickopp-doubles.jpg" alt="Doubles against the computer" loading="lazy"></a>
+    <figcaption><b>DOUBLES</b>: you and a computer partner against two computer players. See
+    <a href="#doubles">Doubles and Killer</a>.</figcaption></figure>
+  <figure class="glass"><a href="img/cuevr/glass/vs-online.jpg"><img src="img/cuevr/glass/vs-online.jpg" alt="The Online tab" loading="lazy"></a>
+    <figcaption><b>Online</b>: <b>Quick match</b> (anyone waiting), <b>Host a room</b> (shown
+    in Browse), <b>Private room</b> (code only), <b>Join with a code</b>, <b>Browse rooms</b>,
+    the two <b>Same Wi-Fi</b> cards, and <b>Down the club</b>. When a club tournament is coming,
+    its tile is here too. See <a href="#online">Playing a friend</a>.</figcaption></figure>
+  <figure class="glass"><a href="img/cuevr/glass/vs-career.jpg"><img src="img/cuevr/glass/vs-career.jpg" alt="The Career tab" loading="lazy"></a>
+    <figcaption><b>Career</b>: your current career, and the way to the others. See
+    <a href="#career">Career</a>.</figcaption></figure>
+  <figure class="glass"><a href="img/cuevr/glass/vs-events.jpg"><img src="img/cuevr/glass/vs-events.jpg" alt="The Events tab" loading="lazy"></a>
+    <figcaption><b>Events</b>: one event on its own, without a career. See
+    <a href="#events">Events</a>.</figcaption></figure>
+  <figure class="glass"><a href="img/cuevr/glass/vs-practice.jpg"><img src="img/cuevr/glass/vs-practice.jpg" alt="The Practice tab" loading="lazy"></a>
+    <figcaption><b>Practice</b>: <b>PRACTISE</b> gives you a free table where nothing counts and
+    <kbd>B</kbd> takes a shot back. <b>CHALLENGES</b> opens the challenges.</figcaption></figure>
+
+  <h3 id="scr-strip">The strip: table, cloth, timber, balls and cue</h3>
+  <figure class="glass"><a href="img/cuevr/glass/pickbed.jpg"><img src="img/cuevr/glass/pickbed.jpg" alt="The table picker" loading="lazy"></a>
+    <figcaption><b>TABLE</b>: the tables this game can be played on, each named with its pocket
+    sizes, then the fun shapes and any you have built. The star on a card makes it a favourite;
+    <b>NO FAVOURITES YET</b> becomes a switch to show only those. See
+    <a href="#which">Which table</a>.</figcaption></figure>
+  <figure class="glass"><a href="img/cuevr/glass/pickcloth.jpg"><img src="img/cuevr/glass/pickcloth.jpg" alt="The cloth picker" loading="lazy"></a>
+    <figcaption><b>CLOTH</b>: twenty-four colours as swatches. The <b>+</b> mixes your own.
+    <b>STYLES</b> and <b>GALLERY</b> sit beside the title. See <a href="#cloth">Cloth</a>.</figcaption></figure>
+  <figure class="glass"><a href="img/cuevr/glass/pickcloth-mix.jpg"><img src="img/cuevr/glass/pickcloth-mix.jpg" alt="Mixing a cloth" loading="lazy"></a>
+    <figcaption><b>MIX A CLOTH</b>: pick the colour off the strip, then how light and how strong
+    it is in the square. The table changes as you move. <b>DONE</b> keeps it.</figcaption></figure>
+  <figure class="glass"><a href="img/cuevr/glass/picktimber.jpg"><img src="img/cuevr/glass/picktimber.jpg" alt="The timber picker" loading="lazy"></a>
+    <figcaption><b>TIMBER</b>: the <b>BODY</b> chips choose which table body the wood is built
+    into (<b>Auto</b> follows the table). <b>FINISH</b> is varnished or plain. <b>COLOUR</b> and
+    <b>WOOD</b> switch between stained colours and natural woods, and <b>METAL</b> or
+    <b>LEATHER</b> appears for bodies that have it. See <a href="#wood">Woodwork</a>.</figcaption></figure>
+  <figure class="glass"><a href="img/cuevr/glass/styles.jpg"><img src="img/cuevr/glass/styles.jpg" alt="Table styles" loading="lazy"></a>
+    <figcaption><b>STYLES</b>: <b>SAVE THIS STYLE</b> keeps the whole look of the table (cloth,
+    timber, body, balls and rail furniture) under a name. <b>SHARE</b> gives a code, and
+    <b>ENTER A CODE</b> takes one. See <a href="#styles">Table styles</a>.</figcaption></figure>
+  <figure class="glass"><a href="img/cuevr/glass/pickballs.jpg"><img src="img/cuevr/glass/pickballs.jpg" alt="The ball picker" loading="lazy"></a>
+    <figcaption><b>BALLS</b>: every set, photographed on the same rack so the set is the only
+    difference. <b>Plain cue ball</b> or <b>Measle spots</b> sets the white. Your own sets come
+    after the shipped ones. See <a href="#balls">Balls</a>.</figcaption></figure>
+  <figure class="glass"><a href="img/cuevr/glass/pickcue.jpg"><img src="img/cuevr/glass/pickcue.jpg" alt="The cue picker" loading="lazy"></a>
+    <figcaption><b>CUE</b>: every cue on the rack, then your own. See <a href="#cues">Cues</a>.</figcaption></figure>
+
+  <h3 id="scr-env">Environment</h3>
+  <p>Five tabs down the middle: the table, its lights and cloth, the room around it, and a venue
+  of your own.</p>
+  <figure class="glass"><a href="img/cuevr/glass/env-table.jpg"><img src="img/cuevr/glass/env-table.jpg" alt="Environment, Table" loading="lazy"></a>
+    <figcaption><b>Table</b>: where your table stands, how high, the real surface under it and
+    the scoreboard, all set on one panel that <b>SET THE TABLE UP</b> opens. See
+    <a href="#table">Setting up the table</a>.</figcaption></figure>
+  <figure class="glass"><a href="img/cuevr/glass/env-lighting.jpg"><img src="img/cuevr/glass/env-lighting.jpg" alt="Environment, Lighting" loading="lazy"></a>
+    <figcaption><b>Lighting</b>: the lamps over the table (<b>MATCH</b>, <b>SIX SHADE</b>,
+    <b>ROOM</b>, <b>WINDOW</b>, <b>HALO</b>), how bright they are (<b>LIGHTS</b>), how much light
+    fills the rest of the room (<b>AMBIENT</b>), and the cloth's <b>NAP</b>. Below: pocket nets
+    on or off, and a flat cloth or one with nap. See <a href="#lighting">Lighting</a>.</figcaption></figure>
+  <figure class="glass"><a href="img/cuevr/glass/env-cloth.jpg"><img src="img/cuevr/glass/env-cloth.jpg" alt="Environment, Cloth" loading="lazy"></a>
+    <figcaption><b>Cloth</b>: <b>CHALK MARKS</b> on or off, and <b>WIPE THE TABLE</b>. See
+    <a href="#chalk-marks">Marks on the cloth</a>.</figcaption></figure>
+  <figure class="glass"><a href="img/cuevr/glass/env-surroundings.jpg"><img src="img/cuevr/glass/env-surroundings.jpg" alt="Environment, Surroundings" loading="lazy"></a>
+    <figcaption><b>Surroundings</b>: the room around the table, from your own room (passthrough)
+    to the dark hall, arena, pub, snooker club, dining room, library and your venue. Chrome can
+    reflect nothing or a room. In a career, tour matches can be played in this room or at the
+    event's venue. Then the crowd (<b>People</b>, <b>Silhouettes</b> or off), whether they wear
+    headsets, and the advertising boards. See <a href="#surroundings">Surroundings</a>.</figcaption></figure>
+  <figure class="glass"><a href="img/cuevr/glass/env-venue.jpg"><img src="img/cuevr/glass/env-venue.jpg" alt="Environment, Venue" loading="lazy"></a>
+    <figcaption><b>Environment &rarr; Venue</b>: the kind of room, its style and size, <b>NEW ROOM</b> for another like it, and your favourites.</figcaption></figure>
+
+  <h3 id="scr-settings">Settings</h3>
+  <p>Nine tabs. Point at any row and a sentence at the foot of the glass says what it does.</p>
+  <figure class="glass"><a href="img/cuevr/glass/settings-controls.jpg"><img src="img/cuevr/glass/settings-controls.jpg" alt="Settings, Controls" loading="lazy"></a>
+    <figcaption><b>Settings &rarr; Controls</b>. The stick rows (which moves and which turns, and inverting either) are on <b>Movement</b>. <b>RESET BRIDGE POS</b> puts the cue back in your hands if it ends up somewhere odd.</figcaption></figure>
+  <figure class="glass"><a href="img/cuevr/glass/settings-movement.jpg"><img src="img/cuevr/glass/settings-movement.jpg" alt="Settings, Movement" loading="lazy"></a>
+    <figcaption><b>Movement</b>: <b>MOVEMENT IN VR</b> and <b>MOVEMENT IN MIXED REALITY</b>
+    (<b>TABLE</b>: the sticks move the table; <b>CAMERA</b>: you walk about). <b>TABLE
+    MOVEMENT</b> chooses how the sticks move it, and <b>STICKS</b> which one moves and which
+    turns. Then snap turn, inverting either stick, and the move and turn speeds. See
+    <a href="#moving">Movement</a>.</figcaption></figure>
+  <figure class="glass"><a href="img/cuevr/glass/settings-comfort.jpg"><img src="img/cuevr/glass/settings-comfort.jpg" alt="Settings, Comfort" loading="lazy"></a>
+    <figcaption><b>Comfort</b>: <b>COMFORT</b> sets every row below it at once (off, some or
+    full). <b>VIGNETTE</b> darkens the edges of your view while you move, and <b>VIGNETTE
+    SHOWS</b> fills them dark or with a grid of your room. Then <b>TURNING</b> (smooth or in
+    steps), <b>JUMP MOVES</b>, <b>STAIRS</b>, <b>ORBIT</b> and its distance, <b>USE IN</b> and
+    <b>CLUB: SWITCH MOVEMENT</b>. See <a href="#comfort">Comfort</a>.</figcaption></figure>
+  <figure class="glass"><a href="img/cuevr/glass/settings-feel.jpg"><img src="img/cuevr/glass/settings-feel.jpg" alt="Settings, Cue feel" loading="lazy"></a>
+    <figcaption><b>Cue feel</b>:
+    <ul>
+      <li><b>STROKE</b>: how much your hand's shake is smoothed.</li>
+      <li><b>CONTROLLER STROKE</b>: <b>LOCKED</b> holds the cue on its line once you pull the
+        trigger; <b>FREE</b> lets your back hand steer it (recommended for Pro controllers).</li>
+      <li><b>CUE TURNS WITH YOUR WRIST</b> and <b>CUE ROTATION</b>: whether, and how far, the
+        drawn cue turns to match yours.</li>
+      <li><b>CUE DEFLECTION</b>: how far off line the ball goes when you strike away from
+        centre.</li>
+      <li><b>CUE TIP</b>: a narrower tip grips further out on the ball.</li>
+      <li><b>STROKE WEIGHT</b>: scales every stroke.</li>
+      <li><b>CUE CASE</b>: a cue for each kind of game, set up in the Workshop.</li>
+    </ul></figcaption></figure>
+  <figure class="glass"><a href="img/cuevr/glass/settings-chalk.jpg"><img src="img/cuevr/glass/settings-chalk.jpg" alt="Settings, Chalk" loading="lazy"></a>
+    <figcaption><b>Chalk</b>:
+    <ul>
+      <li><b>CHALK BLOCK</b>: a cube or a cylinder.</li>
+      <li><b>CHALK COLOUR</b>.</li>
+      <li><b>CHALKING</b>: <b>AUTOMATIC</b>, or <b>MANUAL</b>, which wears the tip and can
+        miscue.</li>
+      <li><b>CHALK ON THE TABLE</b>: shown or hidden.</li>
+      <li><b>CHALK SOUND</b>.</li>
+      <li><b>KEEP IT IN REACH</b>: the block follows you round the rails.</li>
+      <li><b>MARKS ON THE WHITE</b>.</li>
+      <li><b>CUSTOM CHALK POSITION</b>.</li>
+    </ul>
+    See <a href="#chalk">Chalk</a>.</figcaption></figure>
+  <figure class="glass"><a href="img/cuevr/glass/settings-graphics.jpg"><img src="img/cuevr/glass/settings-graphics.jpg" alt="Settings, Graphics" loading="lazy"></a>
+    <figcaption><b>Graphics</b>: <b>RESOLUTION</b> per eye, <b>ANTI-ALIASING</b>, <b>BALL
+    REFLECTIONS</b>, <b>CHROME REFLECTS</b>, <b>CLUB TABLES</b> (how the other tables in the club
+    are drawn), and on the right <b>FAR GLINT BLUR</b>, <b>BLUR BALLS</b>, <b>BODY GRAIN</b>,
+    <b>SMOKE</b> and <b>TAR</b>. <b>RESET TO DEFAULTS</b> puts them back. Under it, in the
+    headset, the size it is drawing at and what each frame is taking.</figcaption></figure>
+  <figure class="glass"><a href="img/cuevr/glass/settings-sound.jpg"><img src="img/cuevr/glass/settings-sound.jpg" alt="Settings, Sound" loading="lazy"></a>
+    <figcaption><b>Sound</b>: the <b>REFEREE</b> (off, male or female), <b>A BELL WHEN IT IS YOUR
+    SHOT</b>, the <b>CROWD</b> and its <b>MURMUR</b>, four volumes (<b>EFFECTS</b>,
+    <b>CUSHION</b>, <b>CROWD</b>, <b>MUSIC</b>), and voice chat: <b>YOUR MICROPHONE</b> (off,
+    push to talk or open), <b>THE OTHERS' VOICES</b> and <b>VOICES FADE WITH DISTANCE</b>. See
+    <a href="#voice">Voice chat</a>.</figcaption></figure>
+  <figure class="glass"><a href="img/cuevr/glass/settings-opponents.jpg"><img src="img/cuevr/glass/settings-opponents.jpg" alt="Settings, Opponents" loading="lazy"></a>
+    <figcaption><b>Opponents</b>: whether the computer players stand back from the table holding
+    their cues between shots, and whether you see other players' headsets and hands
+    online.</figcaption></figure>
+  <figure class="glass"><a href="img/cuevr/glass/settings-backup.jpg"><img src="img/cuevr/glass/settings-backup.jpg" alt="Settings, Backup" loading="lazy"></a>
+    <figcaption><b>Backup</b>: your settings, cues, ball sets, table styles, drills, careers,
+    records and kept replays, kept on the CueVR server under your Meta account. See
+    <a href="#backup">Backing up</a>.</figcaption></figure>
+
+  <h3 id="scr-records">Records</h3>
+  <figure class="glass"><a href="img/cuevr/glass/records-stats.jpg"><img src="img/cuevr/glass/records-stats.jpg" alt="Records, Stats" loading="lazy"></a>
+    <figcaption><b>Stats</b>: your highest breaks on each snooker table, the breaks of 20, 30,
+    50 and 100 you have made, clearances and break-and-runs in each pool game, and frames won.
+    <b>Against the CPU</b> or <b>Online</b>; <b>Overall stats</b> beside <b>Records</b>; and the
+    list on the right picks the family of games.</figcaption></figure>
+  <figure class="glass"><a href="img/cuevr/glass/records-overall.jpg"><img src="img/cuevr/glass/records-overall.jpg" alt="Records, Overall stats" loading="lazy"></a>
+    <figcaption><b>Overall stats</b>: your figures over every frame of that family of games, the
+    same figures the end of every match shows.</figcaption></figure>
+  <figure class="glass"><a href="img/cuevr/glass/records-games.jpg"><img src="img/cuevr/glass/records-games.jpg" alt="Records, Games" loading="lazy"></a>
+    <figcaption><b>Games</b>: frames played, won and your best, for every game and rule
+    set.</figcaption></figure>
+  <figure class="glass"><a href="img/cuevr/glass/records-replays.jpg"><img src="img/cuevr/glass/records-replays.jpg" alt="Records, Replays" loading="lazy"></a>
+    <figcaption><b>Replays</b>: the shots you have kept from an instant replay, each with
+    <b>PLAY</b> and <b>DELETE</b>. See <a href="#replays">Instant replays</a>.</figcaption></figure>
+  <figure class="glass"><a href="img/cuevr/glass/records-career.jpg"><img src="img/cuevr/glass/records-career.jpg" alt="Records, Career" loading="lazy"></a>
+    <figcaption><b>Career</b>: your current career's record.</figcaption></figure>
+  <figure class="glass"><a href="img/cuevr/glass/records-tournaments.jpg"><img src="img/cuevr/glass/records-tournaments.jpg" alt="Records, Tournaments" loading="lazy"></a>
+    <figcaption><b>Tournaments</b>: every club tournament you have entered, how far you got, and
+    each of your matches with the score. Open one to see its whole draw. See
+    <a href="#tournaments">Club tournaments</a>.</figcaption></figure>
+
+  <h3 id="scr-frame">During a frame</h3>
+  <p>When the rules ask you a question, a small glass comes up in front of you with the answers.
+  Point at one and pull the trigger.</p>
+  <div class="grid g2">
+  <figure><a href="img/cuevr/glass/lagpick.jpg"><img src="img/cuevr/glass/lagpick.jpg" alt="Who breaks" loading="lazy"></a>
+    <figcaption><b>You won the lag</b>: break yourself, or hand it to your opponent.</figcaption></figure>
+  <figure><a href="img/cuevr/glass/decide-foul.jpg"><img src="img/cuevr/glass/decide-foul.jpg" alt="Opponent fouled" loading="lazy"></a>
+    <figcaption><b>Opponent fouled</b>: take the shot from where the balls lie, or make them
+    play again. Snooker adds <b>FREE BALL</b> and the replay after a miss.</figcaption></figure>
+  <figure><a href="img/cuevr/glass/decide-pushout.jpg"><img src="img/cuevr/glass/decide-pushout.jpg" alt="Push out" loading="lazy"></a>
+    <figcaption>9-ball, after the break: <b>PUSH OUT</b> (a free shot) or <b>PLAY ON</b>.</figcaption></figure>
+  <figure><a href="img/cuevr/glass/decide-pushresp.jpg"><img src="img/cuevr/glass/decide-pushresp.jpg" alt="Opponent pushed out" loading="lazy"></a>
+    <figcaption>...and after your opponent's push-out: <b>PLAY ON</b> from there, or <b>HAND IT
+    BACK</b>.</figcaption></figure>
+  <figure><a href="img/cuevr/glass/decide-straight.jpg"><img src="img/cuevr/glass/decide-straight.jpg" alt="Straight pool breaking foul" loading="lazy"></a>
+    <figcaption>Straight pool, after a breaking foul: <b>TAKE THE TABLE</b>, or <b>MAKE OPPONENT
+    BREAK AGAIN</b> from a new rack.</figcaption></figure>
+  <figure><a href="img/cuevr/glass/decide-pyramid.jpg"><img src="img/cuevr/glass/decide-pyramid.jpg" alt="Pyramid illegal break" loading="lazy"></a>
+    <figcaption>Pyramid, after an illegal break: play on, make them play, or re-rack with either
+    of you breaking.</figcaption></figure>
+  <figure><a href="img/cuevr/glass/decide-mesinha.jpg"><img src="img/cuevr/glass/decide-mesinha.jpg" alt="Choose your group" loading="lazy"></a>
+    <figcaption>Mesinha's par e impar: choose <b>ODD</b> or <b>EVEN</b>.</figcaption></figure>
   </div>
+
+  <h3 id="scr-over">When the match is over</h3>
+  <figure class="glass"><a href="img/cuevr/glass/over-match.jpg"><img src="img/cuevr/glass/over-match.jpg" alt="Match won" loading="lazy"></a>
+    <figcaption><b>The end of a match</b>: the result and score, then your figures against your
+    opponent's: pot success, long pots, pots off the rest, safety success, breaks of 20, 30, 50
+    and 100, average break, table time and fouls. Under them, the best break of the match by
+    each of you, ball by ball. <b>BACK TO HOME</b> leaves. After a frame that does not finish the
+    match, the same page says <b>Frame won</b> or <b>Frame lost</b> and plays on.</figcaption></figure>
+
+  <h3 id="scr-practice">Practice and challenges</h3>
+  <figure class="glass"><a href="img/cuevr/glass/challenges.jpg"><img src="img/cuevr/glass/challenges.jpg" alt="The challenges" loading="lazy"></a>
+    <figcaption><b>CHALLENGES</b>: the <b>TIMED SIX</b>, <b>FROM A CODE</b> (one somebody has
+    shared), <b>MAKE ONE</b>, and every challenge you have kept, each with its best result.
+    <b>DELETE</b> sits on your own. <b>GALLERY</b> beside the title has other players'. See
+    <a href="#challenges">Practice and challenges</a>.</figcaption></figure>
+  <figure class="glass"><a href="img/cuevr/glass/challenge-page.jpg"><img src="img/cuevr/glass/challenge-page.jpg" alt="A challenge's page" loading="lazy"></a>
+    <figcaption><b>A challenge's page</b>: its <b>NAME</b>; <b>WHAT IT ASKS</b> (just the
+    position, pot a ball, score, clear the table, win the frame or win the match); a clock or
+    not; and which balls. <b>PLAY IT</b>, <b>MOVE THE BALLS</b>, <b>SHARE</b> and
+    <b>DELETE</b> down the left.</figcaption></figure>
+  <figure class="glass"><a href="img/cuevr/glass/challenge-layout.jpg"><img src="img/cuevr/glass/challenge-layout.jpg" alt="Setting the balls out" loading="lazy"></a>
+    <figcaption><b>SET THE BALLS OUT</b>: hold the trigger near a ball to pick it up, and put
+    it down anywhere; beyond the cushions takes it off the table. The panel saves the position,
+    takes a ball off or puts one back, starts from a full rack or an empty table, throws the
+    changes away, or puts the target on.</figcaption></figure>
+
+  <h3 id="scr-online">Online</h3>
+  <p>The Online tab of <b>3 VS</b> is shown above. A room you host or join has a lobby on the
+  glass, with the people in it and the game the host has set. See
+  <a href="#online">Playing a friend</a>, <a href="#club">Down the club</a> and
+  <a href="#tournaments">Club tournaments</a>.</p>
+
+  <h3 id="scr-career">Career</h3>
+  <figure class="glass"><a href="img/cuevr/glass/careers.jpg"><img src="img/cuevr/glass/careers.jpg" alt="Careers" loading="lazy"></a>
+    <figcaption><b>CAREERS</b>: up to twelve, each a card with its tour, tier, season, ranking,
+    titles and when you last played it. <b>PLAY THIS CAREER</b>, <b>NEW CAREER</b> and
+    <b>DELETE</b> along the top.</figcaption></figure>
+  <figure class="glass"><a href="img/cuevr/glass/career-new.jpg"><img src="img/cuevr/glass/career-new.jpg" alt="A new career" loading="lazy"></a>
+    <figcaption><b>NEW CAREER</b>: <b>SIMPLE</b> (a league on each table you pick) or
+    <b>TOUR</b> (five tiers, from the pub to the pros).</figcaption></figure>
+  <figure class="glass"><a href="img/cuevr/glass/career-newtour.jpg"><img src="img/cuevr/glass/career-newtour.jpg" alt="A new tour career" loading="lazy"></a>
+    <figcaption><b>A new tour career</b>: the <b>TOUR</b> (eight of them), where you
+    <b>START IN</b>, your name and country, match length and, at snooker, how many reds.
+    <b>START THE CAREER</b>.</figcaption></figure>
+  <figure class="glass"><a href="img/cuevr/glass/career-hub.jpg"><img src="img/cuevr/glass/career-hub.jpg" alt="The career hub" loading="lazy"></a>
+    <figcaption><b>The hub</b>: you, your ranking and season, your next match and who it is
+    against. <b>PLAY NEXT MATCH</b>, or <b>SIMULATE TO MY NEXT MATCH</b> to let the rest of the
+    tour play on to it. The tabs along the top are the hub, <b>CALENDAR</b>, <b>RANKINGS</b>,
+    <b>STATS</b> and <b>SEASON</b>.</figcaption></figure>
+  <figure class="glass"><a href="img/cuevr/glass/career-calendar.jpg"><img src="img/cuevr/glass/career-calendar.jpg" alt="The calendar" loading="lazy"></a>
+    <figcaption><b>CALENDAR</b>: the season a month at a time, your tier's events or every
+    tier's, with the ones you are in and your next match marked.</figcaption></figure>
+  <figure class="glass"><a href="img/cuevr/glass/career-draw.jpg"><img src="img/cuevr/glass/career-draw.jpg" alt="An event's draw" loading="lazy"></a>
+    <figcaption><b>An event's draw</b>: two rounds at a time, every result in it, and you
+    picked out.</figcaption></figure>
+  <figure class="glass"><a href="img/cuevr/glass/career-rankings.jpg"><img src="img/cuevr/glass/career-rankings.jpg" alt="Rankings" loading="lazy"></a>
+    <figcaption><b>RANKINGS</b>: every tier's, opened on yours. Pick a name to see that
+    player.</figcaption></figure>
+  <figure class="glass"><a href="img/cuevr/glass/career-player.jpg"><img src="img/cuevr/glass/career-player.jpg" alt="A player's page" loading="lazy"></a>
+    <figcaption><b>A player's page</b>: their career and this season, their record against you,
+    and five bars for how they play.</figcaption></figure>
+  <figure class="glass"><a href="img/cuevr/glass/career-stats.jpg"><img src="img/cuevr/glass/career-stats.jpg" alt="Career stats" loading="lazy"></a>
+    <figcaption><b>STATS</b>: <b>YOU</b> (your rating, form, and your career and season side by side), <b>THIS SEASON</b>'s leaders, and the tour's <b>ALL TIME</b> records.</figcaption></figure>
+  <figure class="glass"><a href="img/cuevr/glass/career-review.jpg"><img src="img/cuevr/glass/career-review.jpg" alt="The season so far" loading="lazy"></a>
+    <figcaption><b>SEASON</b>: your season so far, and who has won what.</figcaption></figure>
+  <figure class="glass"><a href="img/cuevr/glass/career-league.jpg"><img src="img/cuevr/glass/career-league.jpg" alt="A league table" loading="lazy"></a>
+    <figcaption><b>A league</b>: every division's table, this season and last.</figcaption></figure>
+  <figure class="glass"><a href="img/cuevr/glass/career-result.jpg"><img src="img/cuevr/glass/career-result.jpg" alt="After a match" loading="lazy"></a>
+    <figcaption><b>After a match</b>, back at the hub: the result is at the foot, and the next
+    event at the top.</figcaption></figure>
+  <figure class="glass"><a href="img/cuevr/glass/career-leaguetable.jpg"><img src="img/cuevr/glass/career-leaguetable.jpg" alt="A simple career's league table" loading="lazy"></a>
+    <figcaption><b>A simple career</b>: a league table for each table you play on, and
+    <b>SEASON FINISHED</b> when it is.</figcaption></figure>
+  <figure class="glass"><a href="img/cuevr/glass/career-achievements.jpg"><img src="img/cuevr/glass/career-achievements.jpg" alt="Achievements" loading="lazy"></a>
+    <figcaption><b>ACHIEVEMENTS</b> of a simple career, the ones you have won lit.</figcaption></figure>
+
+  <h3 id="scr-events">Events</h3>
+  <figure class="glass"><a href="img/cuevr/glass/vs-events.jpg"><img src="img/cuevr/glass/vs-events.jpg" alt="Events" loading="lazy"></a>
+    <figcaption><b>EVENTS</b>: your events in progress and finished. <b>PLAY THIS EVENT</b>,
+    <b>NEW EVENT</b>, <b>EVENTS RECORD</b> and <b>DELETE</b>.</figcaption></figure>
+  <figure class="glass"><a href="img/cuevr/glass/event-new.jpg"><img src="img/cuevr/glass/event-new.jpg" alt="A new event" loading="lazy"></a>
+    <figcaption><b>NEW EVENT</b>: the tour, then the event, from a club league to the World
+    Championship, each with its field size and prize money.</figcaption></figure>
+  <figure class="glass"><a href="img/cuevr/glass/event-setup.jpg"><img src="img/cuevr/glass/event-setup.jpg" alt="Setting up an event" loading="lazy"></a>
+    <figcaption><b>Setting it up</b>: the <b>FIELD</b> (which tier's players), where <b>YOU
+    START</b> (your seeding), match length and reds, and your name and country.
+    <b>REROLL</b> draws a different field. <b>START THE EVENT</b>.</figcaption></figure>
+  <figure class="glass"><a href="img/cuevr/glass/event-hub.jpg"><img src="img/cuevr/glass/event-hub.jpg" alt="An event's hub" loading="lazy"></a>
+    <figcaption><b>An event's hub</b>, with <b>DRAW</b>, <b>RESULTS</b> and <b>STATS</b>
+    tabs.</figcaption></figure>
+  <figure class="glass"><a href="img/cuevr/glass/event-results.jpg"><img src="img/cuevr/glass/event-results.jpg" alt="An event's results" loading="lazy"></a>
+    <figcaption><b>RESULTS</b>: every match played in it.</figcaption></figure>
+  <figure class="glass"><a href="img/cuevr/glass/event-record.jpg"><img src="img/cuevr/glass/event-record.jpg" alt="Events record" loading="lazy"></a>
+    <figcaption><b>EVENTS RECORD</b>: every event you have played, how far you got and the best
+    thing you did in it.</figcaption></figure>
+
+  <h3 id="scr-workshop">Workshop</h3>
+  <figure class="glass"><a href="img/cuevr/glass/workshop.jpg"><img src="img/cuevr/glass/workshop.jpg" alt="The Workshop" loading="lazy"></a>
+    <figcaption><b>The Workshop</b>: build a <b>Table</b>, a <b>Ball set</b>, a <b>Cue</b> or a
+    <b>Challenge</b>; set up your <b>Headset</b> (what others see you as online) and your
+    <b>Cue case</b>. <b>GALLERY</b> beside the title has what other players have made.</figcaption></figure>
+  <figure class="glass"><a href="img/cuevr/glass/workshop-case.jpg"><img src="img/cuevr/glass/workshop-case.jpg" alt="The cue case" loading="lazy"></a>
+    <figcaption><b>CUE CASE</b>: <b>YOUR CUES</b> down the left, each with its tip, deflection
+    and power. In the middle, the one you picked: <b>Cue</b>, <b>Tip</b>, <b>Deflection</b> and
+    <b>Power</b>. On the right, <b>WHICH CUE EACH GAME USES</b>, plus a <b>Break cue</b> and a
+    <b>Jump cue</b>, which wait where your case is: pick one up for the shot and it goes back by
+    itself after. Turn the case on in <b>Settings &rarr; Cue feel</b>.</figcaption></figure>
+  <figure class="glass"><a href="img/cuevr/glass/workshop-headset.jpg"><img src="img/cuevr/glass/workshop-headset.jpg" alt="Your headset" loading="lazy"></a>
+    <figcaption><b>Your headset</b>: the <b>MODEL</b>, <b>STRAP</b> and <b>TOP STRAP</b> others
+    see you wearing online, with tabs for its <b>Colours</b>, an <b>Insignia</b> and your
+    <b>Hands</b> (six skin tones, or any colour). A thumbstick turns the preview on the
+    table.</figcaption></figure>
+  <figure class="glass"><a href="img/cuevr/glass/gallery-cues.jpg"><img src="img/cuevr/glass/gallery-cues.jpg" alt="The gallery" loading="lazy"></a>
+    <figcaption><b>GALLERY</b>: cues, balls, challenges and table styles other players have
+    shared, the newest or the most liked. Pick one to see it, <b>LIKE</b> it, and <b>ADD TO
+    MINE</b>. See <a href="#gallery">Sharing and the gallery</a>.</figcaption></figure>
+  <div class="grid g2">
+  <figure><a href="img/cuevr/glass/gallery-balls.jpg"><img src="img/cuevr/glass/gallery-balls.jpg" alt="Shared ball sets" loading="lazy"></a><figcaption>Shared ball sets.</figcaption></figure>
+  <figure><a href="img/cuevr/glass/gallery-styles.jpg"><img src="img/cuevr/glass/gallery-styles.jpg" alt="Shared table styles" loading="lazy"></a><figcaption>Shared table styles.</figcaption></figure>
+  </div>
+
+  <h4>Building a table</h4>
+  <p>Six pages down the left, with what the table is as built at the foot. <b>UNDO MY
+  CHANGES</b>, <b>SAVE AS A NEW TABLE</b> and <b>DONE</b> along the bottom. See
+  <a href="#workshop">Build a table</a>.</p>
+  <div class="grid g2">
+  <figure><a href="img/cuevr/glass/table-0-table.jpg"><img src="img/cuevr/glass/table-0-table.jpg" alt="Table" loading="lazy"></a><figcaption><b>Table</b>: start from a shipped table, and the games it is used for.</figcaption></figure>
+  <figure><a href="img/cuevr/glass/table-1-bed.jpg"><img src="img/cuevr/glass/table-1-bed.jpg" alt="Bed" loading="lazy"></a><figcaption><b>Bed</b>: its shape, length and width, and the ball sizes.</figcaption></figure>
+  <figure><a href="img/cuevr/glass/table-2-pockets.jpg"><img src="img/cuevr/glass/table-2-pockets.jpg" alt="Pockets" loading="lazy"></a><figcaption><b>Pockets</b>: the corner and middle openings, depths and catch, and the rail width.</figcaption></figure>
+  <figure><a href="img/cuevr/glass/table-3-jaws.jpg"><img src="img/cuevr/glass/table-3-jaws.jpg" alt="Jaws" loading="lazy"></a><figcaption><b>Jaws</b>: mitred or rounded, the angles, softness, knuckle and set-in.</figcaption></figure>
+  <figure><a href="img/cuevr/glass/table-4-game.jpg"><img src="img/cuevr/glass/table-4-game.jpg" alt="Game" loading="lazy"></a><figcaption><b>Game</b>: the baulk line and D, how the cushions bounce, and their height.</figcaption></figure>
+  <figure><a href="img/cuevr/glass/table-5-fittings.jpg"><img src="img/cuevr/glass/table-5-fittings.jpg" alt="Fittings" loading="lazy"></a><figcaption><b>Fittings</b>: pocket liners, corner castings, rail sights and how the balls come back.</figcaption></figure>
+  </div>
+
+  <h4>Building a ball set</h4>
+  <p>Seven pages, and the set on the table changes as you go. <b>THESE COLOURS ARE FOR</b>
+  down the left says which balls a change applies to. See <a href="#balls">Balls</a>.</p>
+  <div class="grid g2">
+  <figure><a href="img/cuevr/glass/balls-0-set.jpg"><img src="img/cuevr/glass/balls-0-set.jpg" alt="The set" loading="lazy"></a><figcaption><b>The set</b>: its name, and a shipped set to start from.</figcaption></figure>
+  <figure><a href="img/cuevr/glass/balls-1-colours.jpg"><img src="img/cuevr/glass/balls-1-colours.jpg" alt="Colours" loading="lazy"></a><figcaption><b>Colours</b>: a palette, two groups, or one colour each.</figcaption></figure>
+  <figure><a href="img/cuevr/glass/balls-2-stripes.jpg"><img src="img/cuevr/glass/balls-2-stripes.jpg" alt="Stripes" loading="lazy"></a><figcaption><b>Stripes</b>: which balls are striped, and how.</figcaption></figure>
+  <figure><a href="img/cuevr/glass/balls-3-numbers.jpg"><img src="img/cuevr/glass/balls-3-numbers.jpg" alt="Numbers" loading="lazy"></a><figcaption><b>Numbers</b>: none, in a circle, on the ball or the black only; their size, the circle's size and how solid it is; and the FONT.</figcaption></figure>
+  <figure><a href="img/cuevr/glass/balls-4-ring.jpg"><img src="img/cuevr/glass/balls-4-ring.jpg" alt="Ring and pips" loading="lazy"></a><figcaption><b>Ring and pips</b>: a ring round the number and a second ring, their thickness and size, gaps in the ring, and pips.</figcaption></figure>
+  <figure><a href="img/cuevr/glass/balls-5-pattern.jpg"><img src="img/cuevr/glass/balls-5-pattern.jpg" alt="Pattern" loading="lazy"></a><figcaption><b>Pattern</b>: camo, bands, marbled, sparkle, hex, crackle, galaxy, wood or swirl, then where it goes, its size and its strength.</figcaption></figure>
+  <figure><a href="img/cuevr/glass/balls-6-finish.jpg"><img src="img/cuevr/glass/balls-6-finish.jpg" alt="Finish" loading="lazy"></a><figcaption><b>Finish</b>: gloss, pearl, metal or glass; shine and wear; and what the balls are <b>MADE OF</b>, which sets their weight. Heavier balls play differently.</figcaption></figure>
+  </div>
+
+  <h4>Building a cue</h4>
+  <p>Twelve pages down the left, each part of the cue in turn; the cue in front of you is the
+  preview, and a thumbstick turns it. See <a href="#cues">Cues</a>.</p>
+  <div class="grid g2">
+  <figure><a href="img/cuevr/glass/cue-00-cue.jpg"><img src="img/cuevr/glass/cue-00-cue.jpg" alt="Cue" loading="lazy"></a><figcaption><b>Cue</b>: its name, and a cue to start from.</figcaption></figure>
+  <figure><a href="img/cuevr/glass/cue-01-shaft.jpg"><img src="img/cuevr/glass/cue-01-shaft.jpg" alt="Shaft" loading="lazy"></a><figcaption><b>Shaft</b>: ash, maple, carbon or graphite, its grain, varnish and lightness, the cue's length, the <b>FERRULE</b> and the tip's colour.</figcaption></figure>
+  <figure><a href="img/cuevr/glass/cue-02-splice.jpg"><img src="img/cuevr/glass/cue-02-splice.jpg" alt="Splice" loading="lazy"></a><figcaption><b>Splice</b>: how many points (none, 4, 6 or 8), machine or by hand, their length, position and tip, and a second set.</figcaption></figure>
+  <figure><a href="img/cuevr/glass/cue-03-veneers.jpg"><img src="img/cuevr/glass/cue-03-veneers.jpg" alt="Veneers" loading="lazy"></a><figcaption><b>Veneers</b>: on the points or the panel, and how many, innermost first.</figcaption></figure>
+  <figure><a href="img/cuevr/glass/cue-04-butt.jpg"><img src="img/cuevr/glass/cue-04-butt.jpg" alt="Butt" loading="lazy"></a><figcaption><b>Butt</b>: the butt wood's grain and colour, the <b>FOREARM</b>, and the <b>COLLAR</b> with its width and position.</figcaption></figure>
+  <figure><a href="img/cuevr/glass/cue-05-panel.jpg"><img src="img/cuevr/glass/cue-05-panel.jpg" alt="Panel" loading="lazy"></a><figcaption><b>Panel</b>: none, one, nested or four, its length and width, its tips, whether it rises from the butt or the collar, a band round the butt, and whether the <b>PANELS SIT</b> between the points or inside them.</figcaption></figure>
+  <figure><a href="img/cuevr/glass/cue-06-panelwood.jpg"><img src="img/cuevr/glass/cue-06-panelwood.jpg" alt="Panel wood" loading="lazy"></a><figcaption><b>Panel wood</b>: timber or mother of pearl, its grain and lightness.</figcaption></figure>
+  <figure><a href="img/cuevr/glass/cue-07-insert.jpg"><img src="img/cuevr/glass/cue-07-insert.jpg" alt="Insert" loading="lazy"></a><figcaption><b>Insert</b>: an insert at the end of the butt, and a flat for the plate.</figcaption></figure>
+  <figure><a href="img/cuevr/glass/cue-08-plate.jpg"><img src="img/cuevr/glass/cue-08-plate.jpg" alt="Plate" loading="lazy"></a><figcaption><b>Plate</b>: its shape (the <b>MARK</b>), what it is made of, how it is fixed, the letters, an <b>EMBLEM</b>, and the <b>LETTERING</b> on it.</figcaption></figure>
+  <figure><a href="img/cuevr/glass/cue-09-extras.jpg"><img src="img/cuevr/glass/cue-09-extras.jpg" alt="Extras" loading="lazy"></a><figcaption><b>Extras</b>: a striped butt, a butt sleeve, a wrap (linen, leather or string) and inlays.</figcaption></figure>
+  <figure><a href="img/cuevr/glass/cue-10-endcap.jpg"><img src="img/cuevr/glass/cue-10-endcap.jpg" alt="End cap" loading="lazy"></a><figcaption><b>End cap</b>: a cap on the end of the butt, which can carry a flag. See <a href="#cue-flag">A flag on the end</a>.</figcaption></figure>
+  <figure><a href="img/cuevr/glass/cue-11-decoration.jpg"><img src="img/cuevr/glass/cue-11-decoration.jpg" alt="Decoration" loading="lazy"></a><figcaption><b>Decoration</b>: up to six bands or inlays, each with a pattern.</figcaption></figure>
+  </div>
+
+  <h3 id="scr-setup">Setting up the table, and the real cue</h3>
+  <div class="grid g2">
+  <figure><a href="img/cuevr/glass/setup-table.jpg"><img src="img/cuevr/glass/setup-table.jpg" alt="Set up your table" loading="lazy"></a><figcaption><b>SET UP YOUR TABLE</b>: your real table's size and height, and the outline. See <a href="#table">Setting up the table</a>.</figcaption></figure>
+  <figure><a href="img/cuevr/glass/setup-board.jpg"><img src="img/cuevr/glass/setup-board.jpg" alt="The scoreboard" loading="lazy"></a><figcaption><b>THE SCOREBOARD</b>: leave it floating beside the table, or grip it and put it where you want.</figcaption></figure>
+  <figure><a href="img/cuevr/glass/rca-start.jpg"><img src="img/cuevr/glass/rca-start.jpg" alt="Real cue attachment" loading="lazy"></a><figcaption><b>Real cue attachment</b>, from <b>CALIBRATE A CUE</b>. See <a href="#realcue">Real cue attachment</a>.</figcaption></figure>
+  <figure><a href="img/cuevr/glass/rca-done.jpg"><img src="img/cuevr/glass/rca-done.jpg" alt="Calibration done" loading="lazy"></a><figcaption>...done, with the fine adjustments and your saved calibrations.</figcaption></figure>
+  </div>
+
+  <h3 id="scr-board">The scoreboard</h3>
+  <figure class="glass"><a href="img/cuevr/glass/board-scoreboard.jpg"><img src="img/cuevr/glass/board-scoreboard.jpg" alt="The scoreboard" loading="lazy"></a>
+    <figcaption><b>The scoreboard</b> during a frame: the game and rules, the shot clock or
+    frame clock, the break, both players with the one at the table marked, and under them what
+    the striker is on, what is left on the table, and the lead. The controls for this moment
+    are along the bottom. See <a href="#board">Pinning the scoreboard</a>.</figcaption></figure>
+  <div class="grid g2">
+  <figure><a href="img/cuevr/glass/board-rules.jpg"><img src="img/cuevr/glass/board-rules.jpg" alt="The rules of this game" loading="lazy"></a><figcaption><b>RULES OF THIS GAME</b>, on the scoreboard, from the pause menu.</figcaption></figure>
+  <figure><a href="img/cuevr/glass/board-golf.jpg"><img src="img/cuevr/glass/board-golf.jpg" alt="Golf scorecard" loading="lazy"></a><figcaption>Billiards golf's <b>SCORECARD</b>.</figcaption></figure>
+  <figure><a href="img/cuevr/glass/board-bowlliards.jpg"><img src="img/cuevr/glass/board-bowlliards.jpg" alt="Bowlliards scorecard" loading="lazy"></a><figcaption>Bowlliards' <b>SCORECARD</b>.</figcaption></figure>
+  </div>
+
+  <h3 id="scr-saves">Saved matches</h3>
+  <figure class="glass"><a href="img/cuevr/glass/saves.jpg"><img src="img/cuevr/glass/saves.jpg" alt="Saved matches" loading="lazy"></a>
+    <figcaption><b>SAVED MATCHES</b>: a match against the computer is saved every time the
+    balls stop, and up to twenty are kept. <b>RESUME THIS MATCH</b>, <b>MAKE A CHALLENGE</b> of
+    the position, or <b>DELETE</b>. See <a href="#saving">Saving and resuming</a>.</figcaption></figure>
 </section>
 
 <section id="table">
@@ -461,7 +880,7 @@
   <p>To come back to the panel: press <kbd>MENU</kbd> and choose the <b>Table</b> square, or open
   <b>Environment &rarr; Table</b> from the main menu. Both open this same panel.</p>
 
-  <h3>Pinning the scoreboard</h3>
+  <h3 id="board">Pinning the scoreboard</h3>
   <p>The scoreboard normally hangs above the far end of the table and moves with it. If you would
   rather it lived somewhere real — a wall, or a television that is switched off — tap
   <b>Scoreboard</b>, the second step on the table panel. Grip the board, carry it to where you want
@@ -483,7 +902,7 @@
   dark hall.</p>
 
   <figure>
-    <img src="img/cuevr/pause-menu.jpg" alt="The pause menu">
+    <img src="img/cuevr/glass/pause.jpg" alt="The pause menu">
     <figcaption>The pause menu: seven squares — <b>Resume</b>, <b>Replay</b> (see
     <a href="#replays">Instant replays</a>), <b>Undo</b>, <b>Re-rack</b>, <b>Table</b>,
     <b>Concede</b> and <b>Home</b> — greyed out when they do not apply. The chips above them are
@@ -601,7 +1020,7 @@
   was. These work in the VR rooms and venues. Mixed reality is left alone, because your real
   room keeps you steady, except for ORBIT, which works in both.</p>
   <figure>
-    <img src="img/cuevr/settings_comfort.jpg" alt="The Comfort tab in Settings">
+    <img src="img/cuevr/glass/settings-comfort.jpg" alt="The Comfort tab in Settings">
     <figcaption>The Comfort tab, as it starts.</figcaption>
   </figure>
   <table>
@@ -661,7 +1080,10 @@
   has been still for a moment, the first 2 cm your back hand moves along the cue locks it. Nothing
   locks while you are getting down or moving your bridge. It lets go the
   moment you strike the ball, or when you stop feathering for a second, so you can aim again. A
-  short pause at the back of your backswing keeps it locked.</p>
+  short pause at the back of your backswing keeps it locked. With <b>BRIDGE TRIGGER</b> and
+  <b>BARE BRIDGE HAND</b>, put the bridge controller down and your cue hand's trigger locks the
+  cue instead, as there is no bridge trigger to press; pick the controller up again and its
+  trigger is back.</p>
   <p>Only the front half of the cue meets the table and the balls. The butt can go through a
   cushion behind you, where you cannot see it, without moving the cue or stopping the shot. The
   cue only buzzes for being in the table while you are aiming your own shot.</p>
@@ -738,12 +1160,12 @@
   </div>
 
   <figure>
-    <img src="img/cuevr/hud-hints.jpg" alt="The scoreboard showing control hints">
+    <img src="img/cuevr/glass/board-scoreboard.jpg" alt="The scoreboard showing control hints">
     <figcaption>While it is your turn the board reminds you of the main controls.</figcaption>
   </figure>
 
   <figure>
-    <img src="img/cuevr/controls.jpg" alt="The controls screen">
+    <img src="img/cuevr/glass/settings-controls.jpg" alt="The controls screen">
     <figcaption><b>Settings &rarr; Controls</b>. You can swap which stick moves and which turns,
     and invert either. <b>PUT THE BRIDGE AND GRIP BACK</b> puts the cue back in your hands if it
     ends up somewhere odd.</figcaption>
@@ -884,7 +1306,7 @@
   screen, and you see your own room, so you can see your cue.</p>
 
   <figure>
-    <img src="img/cuevr/rca-setup.jpg" alt="The Real cue attachment screen: a row of steps, the controller choice, and START">
+    <img src="img/cuevr/glass/rca-start.jpg" alt="The Real cue attachment screen: a row of steps, the controller choice, and START">
     <figcaption>The set-up screen. Top right, choose the controller that is on your cue. The row
     underneath the title shows the three steps; the picture on the right shows what to do.</figcaption>
   </figure>
@@ -995,7 +1417,7 @@
 
   <h3>When it is done</h3>
   <figure>
-    <img src="img/cuevr/rca-done.jpg" alt="The set-up screen after calibrating: CALIBRATION COMPLETED, with SAVE, tip length, cue rotation and saved calibrations">
+    <img src="img/cuevr/glass/rca-done.jpg" alt="The set-up screen after calibrating: CALIBRATION COMPLETED, with SAVE, tip length, cue rotation and saved calibrations">
     <figcaption>Finished. Check it, then press <b>SAVE</b>. Underneath are the small adjustments
     and your saved calibrations.</figcaption>
   </figure>
@@ -1141,8 +1563,8 @@
     <tr><td><b>The mark round your real table</b><br>(the square)</td>
         <td>Moves it.</td>
         <td>Steps the stick through <b>move</b>, <b>size</b> and <b>turn</b>. It turns both ways.</td></tr>
-    <tr><td><b>The scoreboard</b><br>(<b>Scoreboard</b> on the placement screen, or
-        <b>Environment &rarr; Scoreboard</b>)</td>
+    <tr><td><b>The scoreboard</b><br>(<b>Scoreboard</b> on the placement screen, from
+        <b>Environment &rarr; Table</b>)</td>
         <td>Carries it.</td>
         <td>Steps the stick through <b>move</b>, <b>turn and raise</b>, and <b>size</b>.</td></tr>
     <tr><td><b>At the table, during a frame</b></td>
@@ -1185,17 +1607,24 @@
   </div>
 
   <h3>The rest of the settings</h3>
-  <p>Settings has eight tabs: <b>Controls</b> (which hand, real cue or controllers, and the button
+  <p>Settings has nine tabs: <b>Controls</b> (which hand, real cue or controllers, and the button
   that calibrates a cue), <b>Movement</b> (how the sticks move the table or you), <b>Comfort</b>
   (see <a href="#comfort">Comfort</a>), <b>Cue feel</b> (the rows below), <b>Chalk</b> (see
-  <a href="#chalk">Chalk</a>), <b>Graphics</b>, <b>Sound</b> and <b>Opponents</b>.</p>
+  <a href="#chalk">Chalk</a>), <b>Graphics</b>, <b>Sound</b>, <b>Opponents</b> and <b>Backup</b>
+  (see <a href="#backup">Backing up</a>). Every tab is pictured in
+  <a href="#scr-settings">Every screen</a>.</p>
   <table>
     <tr><th>Row</th><th>What it does</th></tr>
     <tr><td><b>STROKE</b></td>
-        <td>SMOOTHED filters the tremble out of your aim and the sideways movement of the tip while
-        leaving the delivery — and therefore the power — untouched. It is what a bridge hand does,
-        and it is on by default: a real cue in real hands shakes in a way a virtual one does not.
-        AS YOU CUE IT leaves the cue exactly where your hands put it.</td></tr>
+        <td>With a real cue: how much your hand's shake is smoothed before it moves the cue.
+        SMOOTHED filters the tremble out of your aim and the sideways movement of the tip while
+        leaving the delivery, and therefore the power, untouched; it is what a bridge hand does.
+        HALF smooths half as much, and RAW leaves the cue exactly where your hands put it.</td></tr>
+    <tr><td><b>CONTROLLER STROKE</b></td>
+        <td>With two controllers. LOCKED keeps the cue on the line you aimed once you pull the
+        trigger. FREE lets your back hand steer the cue during the stroke, pivoting it in your
+        bridge as a real cue does, and after each shot a line tells you how far off line you were.
+        FREE is recommended for Pro controllers only.</td></tr>
     <tr><td><b>CONTROLLER MODEL</b></td>
         <td>HIDDEN by default: the drawn controller sits on the shaft where your clamp is, and
         depending where that is it can be the thing you are looking through when you are down on
@@ -1224,11 +1653,11 @@
         takes it out altogether if you would rather practise without it. It starts at 2.0&deg;.</td></tr>
     <tr><td><b>STROKE WEIGHT</b></td>
         <td>How much of your arm&rsquo;s speed becomes cue ball speed on a soft or medium shot,
-        from 55% to 90% in steps of five. Your arm swings a controller, not a cue, so it moves
+        from 60% to 120% in steps of ten, named LIGHT, NORMAL, FIRM or HEAVY. Your arm swings a controller, not a cue, so it moves
         faster than the real thing and the honest figure depends on you and your room: turn it down
         if your gentle shots come out hard, up if you cannot get the ball down the table. A full
-        power stroke is not affected &mdash; it is already flat out either way. It starts at 70%,
-        which the row calls NORMAL.</td></tr>
+        power stroke is not affected &mdash; it is already flat out either way. It starts at 100%,
+        which the row calls HEAVY.</td></tr>
   </table>
 
   <h3>The Logitech MX Ink</h3>
@@ -1370,9 +1799,9 @@
   bed covers much more cloth than a 50.8 mm pub ball on a seven-foot one.</p>
 
   <div class="grid g2">
-    <figure><img src="img/cuevr/game-gallery1.png" alt="The first page of the game gallery">
+    <figure><img src="img/cuevr/glass/pickgame.jpg" alt="The first page of the game gallery">
       <figcaption>Page one.</figcaption></figure>
-    <figure><img src="img/cuevr/game-gallery2.png" alt="The second page of the game gallery">
+    <figure><img src="img/cuevr/glass/pickgame-2.jpg" alt="The second page of the game gallery">
       <figcaption>Page two. Nine to a page.</figcaption></figure>
   </div>
 
@@ -1534,11 +1963,10 @@
   </div>
 
   <div class="note warn">
-    <b>And longer Ultimate Pool matches are timed as well.</b> Anything past a best of three gets a
-    <b>match clock</b> alongside the shot clock: four minutes for each frame needed to win, so a
-    best of five runs twelve minutes and a best of eleven twenty-four. When it expires, whoever is
-    ahead on frames has won the match; if you are level, the frame in progress decides it. Best of
-    three and under is untimed.
+    <b>And Ultimate Pool matches are timed as well.</b> Alongside the shot clock there is a
+    <b>match clock</b>: four minutes for each frame needed to win, so a single frame runs four
+    minutes, a best of five twelve and a best of eleven twenty-four. When it expires, whoever is
+    ahead on frames has won the match; if you are level, the frame in progress decides it.
   </div>
 
   <div class="note">
@@ -1592,6 +2020,12 @@
       or reach a cushion, and the only foul is potting the cue ball. A 9 potted on a push-out goes
       back. Afterwards their opponent decides whether to play the resulting position or hand it
       straight back.</p>
+      <p><b>Three rule sets</b> on the <b>RULES</b> row. <b>WPA 9-BALL</b> is the game above.
+      <b>SHOT CLOCK</b> is the same game played to the World Nineball Tour's clock: 30 seconds a
+      shot, 60 for the first shot after the break and for a push-out and the shot after it, and
+      one 30 second extension each a rack (see <a href="#rules-clock">Playing against the
+      clock</a>). <b>WINNER BREAKS</b> is the same game, with the winner of each frame of a match
+      breaking the next one instead of the break alternating.</p>
     </div>
   </div>
 
@@ -1616,7 +2050,9 @@
         off a lucky contact is spotted rather than scored. Unless you change it, this game counts
         whatever goes in, and the board tells you so at the start of the frame. Set the
         <b>RULES</b> row to <b>CALL SHOT (WPA)</b> and it referees the real thing — how you say a
-        call is under <a href="#rules">Rules and the referee</a>.
+        call is under <a href="#rules">Rules and the referee</a>. The third stop,
+        <b>WINNER BREAKS</b>, is call shot (WPA) with the winner of each frame of a match breaking
+        the next.
       </div>
     </div>
   </div>
@@ -1674,7 +2110,9 @@
       <p><b>Fouls</b> are potting the cue ball, hitting nothing, driving a ball off the table, and
       a stroke that neither pots a ball nor sends any ball to a cushion. A foul is
       <b>minus one</b>, and the opening break is the one stroke that costs <b>minus two</b> —
-      the break has to send two object balls to a cushion or pot a called ball.
+      the break has to send two object balls to a cushion or pot a called ball. After a breaking
+      foul your opponent chooses: <b>TAKE THE TABLE</b> as it lies, or <b>MAKE OPPONENT BREAK
+      AGAIN</b> from a new rack. Breaking fouls do not count towards three in a row.
       <b>Three fouls in a row costs fifteen more</b> and the whole table is racked again with the
       offender breaking it.</p>
       <p><b>The rerack, which is what <em>continuous</em> means.</b> You never clear all fifteen.
@@ -1805,8 +2243,11 @@
       pocketed, nothing struck — is a foul and not an in-off.</p>
       <p><b>What the game is played to</b> is set on the RULES row: <b>50, 75, 100, 150 or 200
       up</b>, or a clock of <b>5, 10, 15 or 30 minutes</b>. On a clock the referee calls TIME, the
-      stroke already played is allowed to finish and score, and the higher score wins; level scores
-      are a draw.</p>
+      stroke already played is allowed to finish and score, and the higher score wins. Level at
+      TIME, the game plays on and the next points scored win it; the board says <b>LEVEL - NEXT
+      POINTS WIN</b>. Against the clock there is also a <b>shot clock of 60 seconds</b>: run out of
+      time and the turn passes with no score and no foul (<b>OUT OF TIME - NO SCORE</b>), so a
+      player who is ahead cannot run the game's clock down standing at the table.</p>
       <p><b>Double baulk.</b> Leave both object balls behind the baulk line while your opponent is
       in hand and they cannot play straight at either one: from the D the cue ball has to be played
       out of baulk, and no part of a ball that is in baulk may be struck directly. Breaking that is
@@ -2441,7 +2882,7 @@
   score or remember what is on.</p>
 
   <figure>
-    <img src="img/cuevr/scoreboard.jpg" alt="The scoreboard above the table">
+    <img src="img/cuevr/glass/board-scoreboard.jpg" alt="The scoreboard above the table">
     <figcaption>The scoreboard. Both players with their scores on the right, a yellow bar against
     whoever is at the table, what is on, the points still available, and the balls left to pot. The
     balls along the foot are the set you are playing with, drawn as they are on the cloth — so a
@@ -2530,6 +2971,33 @@
     or many-sided bed you can be laid behind the elbow, so anything the cue ball cannot pass
     through counts as a snooker.
   </div>
+
+  <h3 id="rules-clock">Playing against the clock</h3>
+  <p>Some rule sets are timed. The shot clock starts when the table becomes yours and runs while
+  you line up; the scoreboard counts it down, it turns amber under ten seconds and red under
+  five, and each of the last five seconds beeps. When it runs out you hear a klaxon and the board
+  says <b>OUT OF TIME</b>. Online, a menu does not stop it: you cannot pause your opponent's
+  clock from your headset.</p>
+  <table class="stack">
+    <tr><th>Rule set</th><th>The clock</th><th>Out of time</th></tr>
+    <tr><td>UK 8-ball, <b>ULTIMATE POOL</b></td><td>30 seconds a shot, and a match clock of four
+      minutes for each frame needed to win.</td><td>A foul: ball in hand.</td></tr>
+    <tr><td>UK 8-ball, <b>BLACKBALL (WPA)</b></td><td>60 seconds a shot.</td><td>A foul.</td></tr>
+    <tr><td>9-ball, <b>SHOT CLOCK</b></td><td>30 seconds a shot, 60 for the first shot after the
+      break and for a push-out and the shot after it. Once a rack each player has a 30 second
+      <b>extension</b>: when your shot's time is up the clock runs on into it by itself, the board
+      counts it down after <b>EXT</b>, and it says <b>EXTENSION: 30 SECONDS</b> with a beep.</td><td>A foul: ball in
+      hand.</td></tr>
+    <tr><td>Snooker, <b>SHOOTOUT</b></td><td>A ten-minute frame; 15 seconds a shot, 10 in the
+      last five minutes.</td><td>A foul.</td></tr>
+    <tr><td>Snooker, <b>THE 900</b></td><td>A fifteen-minute frame; 20 seconds a shot.</td><td>A
+      foul.</td></tr>
+    <tr><td>English billiards against the clock</td><td>5, 10, 15 or 30 minutes, and 60 seconds a
+      shot.</td><td>The turn passes, with no score and no foul.</td></tr>
+  </table>
+  <p>Online, only the player at the table can run out of time, and only their game calls the end
+  of a timed frame; the other player's game takes it from theirs, so both always agree on the
+  result.</p>
 
   <h3>When your opponent fouls</h3>
   <p>You are asked what you want to do. You can play on from where the balls have finished, or make
@@ -2638,16 +3106,19 @@
   your break as you build it: the running total after each scoring shot.</p>
 
   <h3>Turning the referee off</h3>
-  <p><b>Settings &rarr; Voice</b> sets a female voice, a male voice, or no voice at
+  <p><b>Settings &rarr; Sound &rarr; REFEREE</b> sets a female voice, a male voice, or no voice at
   all. The scoreboard stays either way.</p>
 
   <h3>When the match is over</h3>
-  <p>The board gives way to a summary of what the two of you did: balls potted, longest run, pot
-  percentage, fouls and how long you took over a shot, with the frames alongside. The longest run
-  of the match is shown as the balls themselves, in the order they went down.</p>
+  <p>After every frame and every match a page of figures comes up, laid out the way the TV
+  graphics show them: your figure, what it is, your opponent's. Pot success, long pots, pots off
+  the rest, safety success, breaks of 20, 30, 50 and 100, average break, table time and fouls,
+  then the best break of the match by each of you, shown as the balls themselves in the order they
+  went down. In a match, the break alternates from frame to frame unless the rule set is
+  <b>WINNER BREAKS</b> (9-ball and 10-ball), where the winner of each frame breaks the next.</p>
 
-  <figure>
-    <img src="img/cuevr/match-won.jpg" alt="The end-of-match summary">
+  <figure class="glass">
+    <a href="img/cuevr/glass/over-match.jpg"><img src="img/cuevr/glass/over-match.jpg" alt="The end-of-match figures" loading="lazy"></a>
     <figcaption>The end of a match. The same figures are kept in <b>Records</b>, so a match you
     played last week is still there.</figcaption>
   </figure>
@@ -2660,7 +3131,7 @@
   of trouble. The bars below are their actual settings.</p>
 
   <figure>
-    <img src="img/cuevr/opponent-gallery.png" alt="The opponent gallery">
+    <img src="img/cuevr/glass/pickopp.jpg" alt="The opponent gallery">
     <figcaption>Step <b>3 VS</b> on the main menu opens the same cards you see below — face, name,
     rating, style and five bars. The chips across the top switch between the computer players, a
     game online, a career, an event and practice; SINGLES and DOUBLES pick the format.</figcaption>
@@ -2829,9 +3300,9 @@
   <p><b>Settings &rarr; Opponents &rarr; THEIR CUES BETWEEN SHOTS</b> turns this off: HIDDEN shows a
   computer player's cue only while it is down on the shot.</p>
 
-  <h3>Doubles and Killer</h3>
+  <h3 id="doubles">Doubles and Killer</h3>
   <figure>
-    <img src="img/cuevr/vs_doubles.png" alt="Doubles against the computer">
+    <img src="img/cuevr/glass/pickopp-doubles.jpg" alt="Doubles against the computer">
     <figcaption><b>DOUBLES</b> beside SINGLES on step 3 VS: you and a partner against two, taking a
     stroke each in turn. Pick each place, then the player for it; <b>YOU WATCH</b> puts the
     computer in your place too.</figcaption>
@@ -2877,7 +3348,7 @@
   Up to twelve careers are kept at once.</p>
 
   <figure>
-    <img src="img/cuevr/career_list.png" alt="The careers page">
+    <img src="img/cuevr/glass/careers.jpg" alt="The careers page">
     <figcaption><b>Career</b> on step 3 VS opens your careers: each card shows its tour, where you
     are, your ranking, titles and money, and when you last played it. <b>PLAY THIS CAREER</b>
     carries on with the one picked, <b>NEW CAREER</b> starts another. A career from 6.0 is kept in
@@ -2886,7 +3357,7 @@
 
   <h3>Starting one</h3>
   <figure>
-    <img src="img/cuevr/career_new_tour.png" alt="Starting a tour career">
+    <img src="img/cuevr/glass/career-newtour.jpg" alt="Starting a tour career">
     <figcaption>Pick the tour, the level you start at, your name and country, and how long the
     matches are.</figcaption>
   </figure>
@@ -2940,7 +3411,7 @@
 
   <h3>The hub</h3>
   <figure>
-    <img src="img/cuevr/tour_hub.png" alt="The career hub">
+    <img src="img/cuevr/glass/career-hub.jpg" alt="The career hub">
     <figcaption>Your next match, the event and round, and who you are playing. The tabs across the
     top open the calendar, the rankings, the season's stats and the season review.</figcaption>
   </figure>
@@ -2964,24 +3435,24 @@
   </figure>
 
   <div class="grid g2">
-    <figure><img src="img/cuevr/tour_calendar.png" alt="The calendar">
+    <figure><img src="img/cuevr/glass/career-calendar.jpg" alt="The calendar">
       <figcaption><b>CALENDAR</b>: a month to a page, each event across its days. Point at one for
       its dates, format, field, prize money and last year's winner; the trigger opens its draw or
       league table.</figcaption></figure>
-    <figure><img src="img/cuevr/tour_rankings.png" alt="The rankings">
+    <figure><img src="img/cuevr/glass/career-rankings.jpg" alt="The rankings">
       <figcaption><b>RANKINGS</b> for every level, with your own row picked out. Pick a player to
       see their page.</figcaption></figure>
   </div>
   <div class="grid g2">
-    <figure><img src="img/cuevr/tour_player.png" alt="A player's page">
+    <figure><img src="img/cuevr/glass/career-player.jpg" alt="A player's page">
       <figcaption>A player's page: their career, this season, past seasons, their record against
       you, and <b>HOW THEY PLAY</b> in the same five bars as the computer players' cards.</figcaption></figure>
-    <figure><img src="img/cuevr/tour_stats.png" alt="The season's stats">
+    <figure><img src="img/cuevr/glass/career-stats.jpg" alt="The season's stats">
       <figcaption><b>STATS</b>: this season's leaders on the whole tour and at your level, beside
       the tour's all-time records.</figcaption></figure>
   </div>
   <figure>
-    <img src="img/cuevr/tour_review.png" alt="The season review">
+    <img src="img/cuevr/glass/career-review.jpg" alt="The season review">
     <figcaption><b>SEASON</b>: how your season has gone and who has won what. At the end of a
     season it becomes the review, with who went up and who went down.</figcaption>
   </figure>
@@ -3037,7 +3508,7 @@
   event, a World Championship or the Atlantic Cup.</p>
 
   <figure>
-    <img src="img/cuevr/event_setup.png" alt="Setting up an event">
+    <img src="img/cuevr/glass/event-setup.jpg" alt="Setting up an event">
     <figcaption><b>Events</b> on step 3 VS. Pick an event, then set it up. The panel on the left
     shows the event as it will be: its format, field, prize fund and top seeds.</figcaption>
   </figure>
@@ -3053,14 +3524,14 @@
   </table>
 
   <div class="grid g2">
-    <figure><img src="img/cuevr/event_hub.png" alt="The event hub">
+    <figure><img src="img/cuevr/glass/event-hub.jpg" alt="The event hub">
       <figcaption>The event's hub: your next match, and the draw, results and stats in the tabs.</figcaption></figure>
-    <figure><img src="img/cuevr/event_draw.png" alt="The draw">
+    <figure><img src="img/cuevr/glass/event-draw.jpg" alt="The draw">
       <figcaption><b>DRAW</b>: every round, with your path through it. Once you are knocked out,
       play the rest of the event a round at a time or all at once.</figcaption></figure>
   </div>
   <figure>
-    <img src="img/cuevr/event_record.png" alt="The events record">
+    <img src="img/cuevr/glass/event-record.jpg" alt="The events record">
     <figcaption><b>EVENTS RECORD</b>: your titles, best finish, money and best break for each kind
     of event. Twelve events are kept at once.</figcaption>
   </figure>
@@ -3140,7 +3611,7 @@
   an event. Close the game and carry on from the same shot.</p>
 
   <div class="grid g2">
-    <figure><img src="img/cuevr/home_career_match.png" alt="Home with a match on the table">
+    <figure><img src="img/cuevr/glass/home-ingame.jpg" alt="Home with a match on the table">
       <figcaption>Home with a match on the table: <b>CONTINUE</b> goes back to it, <b>PAUSE
       MATCH</b> keeps it and takes it off the table, so you can play something else.</figcaption></figure>
     <figure><img src="img/cuevr/home_saved_match.png" alt="Home with a saved match">
@@ -3243,7 +3714,7 @@
 
   <h3>A challenge's page</h3>
   <figure>
-    <img src="img/cuevr/chal_set.jpg" alt="A challenge's page">
+    <img src="img/cuevr/glass/challenge-page.jpg" alt="A challenge's page">
     <figcaption>A challenge's page. <b>PLAY IT</b> starts it, <b>MOVE THE BALLS</b> opens the
     layout, <b>SHARE</b> gives its code. On the right, what it asks and which balls count.</figcaption>
   </figure>
@@ -3278,7 +3749,7 @@
   getting wrong, and press MAKE ONE. A table with no balls on it starts from a full rack.</p>
 
   <figure>
-    <img src="img/cuevr/layout-editor.jpg" alt="The layout editor">
+    <img src="img/cuevr/glass/challenge-layout.jpg" alt="The layout editor">
     <figcaption>Setting the balls out. Pull the trigger near a ball to pick it up and again to put
     it down; the panel holds the rest — save the position, take a ball off, put one back,
     <b>START FROM A FULL RACK</b>, take them all off, or throw the changes away.</figcaption>
@@ -3351,6 +3822,9 @@
   swings before the real one are left out. <b>SHOW THE STROKE</b> goes back.</p>
   <p><b>PREVIOUS SHOT</b> and <b>NEXT SHOT</b> step through the frame, and <b>PLAY THE BREAK</b>
   plays your whole break back, one stroke after another.</p>
+  <p><b>Ball trails:</b> in a replay each ball's path is drawn on the cloth in its own colour, so
+  you can see where everything went. The <b>BALL TRAILS</b> row on the replay panel turns them
+  off.</p>
 
   <p>The <b>Replay gallery</b> chip on the pause menu and <b>Records &rarr; Replays</b> on the
   main menu browse what you have kept, twelve to a page. <b>DELETE THE ONE HIGHLIGHTED</b> is a row on the panel, and it
@@ -3388,6 +3862,19 @@
   </table>
   <p>The computer plays every place nobody takes, and plays on for anyone who leaves. The host
   chooses the format and everyone in the room plays it.</p>
+
+  <h3 id="dropped">If your connection drops</h3>
+  <p>If your connection drops during a frame, your place is kept for five minutes and the game
+  tries to get you back in by itself. If CueVR itself closed, or the headset restarted, start it
+  again: the Online page offers <b>REJOIN YOUR MATCH</b> while your place is kept. A club table's
+  match takes you back to the same table, and a tournament match back into the tournament's
+  room. Not back in time, and the frame is your opponent's.</p>
+
+  <h3 id="results">Results</h3>
+  <p>Every online frame and match is recorded when both players' games agree on it, with each
+  player's figures and breaks; those are what the club's <a href="#honours">honours boards</a>
+  are made from. A frame somebody walks out of is kept too, as a win for the player who stayed,
+  with both players' figures and every break made in it.</p>
 
   <h3>Winner stays on</h3>
   <p>A room for a group. Two play a frame; the winner stays at the table and the next in the queue
@@ -3487,9 +3974,35 @@
       <b>LEAVE CLUB</b>.</li>
     <li><b>Everyone in the club</b> is listed on the pause menu with <b>HIDE</b>, <b>MUTE</b> and
       <b>REPORT</b>. Voice chat covers the whole club.</li>
+    <li><b>HIDE ME</b>, beside <b>MUTE ME</b> on the pause menu: nobody sees your headset,
+      hands or cue until you press it again, so you can walk between the tables without
+      bothering the players.</li>
     <li><b>Settings &rarr; Graphics &rarr; CLUB TABLES:</b> <b>FULL</b> draws the other tables just as
       yours is drawn; <b>SIMPLE</b> draws their cloth more plainly, and is quicker.</li>
+    <li><b>If your connection drops</b>, the game goes back into the club by itself: the glass
+      says <b>LOST THE CLUB - RECONNECTING</b> and then <b>BACK IN THE CLUB</b>. While it is
+      reconnecting, <b>Down the club</b> says reconnecting, and pressing it tries straight
+      away.</li>
+    <li><b>If CueVR closed during a match at a club table</b>, start it again: the Online page
+      has <b>REJOIN YOUR MATCH</b> while your place is kept, and it takes you back into the same
+      club, to the same table.</li>
+    <li><b>Every table has its number</b> in gilt on the light over it, 1 to 4 down the room.</li>
   </ul>
+
+  <h4 id="honours">The honours boards</h4>
+  <p>The club's records hang on its walls, in gilt on mahogany: the most frames won, the best win
+  rate (over 20 frames or more), break-and-runs, clearances, and the highest break at straight
+  pool, 15-red, 10-red, 6-red and 3-red snooker and English billiards. They are the top ten of
+  all time, from online frames both players' games agreed on, with both players' Meta accounts
+  proved, so a record is the account's and not a name anyone can type.</p>
+  <p>Below each board, on the sideboards at both ends of the room, stands that record's trophy.
+  Each finished month's winner is engraved on its plates, from November 2026; the plates keep the
+  twelve most recent months. When two or more players finish a month level at the top, they are
+  joint winners: all their names go on the plate, and each of them gets the month's trophy in
+  their own cabinet. Squeeze a grip near a trophy to pick it up and read it.</p>
+  <p>The <b>TOURNAMENT WINNERS</b> board, by the door across from the blackboard, lists every
+  club tournament's champion, newest first. On the pedestal in front of it stands the latest
+  tournament's trophy, engraved with the tournament, its day and its champion.</p>
 
   <h3 id="tournaments">Club tournaments</h3>
   <p><b>Knockout tournaments, organised by the club and run on the night by the game itself.</b>
@@ -3504,7 +4017,7 @@
   night it says <b>you're in</b> and when it starts, or <b>sign up in the club</b> if you have not
   entered.</p>
   <figure>
-    <img src="img/cuevr/tourn_tile_signed.jpg" alt="The Online page with the tournament tile: you're in">
+    <img src="img/cuevr/glass/online-tourn-signed.jpg" alt="The Online page with the tournament tile: you're in">
     <figcaption>Signed up: the tile says so, with the start time.</figcaption>
   </figure>
   <p><b>On the night</b></p>
@@ -3524,10 +4037,15 @@
       room, in the club as well as a tournament's room.</li>
     <li><b>Every match is played on the tournament's own table and look</b> (its size, body, cloth
       and balls), whatever you have chosen yourself. Yours come back when you leave the room.</li>
-    <li><b>The blackboard keeps the draw</b>: every round, every score, and the champion.</li>
+    <li><b>The blackboard keeps the draw</b>: every round, every score, and the champion. It
+      keeps the last tournament's result until the next one is announced.</li>
+    <li><b>The champion's trophy</b> goes in their trophy cabinet, engraved with the tournament's
+      name, the day and their name. Win the same tournament again and it is engraved again.</li>
+    <li><b>Records &rarr; Tournaments</b> lists every tournament you have entered: how far you got,
+      and each of your matches with the score. Open one for its whole draw.</li>
   </ul>
   <figure>
-    <img src="img/cuevr/tourn_tile_join.jpg" alt="The Online page with the tournament tile: join, 13 minutes">
+    <img src="img/cuevr/glass/online-tourn-join.jpg" alt="The Online page with the tournament tile: join, 13 minutes">
     <figcaption>The room is open: <b>join</b>, and the minutes until the start.</figcaption>
   </figure>
   <figure>
@@ -3647,7 +4165,7 @@
   what surrounds you. None of it changes how the game plays.</p>
 
   <figure>
-    <img src="img/cuevr/appear-menu.jpg" alt="The main menu, with the strip of table panels along the foot">
+    <img src="img/cuevr/glass/home.jpg" alt="The main menu, with the strip of table panels along the foot">
     <figcaption>How the table looks is the strip along the foot of the main menu:
     <b>TABLE</b>, <b>CLOTH</b>, <b>TIMBER</b>, <b>BALLS</b>, <b>CUE</b>. Each opens its own picker;
     the change happens straight away on the table in front of you, so you can see it before you
@@ -3770,7 +4288,7 @@
   <p><b>Workshop &rarr; Table</b> can dress a table it built with the same furniture — see
   <a href="#workshop">Build a table</a>.</p>
 
-  <h3>Balls</h3>
+  <h3 id="balls">Balls</h3>
   <p>Twenty-seven sets. The <b>BALLS</b> panel opens a gallery: one rack, one table, one camera, so
   the only difference between two cards is the set.</p>
 
@@ -3857,7 +4375,7 @@
     in for the frame and says so in the row; your own choice is kept.
   </div>
 
-  <h3>Woodwork</h3>
+  <h3 id="wood">Woodwork</h3>
   <p>The <b>TIMBER</b> panel sets the rails and the body together, in three choices made one after
   another: the <b>finish</b>, the <b>colour</b>, and &mdash; for a varnished finish &mdash; the
   <b>wood</b>. The wood does not choose the colour, so varnished oak can be navy. Every tile on
@@ -3865,7 +4383,7 @@
   get.</p>
 
   <figure>
-    <img src="img/cuevr/timber-card.png" alt="The timber card, on its COLOUR tab">
+    <img src="img/cuevr/glass/picktimber.jpg" alt="The timber card, on its COLOUR tab">
     <figcaption>The timber card on its <b>COLOUR</b> tab. <b>FINISH</b> along the top is
     <b>VARNISHED</b> or <b>PLAIN</b>; the <b>BODY</b> chips choose the table the timber is built
     into. The one on the table is outlined; pull the trigger on any other and it is fitted
@@ -3934,9 +4452,9 @@
     <figure><img src="img/cuevr/woodfig-maple.jpg" alt="Varnished maple"><figcaption><span class="cap-t">MAPLE</span></figcaption></figure>
   </div>
 
-  <h3>Cloth</h3>
+  <h3 id="cloth">Cloth</h3>
   <figure>
-    <img src="img/cuevr/cloth-picker.jpg" alt="The cloth picker">
+    <img src="img/cuevr/glass/pickcloth.jpg" alt="The cloth picker">
     <figcaption>The cloth picker. The one on the table is outlined; point at any other to see its
     name, and pull the trigger to fit it.</figcaption>
   </figure>
@@ -3962,7 +4480,7 @@
   colour you mixed included), the timber and its finish, the body, and the pocket leather or
   corner metal. <b>STYLES</b>, beside the title on the cloth and timber screens, opens them.</p>
   <figure>
-    <img src="img/cuevr/styles-panel.jpg" alt="The table styles panel with two styles">
+    <img src="img/cuevr/glass/styles-saved.jpg" alt="The table styles panel with two styles">
     <figcaption>Two styles. Each card is a photograph of your table wearing it: a corner pocket
     up close, and the whole table in the corner of the picture.</figcaption>
   </figure>
@@ -3981,7 +4499,7 @@
   <p>A style only changes how the table looks. The table you play on, its size and its pockets,
   stay as they are.</p>
 
-  <h3>Lighting</h3>
+  <h3 id="lighting">Lighting</h3>
   <div class="grid g2">
     <figure><img src="img/cuevr/light0.jpg" alt="Match lighting"><figcaption><span class="cap-t">MATCH</span> — one hard light over the table, as used for television. Bright cloth, dark surroundings, hard-edged shadows under the balls.</figcaption></figure>
     <figure><img src="img/cuevr/light1.jpg" alt="Six shade lighting"><figcaption><span class="cap-t">SIX SHADE</span> — six shades in a row down the length, as a club table has. Even light along the table and softer shadows. This is the default.</figcaption></figure>
@@ -3996,7 +4514,7 @@
   BRIGHTEST, FLAT, and it starts at NORMAL, which is every rig exactly as it was built. Use it if
   your headset or your room makes the table darker than it looks here.</p>
 
-  <h3>Surroundings</h3>
+  <h3 id="surroundings">Surroundings</h3>
   <div class="grid g3">
     <figure><img src="img/cuevr/surround0.jpg" alt="Passthrough"><figcaption><span class="cap-t">PASSTHROUGH</span> — your own room. This is how the game is meant to be played.</figcaption></figure>
     <figure><img src="img/cuevr/surround1.jpg" alt="Dark room"><figcaption><span class="cap-t">DARK ROOM</span> — a plain dark hall drawn over your room.</figcaption></figure>
@@ -4011,6 +4529,24 @@
   <p><b>SMOKE</b> and <b>TAR</b>, on <b>Settings &rarr; Graphics</b>, set how thick the smoke
   hangs in the pub and the snooker club, and how yellow it has turned the ceiling. Every pub
   and club among the <a href="#venue">venues</a> is smoky to the same levels.</p>
+  <h4 id="music">Music</h4>
+  <p>Three of the rooms play music, and nothing plays until you start it. The music comes from
+  where it is played, so it gets quieter as you walk away; its volume is <b>MUSIC</b> on
+  <b>Settings &rarr; Sound</b>. There are seven piano pieces: Maple Leaf Rag, Clair de lune,
+  Fantaisie-Impromptu, Canon in D, Arabesque No. 1, the Revolutionary Etude and the Impromptu
+  in E flat.</p>
+  <ul>
+    <li><b>The jukebox in the pubs.</b> Press 1 to 7 on its keypad for a song, or STOP. When
+    a song ends the next one plays.</li>
+    <li><b>The grand piano in the dining room.</b> Press the keys with the tips of your
+    controllers, and hold the index trigger for the sustain pedal. The brass plate beside the
+    keys has back, play/stop and next, and when it plays a piece the keys move with it.</li>
+    <li><b>The record player in the library.</b> Pick a record from the crate, put it on the
+    turntable and lower the arm onto it. Where you put the needle is where the piece
+    starts.</li>
+  </ul>
+  <p>You can lean over anything below your waist, such as the piano or a table, without the
+  room moving away from you. Taller things still stop you.</p>
   <p>In every room but your own and the dark hall, <a href="#moving">walls stop you</a>, and
   <a href="#moving">Movement: Camera</a> lets you walk round and look at it all. Steps take you
   up and down: the banks of seats in an arena or a theatre, the stairs down into a club's pit
@@ -4022,7 +4558,7 @@
   stands round your table in any match, on your own or online &mdash; online it is only what
   you see; the other players keep their own rooms.</p>
   <figure>
-    <img src="img/cuevr/venue_tab.jpg" alt="The Venue tab">
+    <img src="img/cuevr/glass/env-venue.jpg" alt="The Venue tab">
     <figcaption><b>Environment &rarr; Venue</b>, with a club's show table in a pit chosen and four
     favourites saved.</figcaption>
   </figure>
@@ -4578,7 +5114,7 @@
   <b>pressing either thumbstick</b> turns it an eighth of a turn.</p>
 
   <figure>
-    <img src="img/cuevr/cw-cue.jpg" alt="The Cue page of the cue workshop">
+    <img src="img/cuevr/glass/cue-00-cue.jpg" alt="The Cue page of the cue workshop">
     <figcaption><b>Cue.</b> The name, the rack cue to start from, and saving, sharing and
     deleting.</figcaption>
   </figure>
@@ -4619,19 +5155,19 @@
   </table>
 
   <div class="grid g2">
-    <figure><img src="img/cuevr/cw-shaft.jpg" alt="The Shaft page"><figcaption><b>Shaft</b></figcaption></figure>
-    <figure><img src="img/cuevr/cw-splice.jpg" alt="The Splice page"><figcaption><b>Splice</b></figcaption></figure>
-    <figure><img src="img/cuevr/cw-veneers.jpg" alt="The Veneers page"><figcaption><b>Veneers</b></figcaption></figure>
-    <figure><img src="img/cuevr/cw-butt.jpg" alt="The Butt page"><figcaption><b>Butt</b></figcaption></figure>
-    <figure><img src="img/cuevr/cw-panel.jpg" alt="The Panel page"><figcaption><b>Panel</b></figcaption></figure>
-    <figure><img src="img/cuevr/cw-panelwood.jpg" alt="The Panel wood page"><figcaption><b>Panel wood</b></figcaption></figure>
-    <figure><img src="img/cuevr/cw-insert.jpg" alt="The Insert page"><figcaption><b>Insert</b></figcaption></figure>
-    <figure><img src="img/cuevr/cw-plate.jpg" alt="The Plate page"><figcaption><b>Plate</b></figcaption></figure>
-    <figure><img src="img/cuevr/cw-extras.jpg" alt="The Extras page"><figcaption><b>Extras</b></figcaption></figure>
-    <figure><img src="img/cuevr/workshop_endcap.png" alt="The End cap page"><figcaption><b>End cap</b></figcaption></figure>
+    <figure><img src="img/cuevr/glass/cue-01-shaft.jpg" alt="The Shaft page"><figcaption><b>Shaft</b></figcaption></figure>
+    <figure><img src="img/cuevr/glass/cue-02-splice.jpg" alt="The Splice page"><figcaption><b>Splice</b></figcaption></figure>
+    <figure><img src="img/cuevr/glass/cue-03-veneers.jpg" alt="The Veneers page"><figcaption><b>Veneers</b></figcaption></figure>
+    <figure><img src="img/cuevr/glass/cue-04-butt.jpg" alt="The Butt page"><figcaption><b>Butt</b></figcaption></figure>
+    <figure><img src="img/cuevr/glass/cue-05-panel.jpg" alt="The Panel page"><figcaption><b>Panel</b></figcaption></figure>
+    <figure><img src="img/cuevr/glass/cue-06-panelwood.jpg" alt="The Panel wood page"><figcaption><b>Panel wood</b></figcaption></figure>
+    <figure><img src="img/cuevr/glass/cue-07-insert.jpg" alt="The Insert page"><figcaption><b>Insert</b></figcaption></figure>
+    <figure><img src="img/cuevr/glass/cue-08-plate.jpg" alt="The Plate page"><figcaption><b>Plate</b></figcaption></figure>
+    <figure><img src="img/cuevr/glass/cue-09-extras.jpg" alt="The Extras page"><figcaption><b>Extras</b></figcaption></figure>
+    <figure><img src="img/cuevr/glass/cue-10-endcap.jpg" alt="The End cap page"><figcaption><b>End cap</b></figcaption></figure>
   </div>
 
-  <h3>A flag on the end</h3>
+  <h3 id="cue-flag">A flag on the end</h3>
   <p>On the End cap page, <b>ON THE END &rarr; COUNTRY</b> lets any of the game's flags into the
   end of the cap. The flag shows beside <b>PICK</b>; press it for the others, shown as the flags
   themselves, with each country's name on the help line as you point. <b>TURN</b> sets which way
@@ -4734,7 +5270,7 @@
   cue, ball set, challenge, cloth and timber pickers, and opens on the tab for what you were
   choosing.</p>
   <figure>
-    <img src="img/cuevr/gallery-cues.jpg" alt="The gallery, on its cues tab">
+    <img src="img/cuevr/glass/gallery-cues.jpg" alt="The gallery, on its cues tab">
     <figcaption>The gallery. Tabs for <b>CUES</b>, <b>BALLS</b>, <b>CHALLENGES</b> and <b>TABLE
     STYLES</b> along the top, six to a page; the heart on each picture is how many players have
     liked it.</figcaption>
@@ -4749,11 +5285,11 @@
       fill in as they arrive.</li>
   </ul>
   <div class="grid g3">
-    <figure><img src="img/cuevr/gallery-balls.jpg" alt="The gallery's ball sets">
+    <figure><img src="img/cuevr/glass/gallery-balls.jpg" alt="The gallery's ball sets">
       <figcaption>Ball sets.</figcaption></figure>
-    <figure><img src="img/cuevr/gallery-challenges.jpg" alt="The gallery's challenges">
+    <figure><img src="img/cuevr/glass/gallery-challenges.jpg" alt="The gallery's challenges">
       <figcaption>Challenges, each a picture of its layout.</figcaption></figure>
-    <figure><img src="img/cuevr/gallery-styles.jpg" alt="The gallery's table styles">
+    <figure><img src="img/cuevr/glass/gallery-styles.jpg" alt="The gallery's table styles">
       <figcaption>Table styles.</figcaption></figure>
   </div>
 
@@ -4802,7 +5338,7 @@
   it, and the same contact gives the same answer every time. A tip that has only just lost the
   surface throws the ball less than a degree, which is a bad contact rather than a disaster.</p>
 
-  <h3>Marks on the cloth</h3>
+  <h3 id="chalk-marks">Marks on the cloth</h3>
   <p>Chalk comes off the tip at impact and lands on the bed, so a frame leaves the table marked
   where the shots were played, as a real one does. A gentle push leaves a speck; a break throws a
   cloud. Sweep them away with your free hand laid on the cloth, trigger held. A new table is always
@@ -4833,7 +5369,7 @@
   it off and it stays where you left it.</p>
 
   <figure>
-    <img src="img/cuevr/settings-chalk.png" alt="The Chalk tab of the settings screen">
+    <img src="img/cuevr/glass/settings-chalk.jpg" alt="The Chalk tab of the settings screen">
     <figcaption><b>Settings &rarr; Chalk.</b> Everything about the block in one place.</figcaption>
   </figure>
 
