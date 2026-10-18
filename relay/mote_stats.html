@@ -426,11 +426,27 @@ function vCuelo(){
       <td class=r><b class=${r.prov ? 'dim' : 'acc'}>${r.r}</b></td><td class="r dim">${r.rating}</td><td class="r dim">${r.rd}</td><td class=r>${r.f}</td><td class=r>${r.opp}</td></tr>`).join('')}</table></div>`;
   return h;
 }
+// CLAUDEELO (2026-10-18): the third listing -- see claude_elo() in mote_stats_model.py
+function vClaude(){
+  const C = M.claude;
+  if (!C) return empty('Loading...');
+  const pm = v => (v > 0 ? '+' : '') + v.toFixed(2);
+  let h = `<div class="small dim" style="margin:4px 2px 8px">ClaudeELO: results ${Math.round(C.w_results*100)}% (the CUELO rating) and play ${Math.round(C.w_play*100)}%:
+    each player's pot success, long pots, safeties, fouls, points a visit and breaks or runs, set against everyone else who played the same kind of game.
+    1500 is the average player; 200 is one step of spread. Players with ${C.min_f} or more rated frames.</div>`;
+  if (!C.rows.length) return h + empty('Not enough frames yet.');
+  h += `<div class=card><table><tr><th></th><th>Player</th><th class=r>ClaudeELO</th><th class=r>Results</th><th class=r>Play</th><th class=r>Frames</th><th>Best / weakest</th></tr>
+    ${C.rows.map((r, i) => `<tr class=tap onclick="location.hash='player/${encodeURIComponent(r.id)}'"><td class=dim style="width:24px">${i + 1}</td><td>${e(r.name)}</td>
+      <td class=r><b class=acc>${r.r}</b></td><td class="r ${r.results >= 0 ? 'acc' : 'bad'}">${pm(r.results)}</td><td class="r ${r.play >= 0 ? 'acc' : 'bad'}">${pm(r.play)}</td>
+      <td class=r>${r.f}</td><td class="tiny dim">${e(r.best)} / ${e(r.worst)}</td></tr>`).join('')}</table></div>`;
+  return h;
+}
 function vRatings(){
   if (!M || !M.ratings) return empty('Loading...');
-  const sw = `<div style="display:flex;gap:6px;margin-bottom:8px">${[['elo','Elo'],['cuelo','CUELO']].map(([k, l]) =>
+  const sw = `<div style="display:flex;gap:6px;margin-bottom:8px">${[['elo','Elo'],['cuelo','CUELO'],['claude','ClaudeELO']].map(([k, l]) =>
         `<a class="chip ${k === RK ? 'on' : ''}" style="cursor:pointer;padding:4px 12px;border-radius:12px;border:1px solid ${k === RK ? 'var(--acc)' : 'var(--line)'};color:${k === RK ? 'var(--acc)' : 'var(--dim)'}" onclick="RK='${k}';draw()">${l}</a>`).join('')}</div>`;
   if (RK === 'cuelo') return sw + vCuelo();
+  if (RK === 'claude') return sw + vClaude();
   return sw + vRatingsElo();
 }
 function vRatingsElo(){

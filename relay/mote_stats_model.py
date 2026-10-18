@@ -191,6 +191,71 @@ def cuelo(ev, name_of, game_names):
             "min_f": CUELO_MIN_F, "min_opp": CUELO_MIN_OPP, "week_days": CUELO_WEEK // 86400}
 
 
+# ---- CLAUDEELO (2026-10-18; Mark: "look at everyone's results including their
+# gameplay stats and make your own independent ranking ... make this method a
+# new 3rd option - call it ClaudeELO"). Two halves:
+#   RESULTS (60%): CUELO's rating, as a z over the players listed
+#   PLAY (40%): each player's own shot figures set against everyone else who
+#     played the same FAMILY of game (8-ball, 9/10-ball, snooker, straight
+#     pool, billiards -- a pot rate means something different in each), as z
+#     scores shrunk toward average on a small sample, weighted by frames:
+#       pot success, long pots, safeties that worked, fouls a shot (fewer is
+#       better), points a visit, big breaks and runs a frame
+# Shown as 1500 + 200 x the overall score. 15 rated frames to be listed.
+CL_MIN_FRAMES = 15
+CL_RESULTS, CL_PLAY = 0.6, 0.4
+_CL_MET = (("pot", "pot success", lambda T: T["made"] / T["att"] if T["att"] else None, lambda T: T["att"], 1, 60),
+           ("long", "long pots", lambda T: T["long_made"] / T["long_att"] if T["long_att"] else None, lambda T: T["long_att"], 1, 25),
+           ("safety", "safeties", lambda T: T["safe_ok"] / T["safeties"] if T["safeties"] else None, lambda T: T["safeties"], 1, 25),
+           ("fouls", "few fouls", lambda T: T["fouls"] / T["shots"] if T["shots"] else None, lambda T: T["shots"], -1, 80),
+           ("visit", "points a visit", lambda T: T["vis_pts"] / T["visits"] if T["visits"] else None, lambda T: T["visits"], 1, 40),
+           ("big", "breaks and runs", lambda T: (T["b30"] + T["bnr"] + T["runouts"]) / T["frames"] if T["frames"] else None, lambda T: T["frames"], 1, 10))
+
+
+def _cl_family(g):
+    g = (g or "").upper()
+    if "SNOOKER" in g or "900" in g: return "snooker"
+    if "9-BALL" in g or "10-BALL" in g: return "9/10-ball"
+    if "8-BALL" in g or "ULTIMATE" in g: return "8-ball"
+    if "STRAIGHT" in g: return "straight pool"
+    if "BILLIARDS" in g and "BAR" not in g: return "billiards"
+    return None
+
+
+def claude_elo(play, cuelo_rows, name_of):
+    zsum, detail = {}, {}
+    for fam in sorted({f for (_, f) in play}):
+        P = {i: T for (i, f), T in play.items() if f == fam and T["frames"] >= 3}
+        for key, label, val, nfn, sign, n0 in _CL_MET:
+            vals = {i: (val(T), nfn(T)) for i, T in P.items() if val(T) is not None and nfn(T) > 0}
+            if len(vals) < 4:
+                continue
+            tot = sum(n for _, n in vals.values())
+            mean = sum(v * n for v, n in vals.values()) / tot
+            sd = math.sqrt(sum(n * (v - mean) ** 2 for v, n in vals.values()) / tot) or 1e-9
+            for i, (v, n) in vals.items():
+                z = sign * (v - mean) / sd * (n / (n + n0))
+                w = P[i]["frames"]
+                a = zsum.setdefault(i, [0.0, 0.0]); a[0] += z * w; a[1] += w
+                detail.setdefault(i, []).append((z, f"{fam} {label}"))
+    rows = [c for c in cuelo_rows if c["f"] >= CL_MIN_FRAMES and c["id"] in zsum]
+    if len(rows) < 2:
+        return {"rows": [], "min_f": CL_MIN_FRAMES, "w_results": CL_RESULTS, "w_play": CL_PLAY}
+    mr = sum(c["rating"] for c in rows) / len(rows)
+    sr = math.sqrt(sum((c["rating"] - mr) ** 2 for c in rows) / len(rows)) or 1.0
+    out = []
+    for c in rows:
+        rz = (c["rating"] - mr) / sr
+        pz = zsum[c["id"]][0] / zsum[c["id"]][1]
+        sc = CL_RESULTS * rz + CL_PLAY * pz
+        d = sorted(detail.get(c["id"], []))
+        out.append({"id": c["id"], "name": name_of(c["id"]), "r": round(1500 + 200 * sc), "score": round(sc, 2),
+                    "results": round(rz, 2), "play": round(pz, 2), "f": c["f"], "opp": c["opp"],
+                    "best": d[-1][1] if d else "", "worst": d[0][1] if d else ""})
+    out.sort(key=lambda x: -x["score"])
+    return {"rows": out, "min_f": CL_MIN_FRAMES, "w_results": CL_RESULTS, "w_play": CL_PLAY}
+
+
 class Model:
     """the stats, kept as running totals: each line results.jsonl gains is
     folded in once, and only the lines added since the last look are read
@@ -247,6 +312,7 @@ class Model:
         self.elo_ev = []
         self.elo_dirty = False
         self.cuelo_ev = []
+        self.cl_play = {}            # ClaudeELO: (account, family) -> the frame figures, summed
 
     # ---- following results.jsonl --------------------------------------------
     def _follow(self):
@@ -356,6 +422,22 @@ class Model:
         while len(self.seen_lines) > 2000:
             self.seen_lines.pop(next(iter(self.seen_lines)))
         ids = _ids(line, names)
+        # CLAUDEELO'S FIGURES (claude_elo): each proved player's own shot figures,
+        # by the family of game, from verified frames that were played out
+        if (r.get("t") == "frame" and line.get("verified") and not line.get("forfeit") and "left" not in line
+                and r.get("winner") in (0, 1)):
+            f = _cl_family(r.get("game"))
+            sides_ = r.get("sides") if isinstance(r.get("sides"), list) else []
+            for i in (0, 1) if f else ():
+                if not ids[i].startswith("a:") or i >= len(sides_) or not isinstance(sides_[i], dict):
+                    continue
+                sd = sides_[i]; sh = sd.get("shot") if isinstance(sd.get("shot"), dict) else {}
+                T = self.cl_play.setdefault((ids[i], f), collections.defaultdict(float))
+                T["frames"] += 1
+                T["fouls"] += sd.get("fouls") or 0; T["shots"] += sd.get("shots") or 0
+                for k_ in ("att", "made", "long_att", "long_made", "safeties", "safe_ok", "visits", "vis_pts", "b30", "bnr", "runouts"):
+                    try: T[k_] += float(sh.get(k_) or 0)
+                    except (TypeError, ValueError): pass
         # THE RATINGS: a verified singles frame, both sides proved accounts,
         # a winner -- a forfeit's included, the one who stayed the winner
         if (r.get("t") == "frame" and line.get("verified") and r.get("winner") in (0, 1)
@@ -613,6 +695,13 @@ class Model:
             return max(a["names"].items(), key=lambda kv: kv[1])[0] if a and a["names"] else "?"
         return cuelo(self.cuelo_ev, name_of, self.elo_game)
 
+    def _claude(self):
+        """ClaudeELO, the third listing: claude_elo() over CUELO and the play figures"""
+        def name_of(i):
+            a = self.acc.get(i)
+            return max(a["names"].items(), key=lambda kv: kv[1])[0] if a and a["names"] else "?"
+        return claude_elo(self.cl_play, self._cuelo()["rows"], name_of)
+
     def _ratings(self):
         """the ratings, highest first: overall and a table a game"""
         self._elo_replay()
@@ -778,7 +867,7 @@ class Model:
                               "walkout_flags": walkout_flags},
                 "month_race": self._month_race(time.strftime("%Y-%m", time.gmtime())),
                 "pot_board": self._pot_board(time.strftime("%Y-%m", time.gmtime())),
-                "ratings": self._ratings(), "cuelo": self._cuelo()}
+                "ratings": self._ratings(), "cuelo": self._cuelo(), "claude": self._claude()}
 
     POT_MIN_ALL, POT_MIN_MONTH = 100, 50       # pot attempts before a player is on the pot success board
 
