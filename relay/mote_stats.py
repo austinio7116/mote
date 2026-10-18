@@ -41,7 +41,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse, parse_qs
 
 # the CueVR versions worth showing: the game id each plays online with
-VERSIONS = [("7.6.4", 0x43554574), ("7.6.2-7.6.3", 0x43554573), ("7.6-7.6.1", 0x43554572), ("7.5.5", 0x43554571), ("7.5-7.5.4", 0x43554570), ("7.3.2-7.4.x", 0x4355456F), ("7.3", 0x4355456E), ("7.2.1", 0x4355456D)]
+VERSIONS = [("7.6.5-7.6.6", 0x43554575), ("7.6.4", 0x43554574), ("7.6.2-7.6.3", 0x43554573), ("7.6-7.6.1", 0x43554572), ("7.5.5", 0x43554571), ("7.5-7.5.4", 0x43554570), ("7.3.2-7.4.x", 0x4355456F), ("7.3", 0x4355456E), ("7.2.1", 0x4355456D)]
 GID = 0x4355456F                 # the honours are asked of the current one
 
 A = None
