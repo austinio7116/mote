@@ -903,6 +903,9 @@ static inline int cue_rules_in_hand_anywhere(const CueRules *r) {
     if (!r) return 0;
     if (r->kind) return r->snk_shootout;    /* snooker: the D — Shootout: anywhere */
     if (r->mode == CUE_GAME_BARBILLIARDS) return 0; /* Rule 91: the D, always */
+    /* ONE POCKET: behind the head string, the break and after a scratch
+     * (WPA-style One Pocket 10.3 and 10.8 / WSR 6.1; CueVR 7.6.8) */
+    if (r->mode == CUE_GAME_ONEPOCKET) return 2;
     /* THE MESINHA: the break from anywhere behind the D's line (the "area de
      * saida", CBBS par e impar art. 6), and after an in-off from the D (art.
      * 17). The four games played on it all do the same. */

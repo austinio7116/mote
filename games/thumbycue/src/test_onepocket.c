@@ -141,6 +141,44 @@ int main(void) {
            "a scratch: a ball back, and the cue ball in hand", r.msg);
     }
 
+    /* ---- WPA-STYLE ONE POCKET (7.6.8): balls potted on a foul ----------- */
+    {   /* your own pocket's ball on a foul comes back (10.6) */
+        CueRules r; fresh(&r);
+        int id[1] = { 4 }, h[1]; h[0] = LP;
+        shot(&r, 4, 1, 1, id, h, 1);                 /* potted in your own pocket, and scratched */
+        ok(r.last_foul && r.score[0] == 0 && r.op_owed[0] == 1, "a ball in your own pocket on a foul does not score", r.msg);
+        {   char m[48]; snprintf(m, sizeof m, "respot %d id %d", r.respot, r.respot_id[0]);
+            ok(r.respot == 1 && r.respot_id[0] == 4, "...it is spotted", m); }
+    }
+    {   /* the opponent's pocket on a scratch: spotted -- the scratch was all (10.5) */
+        CueRules r; fresh(&r);
+        int id[1] = { 6 }, h[1]; h[0] = RP;
+        shot(&r, 6, 1, 1, id, h, 1);
+        ok(r.score[1] == 0 && r.respot >= 1 && r.respot_id[0] == 6, "on a scratch, a ball in their pocket is spotted", r.msg);
+    }
+    {   /* the opponent's pocket on another foul: it counts for him (10.5) */
+        CueRules r; fresh(&r);
+        int id[2] = { 6, 7 }, h[2]; h[0] = RP; h[1] = -1;   /* the 7 driven off the table */
+        shot(&r, 6, 0, 1, id, h, 2);
+        ok(r.last_foul && r.score[1] == 1, "a ball in their pocket on a foul counts for them", r.msg);
+    }
+    {   /* behind the head string after a scratch (10.8, 6.1) */
+        CueRules r; fresh(&r);
+        shot(&r, 3, 1, 1, NULL, NULL, 0);
+        ok(r.ball_in_hand && cue_rules_in_hand_anywhere(&r) == 2, "ball in hand behind the head string", r.msg);
+    }
+    {   /* three fouls in a row lose the rack (10.9) */
+        CueRules r; fresh(&r);
+        for (int k = 0; k < 3; k++) { r.turn = 0; shot(&r, -1, 0, 0, NULL, NULL, 0); }
+        ok(r.frame_over && r.winner == 1, "three fouls in a row lose the rack", r.msg);
+    }
+    {   /* no requirement on the break (10.3) */
+        CueRules r; fresh(&r);
+        r.break_shot = 1;
+        shot(&r, 3, 0, 1, NULL, NULL, 0);            /* touched the pack, a rail somewhere, nothing down */
+        ok(!r.last_foul, "a soft break is no foul", r.msg);
+    }
+
     /* ---- no cushion and nothing potted is a foul; a pot needs no cushion ---- */
     {   CueRules r; fresh(&r);
         shot(&r, 3, 0, 0, NULL, NULL, 0);
@@ -194,10 +232,11 @@ int main(void) {
                "...and it is the 9 that comes back, not the 3", m); }
     }
 
-    /* ---- NOBODY OWNS A POCKET UNTIL THE BREAKER HAS CHOSEN ---------------
+    /* ---- NOBODY OWNS A POCKET IF THE HOST NEVER CHOSE ONE ------------------
      *
-     * The pockets are the breaker's choice and it is made AFTER the break —
-     * you look at what the break left and take the end that suits it. Until
+     * Since 7.6.8 the breaker's pocket is chosen BEFORE the break (WPA-style
+     * 10.3) and the host always assigns one at the strike; this is the rules'
+     * fallback if it did not. Until
      * then a ball down belongs to nobody. */
     {   CueRules r; fresh_unpicked(&r);
         ok(r.op_hole[0] < 0 && r.op_hole[1] < 0,

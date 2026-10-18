@@ -4413,40 +4413,39 @@ static void resolve_onepocket(CueRules *r, CueBall *b, int n, const CueWorld *w,
                               int first_hit,
                               int scratch, int cushion, const int *potted, int np)
 {
+    (void)w;
     const int me = r->turn, you = 1 - r->turn;
-    const int was_break = r->break_shot;
     r->break_shot = 0;
 
-    /* NOBODY OWNS A POCKET YET, so nothing on this stroke can score.
+    /* THE RULES ARE BOB JEWETT'S WPA-STYLE ONE POCKET (CueVR 7.6.8; Mark: "is
+     * that the official one pocket rules? ... correct all"), read with the
+     * WPA's World Standardized Rules:
+     *   10.3  the breaker chooses a pocket BEFORE the break (or is given the
+     *         foot pocket opposite the side the cue ball was placed for it --
+     *         the host does both, at the strike); no requirement on the break
+     *   10.5  a ball potted in the opponent's pocket on a foul counts for him,
+     *         unless the only foul was a scratch; 10.6 every other ball potted
+     *         on a foul is spotted, as are side, head and off-table balls
+     *   10.8  a foul costs a ball (owed when there is none); a scratch puts
+     *         the cue ball in hand behind the head string
+     *   10.9  three fouls in a row lose the rack
      *
-     * The pockets are the breaker's choice and it is made AFTER the break —
-     * you look at what the break left and take the end that suits it. Until
-     * then a ball down belongs to nobody: it goes back on the table, and the
-     * breaker is asked. */
+     * NO POCKET YET can only mean a host that never chose one: everything goes
+     * back and the breaker is asked, and a foul is a foul all the same. */
     if (r->op_hole[me] < 0 || r->op_hole[you] < 0) {
         for (int k = 0; k < np && k < 8; k++)
             r->respot_id[k] = (unsigned char)potted[k];
         r->respot = np;
         r->brk = 0;
-        /* ...BUT A FOUL IS STILL A FOUL (CueVR 7.6.8; a player: "my first try
-         * I went in off and scratched on my break and it told me it was still
-         * my go ... there was no cue ball to play with"). This returned before
-         * the fouls below were ever looked at, so a scratched break kept the
-         * table, gave nobody ball in hand and left the white in the pocket.
-         * Judged as any stroke is: the ball it costs is owed (nothing is
-         * scored yet), the table passes, a scratch or a ball off gives ball in
-         * hand -- and the player coming to the table chooses the pockets,
-         * since the breaker can only choose at the table and has just left it. */
         int foul = 0; const char *why = "";
-        if (was_break && np == 0 && brk_rails(w, n) < 1 && !brk_cue_rail(w)) { foul = 1; why = "BREAK"; }
-        if (first_hit < 0)  { foul = 1; why = "MISSED"; }
-        else if (scratch)   { foul = 1; why = "SCRATCH"; }
-        else if (r->n_off)  { foul = 1; why = "OFF THE TABLE"; }
+        if (first_hit < 0)     { foul = 1; why = "MISSED"; }
+        else if (scratch)      { foul = 1; why = "SCRATCH"; }
+        else if (!np && !cushion) { foul = 1; why = "NO CUSHION"; }
         if (foul) {
             r->op_owed[me]++;
             r->last_foul = 1;
             r->cfoul[me]++;
-            if (scratch || r->n_off) r->ball_in_hand = 1;
+            if (scratch || !b[0].on) r->ball_in_hand = 1;
             r->turn = you;
             r->op_pick = you + 1;
             snprintf(r->msg, sizeof r->msg, "FOUL: %s", why);
@@ -4454,77 +4453,75 @@ static void resolve_onepocket(CueRules *r, CueBall *b, int n, const CueWorld *w,
         }
         r->op_pick = me + 1;
         r->last_foul = 0;
-        if (was_break) snprintf(r->msg, sizeof r->msg, "CHOOSE YOUR POCKET");
-        else           r->msg[0] = 0;
+        r->msg[0] = 0;
         return;
     }
 
     /* WHERE EVERYTHING WENT. bb_hole runs in step with potted, and -1 is a ball
      * driven off the table rather than down a hole. */
-    int mine = 0, theirs = 0, neutral = 0;
+    int mine_id[8], theirs_id[8], neutral_id[8];
+    int mine = 0, theirs = 0, neutral = 0, driven_off = 0;
     for (int k = 0; k < np && k < 8; k++) {
         const int h = r->bb_hole[k];
-        /* NAMED, not counted: the ball that goes back is the one that went
-         * down a hole nobody owns, and the striker may have scored on the same
-         * stroke. See respot_id. */
-        if (h < 0 || (h != r->op_hole[me] && h != r->op_hole[you])) {
-            if (neutral < 8) r->respot_id[neutral] = (unsigned char)potted[k];
-            neutral++;
-            continue;
-        }
-        if (h == r->op_hole[me]) mine++; else theirs++;
+        if (h < 0) driven_off = 1;
+        if (h < 0 || (h != r->op_hole[me] && h != r->op_hole[you])) neutral_id[neutral++] = potted[k];
+        else if (h == r->op_hole[me]) mine_id[mine++] = potted[k];
+        else theirs_id[theirs++] = potted[k];
     }
+    /* named, so the right balls come back (respot_id; a 0 is "any") */
+    r->respot = 0;
+    #define OP_SPOT(id) do { if (r->respot < 8) r->respot_id[r->respot] = (unsigned char)(id); r->respot++; } while (0)
+    for (int k = 0; k < neutral; k++) OP_SPOT(neutral_id[k]);
 
-    /* ---- the foul, before anything is counted ---- */
+    /* ---- the foul ---- */
     int foul = 0; const char *why = "";
-    /* ONE POCKET TAKES ITS OWN RULE, and a much weaker one, on purpose.
-     *
-     * The two codes contradict each other: WPA 12.3 says "there are no special
-     * requirements for the break shot", and OnePocket.org 2.2 asks that "the
-     * cue ball or at least one object ball must be driven to a rail, or a ball
-     * pocketed". This is the second, because "no requirement" is not a rule you
-     * can implement and OnePocket.org is what tournaments actually run.
-     *
-     * And emphatically NOT the four-ball rule the eight-balls use. A one pocket
-     * break is meant to be soft — it moves almost nothing, which is the whole
-     * character of the game — so a four-ball requirement would foul nearly
-     * every legitimate break in it. */
-    if (was_break && np == 0 && brk_rails(w, n) < 1 && !brk_cue_rail(w))
-        { foul = 1; why = "BREAK"; }
-    if (first_hit < 0)          { foul = 1; why = "MISSED"; }
-    else if (scratch)           { foul = 1; why = "SCRATCH"; }
-    else if (r->n_off)          { foul = 1; why = "OFF THE TABLE"; }
-    else if (!np && !cushion)   { foul = 1; why = "NO CUSHION"; }
-
-    /* A BALL DOWN IS DOWN, whoever fouled. The pot still counts for whoever
-     * owns the hole — a foul does not un-pot a ball — and the penalty is
-     * charged on top. */
-    if (mine)   r->score[me]  += mine;
-    if (theirs) r->score[you] += theirs;
-
-    /* ...and the neutral ones come back. The host does the placing, as it does
-     * for every other spot in this file. */
-    r->respot = neutral;
+    const int f_miss = first_hit < 0, f_scr = scratch || !b[0].on;
+    const int f_rail = !f_miss && !np && !cushion;         /* 6.3: no rail after contact */
+    if (f_miss)          { foul = 1; why = "MISSED"; }
+    else if (f_scr)      { foul = 1; why = "SCRATCH"; }
+    else if (driven_off) { foul = 1; why = "OFF THE TABLE"; }
+    else if (f_rail)     { foul = 1; why = "NO CUSHION"; }
 
     if (foul) {
-        /* THE PENALTY IS A BALL, and it is owed when there is none to give. */
-        if (r->score[me] > 0) { r->score[me]--; r->respot++; }
+        const int only_scratch = f_scr && !f_miss && !driven_off && !f_rail;
+        /* your own pocket's balls on a foul come back (10.6); the opponent's
+         * count for him, unless all you did was scratch (10.5) */
+        for (int k = 0; k < mine; k++) OP_SPOT(mine_id[k]);
+        if (only_scratch) { for (int k = 0; k < theirs; k++) OP_SPOT(theirs_id[k]); }
+        else r->score[you] += theirs;
+        /* THE PENALTY IS A BALL, and it is owed when there is none to give */
+        if (r->score[me] > 0) { r->score[me]--; OP_SPOT(0); }
         else                    r->op_owed[me]++;
         r->last_foul = 1;
         r->cfoul[me]++;
-        if (scratch || r->n_off) r->ball_in_hand = 1;
-        r->turn = you;
+        if (f_scr) r->ball_in_hand = 1;              /* behind the head string: cue_rules_in_hand_anywhere */
         r->brk = 0;
+        if (r->cfoul[me] >= 3) {                     /* 10.9: three in a row lose the rack */
+            r->frame_over = 1; r->winner = you; book_frame(r, you);
+            snprintf(r->msg, sizeof r->msg, "THREE FOULS");
+            return;
+        }
+        if (r->score[you] >= 8) {
+            r->frame_over = 1; r->winner = you; book_frame(r, you);
+            snprintf(r->msg, sizeof r->msg, "GAME");
+            return;
+        }
+        r->turn = you;
         snprintf(r->msg, sizeof r->msg, "FOUL: %s", why);
         return;
     }
+    #undef OP_SPOT
     r->last_foul = 0;
     r->cfoul[me] = 0;
+    if (mine)   r->score[me]  += mine;
+    if (theirs) r->score[you] += theirs;
 
     /* A DEBT IS PAID OUT OF THE NEXT BALL SCORED, which is what "owing" means:
      * the ball goes in, comes straight back out, and the debt goes down. */
     while (r->op_owed[me] > 0 && r->score[me] > 0) {
-        r->score[me]--; r->op_owed[me]--; r->respot++;
+        r->score[me]--; r->op_owed[me]--;
+        if (r->respot < 8) r->respot_id[r->respot] = 0;
+        r->respot++;
     }
 
     if (r->score[me] >= 8) {
@@ -4540,7 +4537,7 @@ static void resolve_onepocket(CueRules *r, CueBall *b, int n, const CueWorld *w,
 
     if (mine && !theirs && !neutral) {
         r->brk += mine;
-        snprintf(r->msg, sizeof r->msg, mine > 1 ? "%d" : "%d", mine);
+        snprintf(r->msg, sizeof r->msg, "%d", mine);
         return;                              /* the striker plays on */
     }
     r->brk = 0;
