@@ -137,6 +137,15 @@ def seeder():
                 items = list(r.items())
                 for i in range(0, len(items), 100):
                     relay_ask(f"MOTE2 TOURN {A.tourn_gid} ADMIN {tok} SEEDS", json.dumps({"r": dict(items[i:i + 100])}))
+                # THE CUEVR WORLD RANKING (7.6.8): the ClaudeELO order, as
+                # places -- account hash and name, NEVER the score (Mark: "we
+                # must NEVER show the actual ClaudeELO rating scores - just the
+                # ranking") -- in parts under the relay's 4000-byte line
+                rk = [[row["id"][2:], row["name"]] for row in (m.get("claude") or {}).get("rows", [])
+                      if str(row["id"]).startswith("a:")]
+                parts = [rk[i:i + 60] for i in range(0, len(rk), 60)] or [[]]
+                for k, part in enumerate(parts):
+                    relay_ask(f"MOTE2 TOURN {A.tourn_gid} ADMIN {tok} RANKING", json.dumps({"part": k, "of": len(parts), "rows": part}))
         except Exception as e:                  # a bad turn is skipped, never the end of it
             print(f"seeder: {type(e).__name__}: {e}", flush=True)
         time.sleep(120)

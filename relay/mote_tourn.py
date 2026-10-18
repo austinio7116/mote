@@ -215,6 +215,18 @@ def state_lines(t):
 
 
 class Organiser:
+    # THE CUEVR WORLD RANKING (CueVR 7.6.8; Mark: "a new leaderboard to the club
+    # that shows the ... ranking top 10 ... a full ranking order in the Records";
+    # "a monthly trophy for the top ranked player too - this should be a grand
+    # one"). Sent by the stats app in parts (RANKING), kept in ranking.json
+    # beside the results; the month's winner is whoever headed it when the
+    # month turned. Class-level defaults: a RELOAD swaps only __class__, and an
+    # Organiser carried over keeps its old __dict__.
+    rank_rows = None             # [[account hash, name], ...] in order -- places, never scores
+    rank_month = ""
+    rank_winners = None          # {"YYYY-MM": [account hash, name]}
+    rank_part = None             # the parts of a push still coming in
+
     def __init__(self, store, now=time.time, log=lambda *a: None, taken=lambda code: False):
         self.path = os.path.join(store, "tournaments.jsonl") if store else None
         self.now = now
@@ -547,6 +559,8 @@ class Organiser:
             return f"OK {len(self.ratings)}"
         if verb == "REMOVE":
             return self.admin_remove(spec)
+        if verb == "RANKING":
+            return self.rank_take(spec)
         return "UNKNOWN"
 
     # ENTERED BY THE ADMIN (Mark, 2026-10-13: "add players in the admin app in
@@ -763,16 +777,85 @@ class Organiser:
 
     def wins_lines(self, uid):
         """this account's titles, for its cabinet: "TWON <tid> <start>|<title>" (sent
-        only to a game that proved the account, with the honours)"""
-        return [f"TWON {t.tid} {int(t.start)}|{word(t.title)}"
-                for t in sorted(self.t.values(), key=lambda t: t.start)
-                if t.status == "done" and t.champion and t.draw.get(t.champion) == uid]
+        only to a game that proved the account, with the honours) -- and the
+        months it headed the world ranking, "RMINE <YYYY-MM>"""
+        out = [f"TWON {t.tid} {int(t.start)}|{word(t.title)}"
+               for t in sorted(self.t.values(), key=lambda t: t.start)
+               if t.status == "done" and t.champion and t.draw.get(t.champion) == uid]
+        self.rank_load()
+        h = hashlib.sha256(str(uid).encode()).hexdigest()[:12]
+        out += [f"RMINE {m}" for m, w in sorted((self.rank_winners or {}).items()) if w[0] == h]
+        return out
 
     def champions_lines(self, limit=20):
-        """the club's TOURNAMENT WINNERS board, newest first: TCHAMP <tid> <start> <champion>|<title>"""
+        """the club's TOURNAMENT WINNERS board, newest first: TCHAMP <tid> <start> <champion>|<title>
+        -- and, for everyone with the honours, the world ranking: RANK <place>
+        <name> in order, and each month's winner RMONTH <YYYY-MM> <name>, oldest
+        first. PLACES ONLY, NEVER THE SCORES (Mark: "we must NEVER show the
+        actual ... rating scores - just the ranking"): the stats app does not
+        even send them here"""
         done = [t for t in self.t.values() if t.status == "done" and t.champion]
-        return [f"TCHAMP {t.tid} {int(t.start)} {word(t.name_of(t.draw.get(t.champion)))[:23].replace(' ', '_')}|{word(t.title)}"
-                for t in sorted(done, key=lambda t: -t.start)[:limit]]
+        out = [f"TCHAMP {t.tid} {int(t.start)} {word(t.name_of(t.draw.get(t.champion)))[:23].replace(' ', '_')}|{word(t.title)}"
+               for t in sorted(done, key=lambda t: -t.start)[:limit]]
+        self.rank_load()
+        out += [f"RANK {i + 1} {word(r[1])[:23]}" for i, r in enumerate((self.rank_rows or [])[:1000])]
+        out += [f"RMONTH {m} {word(w[1])[:23]}" for m, w in sorted((self.rank_winners or {}).items())]
+        return out
+
+    # ---- THE WORLD RANKING ---------------------------------------------------
+    def rank_path(self):
+        return os.path.join(os.path.dirname(self.path), "ranking.json") if self.path else None
+
+    def rank_load(self):
+        if self.rank_rows is not None:
+            return
+        self.rank_rows, self.rank_month, self.rank_winners = [], "", {}
+        p = self.rank_path()
+        try:
+            with open(p, encoding="utf-8") as f:
+                d = json.load(f)
+            self.rank_rows = [r[:2] for r in d.get("rows", []) if isinstance(r, list) and len(r) >= 2]
+            self.rank_month = str(d.get("month", ""))
+            self.rank_winners = {str(k): v[:2] for k, v in dict(d.get("winners", {})).items() if isinstance(v, list) and len(v) >= 2}
+        except (OSError, ValueError, TypeError, AttributeError):
+            pass
+
+    def rank_save(self):
+        p = self.rank_path()
+        if not p:
+            return
+        tmp = p + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump({"rows": self.rank_rows, "month": self.rank_month, "winners": self.rank_winners}, f)
+        os.replace(tmp, p)
+
+    def rank_take(self, spec):
+        """a part of the stats app's ranking: {"part": i, "of": n, "rows": [[hash, name],
+        ...]} in order; the whole replaces the last once its last part is in. A
+        new month's first push makes the old month's leader its winner."""
+        try:
+            part, of = int(spec["part"]), int(spec["of"])
+            rows = [[str(r[0])[:12], str(r[1])[:40]] for r in spec["rows"]]
+        except (KeyError, TypeError, ValueError):
+            return "BAD"
+        if not (0 <= part < of <= 50):
+            return "BAD"
+        if part == 0 or self.rank_part is None:
+            self.rank_part = []
+        self.rank_part += rows
+        if part < of - 1:
+            return "OK MORE"
+        self.rank_load()
+        month = time.strftime("%Y-%m", time.gmtime(self.now()))
+        if self.rank_month and self.rank_month != month and self.rank_rows:
+            self.rank_winners[self.rank_month] = self.rank_rows[0]
+            self.log(f"world ranking: {self.rank_month} won by {self.rank_rows[0][1]}")
+        self.rank_rows, self.rank_month, self.rank_part = self.rank_part, month, None
+        try:
+            self.rank_save()
+        except OSError as e:
+            self.log(f"world ranking: not saved ({type(e).__name__})")
+        return f"OK {len(self.rank_rows)}"
 
     def player_answer(self, sub, a):
         """a player's request the relay does not know itself (so a new one goes
