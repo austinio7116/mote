@@ -354,9 +354,12 @@ class Model:
                     # A REPAIR WHILE RUNNING IS A WHOLE NEW READ: its copy has
                     # the original's key, so read on from here it was passed
                     # over as a duplicate and the original kept until a restart
+                    # -- and the read is made NOW: left to the next change of
+                    # the file, the page was built from the emptied state and
+                    # showed no one (2026-10-18, a repair at 20:38)
                     if started > 0 and b'"repaired"' in raw:
                         self._reset()
-                        return
+                        return self._follow()
                     self.off += len(raw)
                     try:
                         line = json.loads(raw)
