@@ -118,6 +118,15 @@ class Model:
         # account -> [rating, frames, peak, last change]
         self.elo = {}
         self.elo_game = {}
+        # ...IN THE ORDER THE FRAMES WERE PLAYED (2026-10-18; Mark: "check the
+        # elo calculations account for all the various cleanups"): a repair
+        # appends its frames at the end of the file, so rating them as read
+        # put a frame played on the 15th after the 18th's -- 4 places, up to
+        # 32 points on one account. Each rated frame is kept here (time, then
+        # file order) and the ratings are played through in that order when
+        # they are asked for (_elo_replay).
+        self.elo_ev = []
+        self.elo_dirty = False
 
     # ---- following results.jsonl --------------------------------------------
     def _follow(self):
@@ -138,10 +147,17 @@ class Model:
                     f.seek(0); f.readline()
                 self.head = head
                 f.seek(self.off)
+                started = self.off
                 while self.off < size:
                     raw = f.readline(size - self.off)
                     if not raw.endswith(b"\n"):          # a line still being written waits
                         break
+                    # A REPAIR WHILE RUNNING IS A WHOLE NEW READ: its copy has
+                    # the original's key, so read on from here it was passed
+                    # over as a duplicate and the original kept until a restart
+                    if started > 0 and b'"repaired"' in raw:
+                        self._reset()
+                        return
                     self.off += len(raw)
                     try:
                         line = json.loads(raw)
@@ -232,8 +248,8 @@ class Model:
             # snooker's sizes all report "SNOOKER": named by their kind (CueGameKind)
             self.elo_game[kind] = {4: "15-RED SNOOKER", 5: "10-RED SNOOKER", 6: "6-RED SNOOKER", 23: "3-RED SNOOKER"}.get(
                 kind, _clean(r.get("game") or f"game {kind}", 30))
-            for key in ("all", kind):
-                self._elo(key, ids[w], ids[1 - w])
+            self.elo_ev.append((t, len(self.elo_ev), kind, ids[w], ids[1 - w]))
+            self.elo_dirty = True
         sides = r.get("sides") if isinstance(r.get("sides"), list) else [{}, {}]
         side = lambda i: sides[i] if i < len(sides) and isinstance(sides[i], dict) else {}
         rep = _report(line, 0)
@@ -455,8 +471,19 @@ class Model:
         self._fresh()
         return next((x for x in self.matches if x["id"] == mid), None)
 
+    def _elo_replay(self):
+        """every rated frame through the ratings again, in the order played"""
+        if not self.elo_dirty:
+            return
+        self.elo = {}
+        for t, _, kind, wa, la in sorted(self.elo_ev):
+            for key in ("all", kind):
+                self._elo(key, wa, la)
+        self.elo_dirty = False
+
     def _ratings(self):
         """the ratings, highest first: overall and a table a game"""
+        self._elo_replay()
         def name_of(i):
             a = self.acc.get(i)
             return max(a["names"].items(), key=lambda kv: kv[1])[0] if a and a["names"] else "?"
