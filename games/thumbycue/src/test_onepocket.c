@@ -217,10 +217,31 @@ int main(void) {
     {   /* the second seat's break asks the second seat */
         CueRules r; fresh_unpicked(&r);
         r.turn = 1;
-        shot(&r, 3, 0, 1, NULL, NULL, 0);
+        /* a LEGAL break: a ball down (one that moves nothing to a rail and
+         * pots nothing is a breaking foul, OnePocket.org 2.2, and since 7.6.8
+         * that is judged before the pockets are chosen too) */
+        int id[1] = { 3 }; int h[1]; h[0] = LP;
+        shot(&r, 3, 0, 1, id, h, 1);
         ok(r.op_pick == 2, "whoever broke is the one who chooses", r.msg);
     }
 
+    /* A SCRATCHED BREAK, the pockets not yet chosen (7.6.8: "I went in off
+     * and scratched on my break and it told me it was still my go"): a foul
+     * all the same -- the ball owed, the table and ball in hand to the other
+     * player, who chooses the pockets */
+    {   CueRules r; fresh_unpicked(&r);
+        int id[1] = { 5 }; int h[1]; h[0] = LP;
+        shot(&r, 5, 1, 1, id, h, 1);
+        ok(r.last_foul && r.ball_in_hand, "a scratch on the break is a foul, ball in hand", r.msg);
+        ok(r.turn == 1, "...and the table passes", r.msg);
+        ok(r.op_owed[0] == 1 && r.score[0] == 0 && r.score[1] == 0, "...the ball it costs owed, nothing scored", r.msg);
+        ok(r.respot == 1 && r.respot_id[0] == 5, "...the ball potted on it goes back", r.msg);
+        ok(r.op_pick == 2, "...and the player coming to the table chooses the pockets", r.msg);
+    }
+    {   CueRules r; fresh_unpicked(&r);
+        shot(&r, -1, 0, 0, NULL, NULL, 0);
+        ok(r.last_foul && !r.ball_in_hand && r.turn == 1 && r.op_pick == 2, "a break that hits nothing is a foul, no ball in hand", r.msg);
+    }
     printf(s_fail ? "\n%d FAILED\n" : "\nall good\n", s_fail);
     return s_fail != 0;
 }

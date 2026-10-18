@@ -4427,9 +4427,33 @@ static void resolve_onepocket(CueRules *r, CueBall *b, int n, const CueWorld *w,
         for (int k = 0; k < np && k < 8; k++)
             r->respot_id[k] = (unsigned char)potted[k];
         r->respot = np;
+        r->brk = 0;
+        /* ...BUT A FOUL IS STILL A FOUL (CueVR 7.6.8; a player: "my first try
+         * I went in off and scratched on my break and it told me it was still
+         * my go ... there was no cue ball to play with"). This returned before
+         * the fouls below were ever looked at, so a scratched break kept the
+         * table, gave nobody ball in hand and left the white in the pocket.
+         * Judged as any stroke is: the ball it costs is owed (nothing is
+         * scored yet), the table passes, a scratch or a ball off gives ball in
+         * hand -- and the player coming to the table chooses the pockets,
+         * since the breaker can only choose at the table and has just left it. */
+        int foul = 0; const char *why = "";
+        if (was_break && np == 0 && brk_rails(w, n) < 1 && !brk_cue_rail(w)) { foul = 1; why = "BREAK"; }
+        if (first_hit < 0)  { foul = 1; why = "MISSED"; }
+        else if (scratch)   { foul = 1; why = "SCRATCH"; }
+        else if (r->n_off)  { foul = 1; why = "OFF THE TABLE"; }
+        if (foul) {
+            r->op_owed[me]++;
+            r->last_foul = 1;
+            r->cfoul[me]++;
+            if (scratch || r->n_off) r->ball_in_hand = 1;
+            r->turn = you;
+            r->op_pick = you + 1;
+            snprintf(r->msg, sizeof r->msg, "FOUL: %s", why);
+            return;
+        }
         r->op_pick = me + 1;
         r->last_foul = 0;
-        r->brk = 0;
         if (was_break) snprintf(r->msg, sizeof r->msg, "CHOOSE YOUR POCKET");
         else           r->msg[0] = 0;
         return;
