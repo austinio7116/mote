@@ -554,7 +554,7 @@ def main():
     ap.add_argument("--journal-file", default="", help="read the relay's log from this file, not journalctl (tests)")
     ap.add_argument("--backups", default="", help="the daily snapshots' folder, listed on the Server page")
     ap.add_argument("--tourn-token-file", default="", help="the relay's tournament admin token (its --admin-token-file): makes the Tournaments form work")
-    ap.add_argument("--tourn-gid", type=int, default=0x43554574, help="the game id tournaments are made for (7.6.4: CUEt; a tournament is shown to every version of its game)")
+    ap.add_argument("--tourn-gid", type=int, default=0x43554575, help="the game id tournaments are made for (7.6.5: CUEu; a tournament is shown to every version of its game)")
     ap.add_argument("--tourn-ver", default="7.5", help="the game version entrants must be on")
     A = ap.parse_args()
     MODEL = Model(A.store, A.relay, GID, A.journal_file, A.backups, forfeits_from=A.forfeits_from)
