@@ -410,9 +410,30 @@ function vMatch(id){
 /* ---- HONOURS -------------------------------------------------------------- */
 // RATINGS (Mark, 2026-10-12): Elo from 1500, K 30, over every verified singles
 // frame between two proved accounts -- overall, and a table a game
-let RG = 'all';
+let RG = 'all', RK = 'elo';
+// CUELO (2026-10-18): the second listing -- see cuelo() in mote_stats_model.py
+function vCuelo(){
+  const C = M.cuelo;
+  if (!C) return empty('Loading...');
+  let h = `<div class="small dim" style="margin:4px 2px 8px">CUELO ranks by the cautious rating: the rating less twice its uncertainty, so a few lucky frames do not top it.
+    Each game counts by how surely the better player wins it; a frame against the same player again within ${C.week_days} days counts for less each time;
+    a win over an account with few opponents counts for less; frames with both players on one internet address are left out (${C.skipped_same}).
+    Provisional until ${C.min_f} frames against ${C.min_opp} players. ${C.frames} frames. Predicts results with log loss ${C.logloss} (a coin toss is 0.693).</div>`;
+  if (C.games.length) h += `<div class="small dim" style="margin:0 2px 8px">Game weights: ${C.games.map(g => `${e(g.game)} ${g.weight}`).join(' &middot; ')}</div>`;
+  if (!C.rows.length) return h + empty('No rated frames yet.');
+  h += `<div class=card><table><tr><th></th><th>Player</th><th class=r>CUELO</th><th class=r>Rating</th><th class=r>&plusmn;</th><th class=r>Frames</th><th class=r>Opponents</th></tr>
+    ${C.rows.map((r, i) => `<tr class=tap onclick="location.hash='player/${encodeURIComponent(r.id)}'"><td class=dim style="width:24px">${r.prov ? '' : i + 1}</td><td>${e(r.name)}${r.prov ? ' <span class="tiny dim">provisional</span>' : ''}</td>
+      <td class=r><b class=${r.prov ? 'dim' : 'acc'}>${r.r}</b></td><td class="r dim">${r.rating}</td><td class="r dim">${r.rd}</td><td class=r>${r.f}</td><td class=r>${r.opp}</td></tr>`).join('')}</table></div>`;
+  return h;
+}
 function vRatings(){
   if (!M || !M.ratings) return empty('Loading...');
+  const sw = `<div style="display:flex;gap:6px;margin-bottom:8px">${[['elo','Elo'],['cuelo','CUELO']].map(([k, l]) =>
+        `<a class="chip ${k === RK ? 'on' : ''}" style="cursor:pointer;padding:4px 12px;border-radius:12px;border:1px solid ${k === RK ? 'var(--acc)' : 'var(--line)'};color:${k === RK ? 'var(--acc)' : 'var(--dim)'}" onclick="RK='${k}';draw()">${l}</a>`).join('')}</div>`;
+  if (RK === 'cuelo') return sw + vCuelo();
+  return sw + vRatingsElo();
+}
+function vRatingsElo(){
   const R = M.ratings;
   const games = [['all', 'All games', R.all.length]].concat(R.games.map(g => [String(g.kind), g.game, g.players]));
   const rows = RG === 'all' ? R.all : ((R.games.find(g => String(g.kind) === RG) || {}).rows || []);

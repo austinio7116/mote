@@ -3,7 +3,7 @@ the relay's files and its log: players by Meta account, matches with their
 frames, the honours (and this month's race), the integrity queue, activity and
 the server's health. Read only: nothing here ever writes to the relay's store.
 """
-import collections, hashlib, json, os, re, socket, subprocess, time
+import collections, hashlib, json, math, os, re, socket, subprocess, time
 
 # walk-outs before this (UTC) win nothing -- the same moment as mote_relay.py's
 # WALKOUTS_COUNT_FROM, and changed with it
@@ -72,6 +72,125 @@ def _report(line, side):
     return {}
 
 
+# ---- CUELO (2026-10-18; Mark: "a new improved ELO measure that works perfectly
+# for this casual mixed cuesports game ... varying K depending on the confidence
+# of the result ... avoid people manipulating by playing the same weak player
+# over and over"). Glicko-style, a frame at a time, in the order played:
+#   * each player a rating and an UNCERTAINTY (RD): a newcomer moves fast, a
+#     regular slowly; time away (CUELO_C a day) makes one less certain again
+#   * each GAME its own weight, fitted from the results: how surely the better
+#     player wins a frame of it. A game of coin-tosses moves nobody much; a
+#     frame of 15-red tells a lot. Fewer than CUELO_GAME_MIN frames: 1
+#   * the same opponent again within CUELO_WEEK: the k-th frame counts 1/sqrt(k)
+#   * an opponent with few different opponents of their own counts for less --
+#     a new second account set up to lose is worth almost nothing
+#   * both ends from one internet address: left out (one person, two accounts)
+#   * ranked on the CAUTIOUS rating, r - 2 RD; provisional until CUELO_MIN_F
+#     frames against CUELO_MIN_OPP different players
+# TUNED ON THE RESULTS (787 rated frames to 2026-10-18), by how well each
+# frame was predicted before it was played (mean log loss; a coin toss 0.6931):
+# Elo K 30 0.6874 (K 12 at best, 0.6817); CUELO as below 0.6777. A start of 350,
+# Glicko's own, swung newcomers too far on a game this close to a coin toss
+# (0.6911); the week's repeat discount helps rather than costs (none: 0.6971)
+CUELO_R0, CUELO_RD0, CUELO_RDMIN = 1500.0, 120.0, 70.0
+CUELO_C = 10.0               # RD regained a day apart, squared-root law
+CUELO_WEEK = 7 * 86400
+CUELO_FREE = 0              # frames a week against one opponent at full weight before the discount
+CUELO_GAME_MIN = 40
+CUELO_MIN_F, CUELO_MIN_OPP = 20, 5
+_Q = math.log(10.0) / 400.0
+
+
+def _cuelo_t(t):
+    try:
+        return time.mktime(time.strptime(t[:19], "%Y-%m-%d %H:%M:%S"))
+    except (ValueError, TypeError):
+        return 0.0
+
+
+def _cuelo_pass(ev, beta):
+    """one pass over the frames; beta: kind -> weight. Returns the players and
+    every frame's prediction (for the game fit and the scoring)"""
+    P = {}                                    # id -> [r, rd, last_t, frames, set(opps)]
+    recent = {}                               # (a, b) -> [times]
+    preds = []
+    for t, _, kind, wa, la, same in sorted(ev):
+        if same or wa == la:
+            continue
+        tt = _cuelo_t(t)
+        for i in (wa, la):
+            p = P.setdefault(i, [CUELO_R0, CUELO_RD0, tt, 0, set()])
+            if p[3]:                          # time away: less certain again
+                days = max(0.0, (tt - p[2]) / 86400.0)
+                p[1] = min(CUELO_RD0, math.sqrt(p[1] ** 2 + CUELO_C ** 2 * days))
+        A, B = P[wa], P[la]
+        b = beta.get(kind, 1.0)
+        key = (min(wa, la), max(wa, la))
+        hist = [x for x in recent.get(key, []) if tt - x < CUELO_WEEK]
+        over = len(hist) + 1 - CUELO_FREE      # past the week's free frames against this player
+        rep = 1.0 / math.sqrt(over) if over > 1 else 1.0
+        hist.append(tt); recent[key] = hist
+        g = lambda rd: 1.0 / math.sqrt(1.0 + 3.0 * _Q * _Q * rd * rd / (math.pi ** 2))
+        ea = 1.0 / (1.0 + 10.0 ** (-g(B[1]) * b * (A[0] - B[0]) / 400.0))
+        preds.append((kind, b * (A[0] - B[0]), A[1], B[1], ea))
+        for me, op, s in ((A, B, 1.0), (B, A, 0.0)):
+            nopp = len(op[4])
+            w = b * rep * min(1.0, (nopp + 1) / float(CUELO_MIN_OPP))
+            gg = g(op[1]) * b
+            e = 1.0 / (1.0 + 10.0 ** (-gg * (me[0] - op[0]) / 400.0))
+            d2 = 1.0 / (_Q * _Q * gg * gg * e * (1.0 - e) + 1e-12)
+            inv = 1.0 / me[1] ** 2 + w / d2
+            me.append((_Q / inv) * w * gg * (s - e))          # applied after both are worked out
+            me.append(max(CUELO_RDMIN, math.sqrt(1.0 / inv)))
+        for me, op in ((A, la), (B, wa)):
+            dr, rd = me.pop(-2), me.pop(-1)
+            me[0] += dr; me[1] = rd; me[2] = tt; me[3] += 1; me[4].add(op)
+    return P, preds
+
+
+def _cuelo_fit(preds):
+    """each game's weight: the scale on the rating gap that best predicts its
+    frames, pulled toward 1 by CUELO_GAME_MIN frames' worth of prior"""
+    by = {}
+    for kind, gap, _, _, _ in preds:
+        by.setdefault(kind, []).append(gap)
+    beta = {}
+    for kind, gaps in by.items():
+        if len(gaps) < 10:
+            continue
+        best, bl = 1.0, None
+        for k in range(10, 201, 5):           # 0.10 .. 2.00
+            bb = k / 100.0
+            ll = sum(-math.log(1.0 / (1.0 + 10.0 ** (-bb * gp / 400.0)) + 1e-9) for gp in gaps)
+            ll += CUELO_GAME_MIN * 0.5 * (bb - 1.0) ** 2 * 2.0     # the prior
+            if bl is None or ll < bl:
+                bl, best = ll, bb
+        n = len(gaps)
+        beta[kind] = (best * n + 1.0 * CUELO_GAME_MIN) / (n + CUELO_GAME_MIN) if n < 4 * CUELO_GAME_MIN else best
+    return beta
+
+
+def cuelo(ev, name_of, game_names):
+    """the CUELO listing over the rated frames ev (time, seq, kind, winner, loser, same address)"""
+    P1, pr1 = _cuelo_pass(ev, {})
+    beta = _cuelo_fit(pr1)
+    P, preds = _cuelo_pass(ev, beta)
+    rows = []
+    for i, p in P.items():
+        cautious = p[0] - 2.0 * p[1]
+        rows.append({"id": i, "name": name_of(i), "r": round(cautious), "rating": round(p[0]), "rd": round(p[1]),
+                     "f": p[3], "opp": len(p[4]), "prov": p[3] < CUELO_MIN_F or len(p[4]) < CUELO_MIN_OPP})
+    rows.sort(key=lambda x: (x["prov"], -x["r"]))
+    # how well each rating predicted the frames it had not yet seen: the mean
+    # log loss, lower is better (a coin toss is 0.693)
+    ll = sum(-math.log(max(1e-9, x[4])) for x in preds) / max(1, len(preds))
+    games = sorted(({"kind": k, "game": game_names.get(k, "?"), "weight": round(b, 2)} for k, b in beta.items()),
+                   key=lambda g: -g["weight"])
+    return {"rows": rows, "games": games, "frames": len(preds), "logloss": round(ll, 4),
+            "skipped_same": sum(1 for e in ev if e[5]),
+            "min_f": CUELO_MIN_F, "min_opp": CUELO_MIN_OPP, "week_days": CUELO_WEEK // 86400}
+
+
 class Model:
     """the stats, kept as running totals: each line results.jsonl gains is
     folded in once, and only the lines added since the last look are read
@@ -127,6 +246,7 @@ class Model:
         # they are asked for (_elo_replay).
         self.elo_ev = []
         self.elo_dirty = False
+        self.cuelo_ev = []
 
     # ---- following results.jsonl --------------------------------------------
     def _follow(self):
@@ -250,6 +370,11 @@ class Model:
                 kind, _clean(r.get("game") or f"game {kind}", 30))
             self.elo_ev.append((t, len(self.elo_ev), kind, ids[w], ids[1 - w]))
             self.elo_dirty = True
+            # ...and CUELO's own record of it: the same frame, and whether both
+            # ends came from one internet address (cuelo())
+            a_, b_ = line.get("a"), line.get("b")
+            same = bool(isinstance(a_, dict) and isinstance(b_, dict) and a_.get("addr") and a_.get("addr") == b_.get("addr"))
+            self.cuelo_ev.append((t, len(self.cuelo_ev), kind, ids[w], ids[1 - w], same))
         sides = r.get("sides") if isinstance(r.get("sides"), list) else [{}, {}]
         side = lambda i: sides[i] if i < len(sides) and isinstance(sides[i], dict) else {}
         rep = _report(line, 0)
@@ -481,6 +606,13 @@ class Model:
                 self._elo(key, wa, la)
         self.elo_dirty = False
 
+    def _cuelo(self):
+        """CUELO, the second listing: cuelo() over the same frames"""
+        def name_of(i):
+            a = self.acc.get(i)
+            return max(a["names"].items(), key=lambda kv: kv[1])[0] if a and a["names"] else "?"
+        return cuelo(self.cuelo_ev, name_of, self.elo_game)
+
     def _ratings(self):
         """the ratings, highest first: overall and a table a game"""
         self._elo_replay()
@@ -646,7 +778,7 @@ class Model:
                               "walkout_flags": walkout_flags},
                 "month_race": self._month_race(time.strftime("%Y-%m", time.gmtime())),
                 "pot_board": self._pot_board(time.strftime("%Y-%m", time.gmtime())),
-                "ratings": self._ratings()}
+                "ratings": self._ratings(), "cuelo": self._cuelo()}
 
     POT_MIN_ALL, POT_MIN_MONTH = 100, 50       # pot attempts before a player is on the pot success board
 
