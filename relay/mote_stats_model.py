@@ -193,22 +193,33 @@ def cuelo(ev, name_of, game_names):
 
 # ---- CLAUDEELO (2026-10-18; Mark: "look at everyone's results including their
 # gameplay stats and make your own independent ranking ... make this method a
-# new 3rd option - call it ClaudeELO"). Two halves:
-#   RESULTS (60%): CUELO's rating, as a z over the players listed
-#   PLAY (40%): each player's own shot figures set against everyone else who
-#     played the same FAMILY of game (8-ball, 9/10-ball, snooker, straight
-#     pool, billiards -- a pot rate means something different in each), as z
-#     scores shrunk toward average on a small sample, weighted by frames:
-#       pot success, long pots, safeties that worked, fouls a shot (fewer is
-#       better), points a visit, big breaks and runs a frame
-# Shown as 1500 + 200 x the overall score. 15 rated frames to be listed.
+# new 3rd option - call it ClaudeELO" ... "just make ClaudeELO as good as it can
+# be"). CUELO's rating plus a bonus for how you actually play:
+#   ClaudeELO = CUELO + CL_BONUS x play
+# play: the mean of three figures, each a z against everyone else who played
+# the same FAMILY of game (8-ball, 9/10-ball, snooker, straight pool,
+# billiards -- a pot rate means something different in each), shrunk toward
+# average on a small sample and weighted by frames:
+#     pot success, points a visit, fouls a shot (fewer is better)
+# THE THREE THAT PREDICT. Tested frame by frame on the results (each frame
+# predicted from everything before it): the better potter won 59% of frames,
+# the bigger scorer a visit 59%, the cleaner player 56%; long pots and breaks
+# or runs told nothing (50%), and a better safety rate went with LOSING (45%) --
+# whoever needs the most safeties is the one being made to play them. Fitted
+# on the first 60% of frames and scored on the last 40%: CUELO 0.6610 log
+# loss, + 40 x play 0.6556, picking the winner 64% to 63%; more than ~60
+# points a step and it gets worse again. On a thin early history the bonus
+# cost a little (0.6900 -> 0.6941): it earns its keep as the figures fill up.
+# On CUELO's scale, so a gap means what a CUELO gap means. 15 rated frames.
 CL_MIN_FRAMES = 15
-CL_RESULTS, CL_PLAY = 0.6, 0.4
+CL_BONUS = 40.0
 _CL_MET = (("pot", "pot success", lambda T: T["made"] / T["att"] if T["att"] else None, lambda T: T["att"], 1, 60),
+           ("fouls", "few fouls", lambda T: T["fouls"] / T["shots"] if T["shots"] else None, lambda T: T["shots"], -1, 80),
+           ("visit", "points a visit", lambda T: T["vis_pts"] / T["visits"] if T["visits"] else None, lambda T: T["visits"], 1, 40))
+# ...and every figure, for the trained model (ml_rank) and the strengths shown
+_CL_ALL = _CL_MET + (
            ("long", "long pots", lambda T: T["long_made"] / T["long_att"] if T["long_att"] else None, lambda T: T["long_att"], 1, 25),
            ("safety", "safeties", lambda T: T["safe_ok"] / T["safeties"] if T["safeties"] else None, lambda T: T["safeties"], 1, 25),
-           ("fouls", "few fouls", lambda T: T["fouls"] / T["shots"] if T["shots"] else None, lambda T: T["shots"], -1, 80),
-           ("visit", "points a visit", lambda T: T["vis_pts"] / T["visits"] if T["visits"] else None, lambda T: T["visits"], 1, 40),
            ("big", "breaks and runs", lambda T: (T["b30"] + T["bnr"] + T["runouts"]) / T["frames"] if T["frames"] else None, lambda T: T["frames"], 1, 10))
 
 
@@ -222,11 +233,13 @@ def _cl_family(g):
     return None
 
 
-def claude_elo(play, cuelo_rows, name_of):
-    zsum, detail = {}, {}
+def cl_metric_z(play, mets=None):
+    """each player's z for each figure, frame-weighted over the families they
+    played: account -> key -> z (and the families' z's for the strengths)"""
+    acc, detail = {}, {}
     for fam in sorted({f for (_, f) in play}):
         P = {i: T for (i, f), T in play.items() if f == fam and T["frames"] >= 3}
-        for key, label, val, nfn, sign, n0 in _CL_MET:
+        for key, label, val, nfn, sign, n0 in (mets or _CL_ALL):
             vals = {i: (val(T), nfn(T)) for i, T in P.items() if val(T) is not None and nfn(T) > 0}
             if len(vals) < 4:
                 continue
@@ -235,25 +248,25 @@ def claude_elo(play, cuelo_rows, name_of):
             sd = math.sqrt(sum(n * (v - mean) ** 2 for v, n in vals.values()) / tot) or 1e-9
             for i, (v, n) in vals.items():
                 z = sign * (v - mean) / sd * (n / (n + n0))
-                w = P[i]["frames"]
-                a = zsum.setdefault(i, [0.0, 0.0]); a[0] += z * w; a[1] += w
+                a = acc.setdefault(i, {}).setdefault(key, [0.0, 0.0]); a[0] += z * P[i]["frames"]; a[1] += P[i]["frames"]
                 detail.setdefault(i, []).append((z, f"{fam} {label}"))
-    rows = [c for c in cuelo_rows if c["f"] >= CL_MIN_FRAMES and c["id"] in zsum]
-    if len(rows) < 2:
-        return {"rows": [], "min_f": CL_MIN_FRAMES, "w_results": CL_RESULTS, "w_play": CL_PLAY}
-    mr = sum(c["rating"] for c in rows) / len(rows)
-    sr = math.sqrt(sum((c["rating"] - mr) ** 2 for c in rows) / len(rows)) or 1.0
+    return {i: {k: a[0] / a[1] for k, a in d.items()} for i, d in acc.items()}, detail
+
+
+def claude_elo(play, cuelo_rows, name_of):
+    mz, detail = cl_metric_z(play)
     out = []
-    for c in rows:
-        rz = (c["rating"] - mr) / sr
-        pz = zsum[c["id"]][0] / zsum[c["id"]][1]
-        sc = CL_RESULTS * rz + CL_PLAY * pz
-        d = sorted(detail.get(c["id"], []))
-        out.append({"id": c["id"], "name": name_of(c["id"]), "r": round(1500 + 200 * sc), "score": round(sc, 2),
-                    "results": round(rz, 2), "play": round(pz, 2), "f": c["f"], "opp": c["opp"],
+    for c in cuelo_rows:
+        if c["f"] < CL_MIN_FRAMES:
+            continue
+        z = mz.get(c["id"], {})
+        pz = sum(z.get(k[0], 0.0) for k in _CL_MET) / len(_CL_MET)
+        d = sorted(x for x in detail.get(c["id"], []) if any(x[1].endswith(m[1]) for m in _CL_MET))
+        out.append({"id": c["id"], "name": name_of(c["id"]), "r": round(c["rating"] + CL_BONUS * pz),
+                    "cuelo": c["rating"], "bonus": round(CL_BONUS * pz), "play": round(pz, 2), "f": c["f"], "opp": c["opp"],
                     "best": d[-1][1] if d else "", "worst": d[0][1] if d else ""})
-    out.sort(key=lambda x: -x["score"])
-    return {"rows": out, "min_f": CL_MIN_FRAMES, "w_results": CL_RESULTS, "w_play": CL_PLAY}
+    out.sort(key=lambda x: -x["r"])
+    return {"rows": out, "min_f": CL_MIN_FRAMES, "bonus": CL_BONUS}
 
 
 class Model:

@@ -430,14 +430,13 @@ function vCuelo(){
 function vClaude(){
   const C = M.claude;
   if (!C) return empty('Loading...');
-  const pm = v => (v > 0 ? '+' : '') + v.toFixed(2);
-  let h = `<div class="small dim" style="margin:4px 2px 8px">ClaudeELO: results ${Math.round(C.w_results*100)}% (the CUELO rating) and play ${Math.round(C.w_play*100)}%:
-    each player's pot success, long pots, safeties, fouls, points a visit and breaks or runs, set against everyone else who played the same kind of game.
-    1500 is the average player; 200 is one step of spread. Players with ${C.min_f} or more rated frames.</div>`;
+  let h = `<div class="small dim" style="margin:4px 2px 8px">ClaudeELO: the CUELO rating plus up to ${C.bonus} points a step for how you play: pot success, points a visit and few fouls,
+    each set against everyone else who played the same kind of game. Those three are the figures that predict who wins; long pots, breaks and safety rates did not.
+    Players with ${C.min_f} or more rated frames.</div>`;
   if (!C.rows.length) return h + empty('Not enough frames yet.');
-  h += `<div class=card><table><tr><th></th><th>Player</th><th class=r>ClaudeELO</th><th class=r>Results</th><th class=r>Play</th><th class=r>Frames</th><th>Best / weakest</th></tr>
+  h += `<div class=card><table><tr><th></th><th>Player</th><th class=r>ClaudeELO</th><th class=r>CUELO</th><th class=r>Play</th><th class=r>Frames</th><th>Best / weakest</th></tr>
     ${C.rows.map((r, i) => `<tr class=tap onclick="location.hash='player/${encodeURIComponent(r.id)}'"><td class=dim style="width:24px">${i + 1}</td><td>${e(r.name)}</td>
-      <td class=r><b class=acc>${r.r}</b></td><td class="r ${r.results >= 0 ? 'acc' : 'bad'}">${pm(r.results)}</td><td class="r ${r.play >= 0 ? 'acc' : 'bad'}">${pm(r.play)}</td>
+      <td class=r><b class=acc>${r.r}</b></td><td class="r dim">${r.cuelo}</td><td class="r ${r.bonus >= 0 ? 'acc' : 'bad'}">${r.bonus > 0 ? '+' : ''}${r.bonus}</td>
       <td class=r>${r.f}</td><td class="tiny dim">${e(r.best)} / ${e(r.worst)}</td></tr>`).join('')}</table></div>`;
   return h;
 }
