@@ -139,6 +139,9 @@ typedef struct {
      * legality question — did anything reach a rail — and says nothing about
      * the white's journey. A snooker break-off IS its journey. */
     int cue_cushions;
+    /* ...and how many of them came BEFORE its first ball: the cushions an
+     * escape or a kick has to use to get there (CueVR 7.6.7) */
+    int cush_before;
     /* DID THE WHITE COME HOME THROUGH THE GAP BETWEEN THE PINK AND THE BLUE.
      *
      * That is the route the break-off takes and it is a checkable event, not a
@@ -365,6 +368,23 @@ static int   K_REFINE  = 5;
  * wrong at the rail is multiplied by everything after it. The persona's line
  * accuracy is a POTTING number, so an escape gets it scaled up. */
 static float K_KICK_ERR = 2.4f;
+/* ...AND EVERY CUSHION ADDS A SPREAD OF ITS OWN, WHOEVER IS PLAYING (CueVR
+ * 7.6.7; Mark: "we need AI players to lose some accuracy the more cushions
+ * are needed in an escape - so they still plan the perfect shot but variance
+ * is higher than their default"). Scaling the potting error alone could not do
+ * it: from Clara up that error is so small that 2.4 times it still put the
+ * white within a centimetre of the aim on every escape, and even ten times it
+ * leaves Iron Nina inside 5 mm. Judging a cushion is hard for everybody, so
+ * each cushion before the first ball adds K_RAILDEG degrees either way on top
+ * of the player's own error -- the planner still finds the shot exactly. */
+static float K_RAILDEG = 3.0f;      /* Mark, 2026-10-18, from test_escape on three table sizes */
+static int K_RAILOLD = 0;     /* AI_RAILOLD=1: as before 7.6.7, for the bench's comparison */
+/* the half-range of the aim error, degrees, for a shot off `rails` cushions */
+static float rail_spread(float line_acc, int rails) {
+    if (rails <= 0) return line_acc;
+    if (K_RAILOLD) return line_acc * K_KICK_ERR;
+    return line_acc * K_KICK_ERR + K_RAILDEG * (float)rails;
+}
 /* THE SHOT AFTER NEXT. position_quality is one ply: it asks what can be potted
  * from the leave and never what THAT pot would leave, so the planner takes the
  * accessible balls in whatever order looks best a single shot at a time and
@@ -465,6 +485,8 @@ static void ai_knobs(void) {
     { const char *v = getenv("AI_SPLIT");   if (v) K_SPLIT   = (float)atof(v); }
     { const char *v = getenv("AI_REFINE");  if (v) K_REFINE  = atoi(v); }
     { const char *v = getenv("AI_KICKERR"); if (v) K_KICK_ERR = (float)atof(v); }
+    { const char *v = getenv("AI_RAILDEG"); if (v) K_RAILDEG = (float)atof(v); }
+    { const char *v = getenv("AI_RAILOLD"); if (v) K_RAILOLD = atoi(v); }
     { const char *v = getenv("AI_PLY2");    if (v) K_PLY2     = (float)atof(v); }
 }
 
@@ -685,6 +707,11 @@ static void ai_sim(const CueWorld *w, const CueTable *t,
     /* THE WHITE'S OWN RAILS, which the break scoring reads as the shape of the
      * shot rather than as a legality. */
     out->cue_cushions = s_sb[cue_idx].cush_n;
+    out->cush_before = 0;
+    for (int k = 0; k < s_sw.ntouch; k++) {
+        if (s_sw.touch[k].what == CUE_TOUCH_BALL) break;
+        out->cush_before++;
+    }
 
     /* A POTTED COLOUR COMES BACK. The physics has no idea — it drops the ball
      * and that is the end of it — so every position plan made after potting a
@@ -1951,6 +1978,8 @@ typedef struct {
      * different faults and the flag alone cannot tell them apart — see
      * CUE_AI_SUREDBG. */
     int   no_contact;
+    /* cushions before the first ball in its simulation (AiSim.cush_before) */
+    int   rails;
 } Cand;
 
 /* JS variant sweep arrays. */
@@ -2836,6 +2865,7 @@ static int find_kick(const AiCtx *c, uint32_t *rng, Cand *out) {
         if (!ai_safe_legal(c, c->b[sm.first_hit_idx].id)) continue;
         bc = kick[bi];
         bc.simmed = 1; bc.cue_end = sm.cue_end; bc.bad_first = 0;
+        bc.rails = sm.cush_before > 0 ? sm.cush_before : 1;   /* a kick is off one at least */
         bc.tidx = sm.first_hit_idx;      /* the ball it really reaches */
         /* AND NOT THE ONE THAT JUST FAILED. The anti-repeat memory could never
          * see a kick: it is consulted in plan_finalize and a kick returns
@@ -3086,6 +3116,10 @@ static void plan_finalize(void) {
                 o.target_id = (kc.tidx > 0 && kc.tidx < c->n) ? c->b[kc.tidx].id : -1;
                 o.sim_verified = kc.simmed; o.cue_end_sim = kc.cue_end;
                 o.target_id = -1;
+                /* the player's own accuracy, off the cushions it needs: this
+                 * kick was played exactly, as no other shot is (7.6.7) */
+                o.rails = kc.rails;
+                if (!K_RAILOLD) o.aim += (rnd(P.rng) - 0.5f) * 2.0f * rail_spread(p->line_acc, kc.rails) * RAD;
                 P.result = o; P.phase = PH_DONE;
                 return;
             }
@@ -3100,6 +3134,10 @@ static void plan_finalize(void) {
               o.tip_vert = tv; }
             o.safe = 1; o.valid = 1;
             o.cue_end_sim = P.pool[bi].cue_end; o.sim_verified = P.pool[bi].simmed;
+            /* AN ESCAPE OFF THE CUSHIONS is played with the player's error,
+             * widened by every cushion it needs; a direct safety as before */
+            o.rails = P.pool[bi].rails;
+            if (o.rails > 0 && !K_RAILOLD) o.aim += (rnd(P.rng) - 0.5f) * 2.0f * rail_spread(p->line_acc, o.rails) * RAD;
             o.best_pot = -1.0f;            /* no pot existed to turn down */
             o.score = P.pool[bi].safeq;    /* the SAFETY's own quality */
             o.target_id = (P.pool[bi].tidx > 0 && P.pool[bi].tidx < c->n)
@@ -3434,6 +3472,8 @@ static void plan_finalize(void) {
                   out.tip_vert = tv; }
                 out.safe = 1; out.valid = 1;
                 out.cue_end_sim = sc->cue_end; out.sim_verified = sc->simmed;
+                out.rails = sc->rails;          /* ...off the cushions, the error widened (7.6.7) */
+                if (out.rails > 0 && !K_RAILOLD) out.aim += (rnd(P.rng) - 0.5f) * 2.0f * rail_spread(p->line_acc, out.rails) * RAD;
                 out.best_pot = best.potScore;
     out.breakout = best.brk; out.freed_sim = best.freed;
     out.cue_end_sim = best.simmed ? best.cue_end : v3(0,0,0);
@@ -5927,12 +5967,13 @@ void cue_ai_plan_start(const CueWorld *w, const CueTable *t, const CueRules *r,
             out.aim = sc.aim; out.power01 = sc.power01; out.safe = 1; out.valid = 1;
             out.target_id = (sc.tidx > 0 && sc.tidx < n) ? balls[sc.tidx].id : -1;
             out.sim_verified = sc.simmed; out.cue_end_sim = sc.cue_end;
+            out.rails = sc.rails;
             /* THE PLAYER'S OWN ACCURACY, exactly as a pot gets it. An escape
              * is a shot somebody plays, and this path handed it over untouched
              * — so a rookie got out of a snooker with the same precision as The
              * Machine, and escape difficulty did not scale with the opponent at
              * all. */
-            out.aim += (rnd(rng) - 0.5f) * 2.0f * p->line_acc * K_KICK_ERR * RAD;
+            out.aim += (rnd(rng) - 0.5f) * 2.0f * rail_spread(p->line_acc, sc.rails) * RAD;
             P.result = out; return;
         }
         /* last resort: tap the nearest legal ball that has a CLEAR path (so we
@@ -6021,6 +6062,7 @@ void cue_ai_plan_start(const CueWorld *w, const CueTable *t, const CueRules *r,
                         memset(&pickc, 0, sizeof pickc);
                         pickc.aim = aim; pickc.power01 = PW[pi];
                         pickc.simmed = 1; pickc.cue_end = sm.cue_end;
+                        pickc.rails = sm.cush_before > 0 ? sm.cush_before : 1;
                     }
                 }
             }
@@ -6028,7 +6070,8 @@ void cue_ai_plan_start(const CueWorld *w, const CueTable *t, const CueRules *r,
                 out.aim = pickc.aim; out.power01 = pickc.power01;
                 out.safe = 1; out.valid = 1; out.target_id = -1;
                 out.sim_verified = 1; out.cue_end_sim = pickc.cue_end;
-                out.aim += (rnd(rng) - 0.5f) * 2.0f * p->line_acc * K_KICK_ERR * RAD;
+                out.rails = pickc.rails;
+                out.aim += (rnd(rng) - 0.5f) * 2.0f * rail_spread(p->line_acc, pickc.rails) * RAD;
                 P.result = out; return;
             }
             Vec3 d = sub2(balls[bestn].pos, balls[0].pos);
@@ -6723,6 +6766,7 @@ int cue_ai_plan_tick(void) {
             ai_sim(c->w, c->t, c->b, c->n, 0, v->aim, v->power01,
                    v->tip_side, v->tip_vert, &sim);
         v->simmed = 1; v->cue_end = sim.cue_end; v->elev = sim.elev;
+        v->rails = sim.cush_before;
         /* ...and `scratch` is what best_safety_idx and the pot ranking veto on,
          * so on this table it must not be set by the ball going down a hole. */
         v->scratch = sim.cue_potted && ai_scratch_is_foul(c);

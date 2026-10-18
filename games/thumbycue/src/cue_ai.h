@@ -90,6 +90,10 @@ typedef struct {
     float breakout;
     int   freed_sim;
     int   brk_decided;
+    /* CUSHIONS BEFORE THE FIRST BALL in the shot's own simulation: 0 for a
+     * direct shot, 1 or more for an escape or a kick. The more there are, the
+     * wider the player's aim error is spread (CueVR 7.6.7). */
+    int   rails;
     float next_pot;
     /* WHERE THE PLANNER BELIEVES THE WHITE WILL STOP, from the sim it chose
      * this shot on. The caller can compare it with where the ball actually
