@@ -7,7 +7,7 @@ import collections, hashlib, json, os, re, socket, subprocess, time
 
 # walk-outs before this (UTC) win nothing -- the same moment as mote_relay.py's
 # WALKOUTS_COUNT_FROM, and changed with it
-WALKOUTS_COUNT_FROM = "2026-10-18 00:00:00"
+WALKOUTS_COUNT_FROM = "2026-10-18 06:06:21"
 
 # the shared facts of a result, as the relay compares them (mote_relay.py)
 RES_SHARED = ("t", "game", "variant", "kind", "mode", "best_of", "frame",

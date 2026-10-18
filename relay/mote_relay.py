@@ -852,7 +852,7 @@ def parse_gid(v):
 # frame somebody left before this counts for nothing, one at or after it as it
 # always did (Mark: "we want walk outs to count from the fix forward"). Set to
 # when the drop fixes went out. --forfeits-from overrides it.
-WALKOUTS_COUNT_FROM = "2026-10-18 00:00:00"
+WALKOUTS_COUNT_FROM = "2026-10-18 06:06:21"
 
 
 def is_walkout(d):
