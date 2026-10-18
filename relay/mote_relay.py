@@ -311,6 +311,7 @@ class RoomN:
         self.away = {}             # k -> {"uid", "at", "side"}: dropped from a frame under way, place held (7.5)
         self.resumed = {}          # frame -> the side that dropped from it (its account gives way, 7.5)
         self.on_away = None        # the relay's: a place held, its clock started
+        self.gone_order = []       # places in the order they were dropped (forfeit_leave: who went FIRST)
 
     def free_place(self):
         for k in range(self.maxn):
@@ -445,6 +446,7 @@ class RoomN:
             return
         m.gone = True
         m.q.put_nowait(None)                 # the writer closes the socket when it gets here
+        self.gone_order.append(m.k)
         if self.members.get(m.k) is m:
             del self.members[m.k]
         log(f"nroom {self.gid}/{self.code}: member {m.k} left ({why}), {len(self.members)} remain"
@@ -1510,7 +1512,19 @@ class Relay:
         st = getattr(room, "start", None)
         if self.store is None or not st or len(st["sides"]) < 2 or m.k >= room.WATCH_BASE:
             return
-        ls = next((sd for sd, v in st["sides"].items() if v["k"] == m.k), None)
+        # THE ONE WHO WENT FIRST, NOT THE FIRST CONNECTION TO FINISH (2026-10-18;
+        # Mark: "Both this matches were given to orms despite me being the one
+        # that stayed in the room"). This runs as a member's reader ends. One
+        # dropped by the relay (the backlog cap) is dropped inside somebody
+        # else's send, and its own reader ends later -- by which time the host
+        # having gone has closed the room and ended the OTHER player's reader,
+        # which got here first and was written down as the walk-out. Whoever
+        # of the frame's two was dropped first is the one who left.
+        frame_ks = {v["k"] for v in st["sides"].values()}
+        lk = next((k for k in getattr(room, "gone_order", []) if k in frame_ks), m.k)
+        if lk != m.k and lk in getattr(room, "away", {}):
+            return                              # the first to go is held: forfeited only if not back in time
+        ls = next((sd for sd, v in st["sides"].items() if v["k"] == lk), None)
         if ls is None:
             return
         room.start = None
