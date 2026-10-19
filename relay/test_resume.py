@@ -12,6 +12,8 @@ to be A"). A real relay on a local port with short clocks:
     kept with its figures
   * another account cannot take a held place
   * left before the frame was under way: LEFT, as ever
+  * a room of three (7.6.9): the one waiting in the queue held and back too;
+    not back in time, GONE with no frame forfeited
 
     python3 relay/test_resume.py
 """
@@ -144,6 +146,38 @@ def main():
         check(f and f[0].get("left") == "GUESTY" and f[0]["result"]["winner"] == 0 and f[0]["result"]["sides"][0]["best"] == 8,
               f"the forfeit is the one who went, the stayer's report kept with its run of 8: {[(x.get('left'), x['result'].get('winner'), x['result']['sides'][0].get('best')) for x in f]}")
         h.cut(); time.sleep(0.3)
+
+        # ---- A ROOM OF THREE (7.6.9; club tables and winner stays on are rooms of
+        # up to eight): the one waiting in the queue is held too
+        def room3(code):
+            h = P(port, f"MOTE2 ROOMN {GID} HOST {code} PRIV 3 TEST", "711")
+            g = P(port, f"MOTE2 ROOMN {GID} JOIN {code}", "722")
+            q = P(port, f"MOTE2 ROOMN {GID} JOIN {code}", "733")
+            for x in (h, g, q): x.say("RESUME")
+            h.say("START"); time.sleep(0.2)
+            h.say("PROOF 711 desk711"); g.say("PROOF 722 desk722"); q.say("PROOF 733 desk733"); time.sleep(0.3)
+            h.say(start_msg(0)); g.say(start_msg(1)); time.sleep(0.3)     # places 0 and 1 at the table, 2 waiting
+            return h, g, q
+        h, g, q = room3("RJF")
+        q.cut(); time.sleep(0.4)
+        check(any(l.startswith("AWAY 2 ") for l in h.ctrl) and not any(l.startswith("LEFT") for l in h.ctrl),
+              f"three in the room, the one in the queue drops: held, AWAY 2, not LEFT: {h.ctrl[-2:]}")
+        q2 = P(port, f"MOTE2 ROOMN {GID} REJOIN RJF 733 desk733", "733"); time.sleep(0.3)
+        check(q2.seat == "SEAT 2 3 BACK" and "BACK 2" in h.ctrl and "BACK 2" in g.ctrl,
+              f"...and back at its own place, both at the table told: {q2.seat}")
+        g.cut(); time.sleep(0.4)
+        check(any(l.startswith("AWAY 1 ") for l in h.ctrl), f"three in the room, one at the table drops: held, AWAY 1: {h.ctrl[-2:]}")
+        g2 = P(port, f"MOTE2 ROOMN {GID} REJOIN RJF 722 desk722", "722"); time.sleep(0.3)
+        check(g2.seat == "SEAT 1 3 BACK", f"...and back at the table: {g2.seat}")
+        h.cut(); g2.cut(); q2.cut(); time.sleep(0.3)
+        # ...the one in the queue NOT back in time: GONE, and no frame forfeited
+        h, g, q = room3("RJG")
+        q.cut(); time.sleep(5.0)
+        check("GONE 2" in h.ctrl, f"the queue's player not back in time: GONE 2: {h.ctrl[-2:]}")
+        time.sleep(2.5)
+        lines = [json.loads(l) for l in open(os.path.join(store, "results_forfeits.jsonl"))] if os.path.exists(os.path.join(store, "results_forfeits.jsonl")) else []
+        check(not [l for l in lines if l.get("room") == "RJG"], "...and nobody's frame was forfeited: they were not at the table")
+        h.cut(); g.cut(); time.sleep(0.3)
 
         # ---- a game from before 7.5 (no RESUME): LEFT, as it always was
         h, g = room(port, "RJE", resume=False)

@@ -428,6 +428,8 @@ class RoomN:
                 continue
             self.send_to(m, data, cap)
 
+    QUEUE = "queue"     # a held place that is not one of the frame's two sides (7.6.9)
+
     def held_side(self, m):
         """the frame's side this member plays, when a frame both have started
         is under way and the member is proved -- a place worth holding"""
@@ -439,7 +441,19 @@ class RoomN:
         # as it always did (it says RESUME when it comes in)
         if not m.resume or any(not o.resume for o in self.players().values()):
             return None
-        return next((sd for sd, v in st["sides"].items() if v["k"] == m.k and v.get("uid") == m.uid), None)
+        sd = next((sd for sd, v in st["sides"].items() if v["k"] == m.k and v.get("uid") == m.uid), None)
+        if sd is not None:
+            return sd
+        # ...AND IN A ROOM OF MORE THAN TWO, EVERY PLAYER (7.6.9; Mark: "Keep it
+        # all for 5 mins. We need this robust this is the way most people play
+        # now"; "We need club winner stays on games to be rock solid to any
+        # connection drops"). Club tables and winner stays on are rooms of up to
+        # eight: the one waiting in the queue is held too, by the same account
+        # and for the same time. Only a frame's own side can lose it (QUEUE has
+        # no frame to forfeit): not back in time, they are GONE from the queue.
+        if self.maxn > 2:
+            return self.QUEUE
+        return None
 
     def drop(self, m, why):
         if m.gone:
@@ -459,7 +473,8 @@ class RoomN:
         side = self.held_side(m) if not self.closed else None
         if side is not None and self.on_away is not None:
             self.away[m.k] = {"uid": m.uid, "at": time.monotonic(), "side": side}
-            self.resumed.setdefault(self.start["frame"], side)
+            if side != self.QUEUE:
+                self.resumed.setdefault(self.start["frame"], side)
             self.control(f"AWAY {m.k} {int(self.on_away(self, m.k))}", 1 << 30)
             if not self.members and not self.away:
                 self.done.set()
@@ -2021,7 +2036,7 @@ class Relay:
         stub.q = None
         # the frame is theirs to lose as if they had walked out this moment
         st = getattr(room, "start", None)
-        if st and len(st.get("sides", {})) == 2:
+        if st and len(st.get("sides", {})) == 2 and a.get("side") != room.QUEUE:
             try:
                 self.forfeit_leave(room, stub)
             except Exception as e:
