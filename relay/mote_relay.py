@@ -1535,7 +1535,12 @@ class Relay:
                                "game": str(r.get("game", ""))[:64], "best_of": r["best_of"], "sides": {}}
         st["sides"][r["me"]] = {"k": m.k, "uid": m.uid, "at": time.monotonic()}
         if len(st["sides"]) == 2:
-            log(f"nroom {room.gid}/{room.code}: frame {r['frame']} under way")
+            # ...and WHO is at the table, place and name: a room of more than two
+            # has others waiting, and a leave is judged by who was playing
+            # (2026-10-19: G9YJ could only be worked out from addresses)
+            sd = st["sides"]
+            log(f"nroom {room.gid}/{room.code}: frame {r['frame']} under way "
+                f"(place {sd[0]['k']} {st['names'][0]} v place {sd[1]['k']} {st['names'][1]})")
         return "STARTED OK"
 
     def forfeit_leave(self, room, m):
@@ -1605,6 +1610,11 @@ class Relay:
         if ls is None:
             return
         room.match_open = None
+        # ...AND ONLY TO SOMEBODY STILL HERE: both gone (the other dropped and
+        # was not back either), nobody stayed to be given it
+        if mo["k"].get(1 - ls) not in room.members:
+            log(f"nroom {room.gid}/{room.code}: left between frames, the other gone too: no match line")
+            return
         # ...NOT ON A SCORE THAT IS NOT THE SCORE: a later frame reported by one
         # end and not agreed, or disputed, and the match may already be over by
         # it -- no match line on a guess; those frames go to review as ever
