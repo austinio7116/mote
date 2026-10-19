@@ -266,12 +266,13 @@ class Room:
 
 class Member:
     __slots__ = ("k", "reader", "writer", "q", "backlog", "task", "gone", "peer",
-                 "vtok", "uaddr", "useen", "vtcp", "vwin", "vcount", "uid", "proofs", "pend", "resume", "lossy")
+                 "vtok", "uaddr", "useen", "vtcp", "vwin", "vcount", "uid", "proofs", "pend", "resume", "lossy", "leaving")
     def __init__(self, k, reader, writer, peer):
         self.k, self.reader, self.writer, self.peer = k, reader, writer, peer
         self.q = asyncio.Queue()
         self.pend = []             # a batched club's frames, waiting for its flush
         self.resume = False        # its game said RESUME: it knows AWAY/BACK/GONE (7.5)
+        self.leaving = False       # its game said LEAVE: going on purpose, nothing to hold (7.6.9)
         self.backlog = 0
         self.lossy = 0             # movement frames not queued to it while it was behind (7.6.5)
         self.task = None
@@ -436,11 +437,18 @@ class RoomN:
         st = getattr(self, "start", None)
         if not m.uid or m.k >= self.WATCH_BASE:
             return None
+        # LEFT ON PURPOSE (7.6.9): a game that says LEAVE before it goes is not
+        # coming back -- not held, its leaving counts at once, as before holds
+        if getattr(m, "leaving", False):
+            return None
         # BETWEEN FRAMES TOO, in a room of more than two (7.6.9): winner stays on
         # pauses between every frame, and a link that fails in the pause is the
         # same player coming back. No frame, nothing to forfeit: QUEUE. (A
         # winner-stays-on room says PLAYING, not START: it stays open to JOIN.)
-        if (not st or len(st.get("sides", {})) < 2) and not (self.maxn > 2 and (self.started or self.playing)):
+        between = not st or len(st.get("sides", {})) < 2
+        # ...and in a room of two, between the frames of a match still going (7.6.9)
+        mo = getattr(self, "match_open", None)
+        if between and not (self.maxn > 2 and (self.started or self.playing)) and not (mo and m.k in mo["k"].values()):
             return None
         # ONLY WHERE EVERY PLAYER'S GAME KNOWS IT: a game from before 7.5 hears
         # no AWAY and would wait on a frame nobody can finish -- it gets LEFT,
@@ -457,8 +465,8 @@ class RoomN:
         # eight: the one waiting in the queue is held too, by the same account
         # and for the same time. Only a frame's own side can lose it (QUEUE has
         # no frame to forfeit): not back in time, they are GONE from the queue.
-        if self.maxn > 2:
-            return self.QUEUE
+        if self.maxn > 2 or between:
+            return self.QUEUE                    # held; no frame of theirs to forfeit (match_leave does the match's)
         return None
 
     def drop(self, m, why):
@@ -493,6 +501,7 @@ class RoomN:
             return
         if m.k == 0 and not self.closed:
             self.closed = True
+            self.closed_by = m.k                 # whose leaving closed it (forfeit_leave, 7.6.9)
             self.control("CLOSED", 1 << 30)
             for o in list(self.members.values()):
                 o.gone = True
@@ -1542,6 +1551,20 @@ class Relay:
         # which got here first and was written down as the walk-out. Whoever
         # of the frame's two was dropped first is the one who left.
         frame_ks = {v["k"] for v in st["sides"].values()}
+        # A ROOM CLOSED BY A HOST WHO WAS NOT AT THE TABLE (2026-10-19; Mark: "noone
+        # here shares the same IP so that is some sort of bug"). In winner stays
+        # on the host may be waiting in the queue; leaving, they close the room,
+        # and the two at the table were cut off with it -- the first of them to
+        # finish closing was written down as the walk-out (G9YJ, 2026-10-18 22:25:
+        # Red_Dead_Steve, the host, left from the queue; Orms16, at the table,
+        # was given the loss). Neither of them left: no forfeit.
+        cb = getattr(room, "closed_by", None)
+        if cb is not None and cb not in frame_ks:
+            if not getattr(room, "abandon_said", False):
+                room.abandon_said = True
+                log(f"nroom {room.gid}/{room.code}: closed by its host, who was not at the table: frame {st['frame']} abandoned, no forfeit")
+            room.start = None
+            return
         lk = next((k for k in getattr(room, "gone_order", []) if k in frame_ks), m.k)
         if lk != m.k and lk in getattr(room, "away", {}):
             return                              # the first to go is held: forfeited only if not back in time
@@ -1566,6 +1589,45 @@ class Relay:
                     self.result_write("results_forfeits.jsonl", line)
                     log(f"nroom {room.gid}/{room.code}: {t} {st['frame']} kept, the other having left")
         asyncio.get_event_loop().call_later(getattr(self.args, "forfeit_wait", self.FORFEIT_WAIT), self.forfeit_settle, room, f)
+
+    def match_leave(self, room, m):
+        """A PLAYER GONE FOR GOOD BETWEEN FRAMES of a match still going, in a room of
+        two (7.6.9; Mark: "if the remaining player was winning - they should get a
+        match win with the current score"). Ahead on frames, the one who stayed has
+        the match at the score as it stands, written here, marked as the other having
+        left; level or behind, the match has no winner and nothing more is written --
+        every frame played already stands. A tournament's match goes by the
+        organiser's own rule (a walkover), not this."""
+        mo = getattr(room, "match_open", None)
+        if self.store is None or not mo or getattr(room, "tourn", None) or getattr(room, "start", None):
+            return
+        ls = next((sd for sd, k in mo["k"].items() if k == m.k), None)
+        if ls is None:
+            return
+        room.match_open = None
+        # ...NOT ON A SCORE THAT IS NOT THE SCORE: a later frame reported by one
+        # end and not agreed, or disputed, and the match may already be over by
+        # it -- no match line on a guess; those frames go to review as ever
+        later = [fk for fk, pend in getattr(room, "results", {}).items() if pend and fk[1] > mo["frame"]]
+        if later:
+            log(f"nroom {room.gid}/{room.code}: left between frames with frames after {mo['frame']} not agreed: no match line")
+            return
+        res = mo["result"]
+        fr = list(res.get("frames") or [0, 0])
+        ws = 1 - ls
+        names = res.get("names") or ["?", "?"]
+        if not (len(fr) == 2 and fr[ws] > fr[ls]):
+            log(f"nroom {room.gid}/{room.code}: {names[ls]} left between frames at {fr[0]}-{fr[1]}: the match has no winner")
+            return
+        line = {"time": time.strftime("%Y-%m-%d %H:%M:%S"), "gid": room.gid, "room": room.code,
+                "room_secs": round(time.monotonic() - room.created), "players": len(room.players()),
+                "agreed": False, "forfeit": True, "left": names[ls], "between_frames": True,
+                "uids": [mo["uid"].get(0), mo["uid"].get(1)],
+                "verified": bool(mo["uid"].get(0)) and bool(mo["uid"].get(1)) and mo["uid"].get(0) != mo["uid"].get(1)}
+        line["result"] = dict(res, t="match", match_winner=ws, winner=ws)
+        self.result_write("results.jsonl", line)
+        self.result_write("results_forfeits.jsonl", line)
+        log(f"nroom {room.gid}/{room.code}: {names[ls]} left between frames at {fr[0]}-{fr[1]}: the match to {names[ws]}")
 
     def forfeit_line(self, room, f, r, entry):
         st = f["st"]
@@ -1681,6 +1743,17 @@ class Relay:
                     line["result"]["sides"] = [{k: sd.get(k) for k in self.RES_SIDE} for sd in rk["sides"]]
                 self.result_write("results.jsonl" if same else "results_disputed.jsonl", line)
                 self.tourn_result(room, rk if same else r, same, o, entry)
+                # A MATCH STILL GOING, in a room of two (7.6.9): its score as the
+                # last agreed frame left it, and whose places are whose -- for a
+                # player who goes between frames (match_leave)
+                if same and room.maxn == 2:
+                    if r["t"] == "frame" and rk.get("match_winner") not in (0, 1) and int(rk.get("best_of") or 1) > 1:
+                        room.match_open = {"result": dict(line["result"]), "frame": r["frame"], "k": {o["side"]: o["k"], side: m.k},
+                                           "uid": {o["side"]: o.get("uid"), side: entry.get("uid")}}
+                    else:
+                        room.match_open = None
+                elif not same:
+                    room.match_open = None              # a frame disputed: the score is not known (7.6.9)
                 st = getattr(room, "start", None)
                 if st and st["frame"] == r["frame"]:
                     room.start = None              # the frame is over: nobody leaving now forfeits it
@@ -2042,11 +2115,13 @@ class Relay:
         stub.q = None
         # the frame is theirs to lose as if they had walked out this moment
         st = getattr(room, "start", None)
-        if st and len(st.get("sides", {})) == 2 and a.get("side") != room.QUEUE:
-            try:
+        try:
+            if st and len(st.get("sides", {})) == 2 and a.get("side") != room.QUEUE:
                 self.forfeit_leave(room, stub)
-            except Exception as e:
-                log(f"nroom {room.gid}/{room.code}: a forfeit could not be held ({type(e).__name__}: {e})")
+            else:
+                self.match_leave(room, stub)        # between frames of a match still going (7.6.9)
+        except Exception as e:
+            log(f"nroom {room.gid}/{room.code}: a forfeit could not be held ({type(e).__name__}: {e})")
         room.control(f"GONE {k}", 1 << 30)
         if not room.members and not room.away:
             room.closed = True
@@ -2363,6 +2438,8 @@ class Relay:
                         room.control("START", cap)
                     elif cmd == "RESUME":
                         m.resume = True             # this game knows AWAY/BACK/GONE (7.5)
+                    elif cmd == "LEAVE":
+                        m.leaving = True            # going on purpose: not a place to hold (7.6.9)
                     elif cmd == "PLAYING" and m.k == 0 and not room.playing:
                         # an OPEN room under way (CueVR's winner stays on): still
                         # open to JOIN, and now listed LIVE as well, to WATCH
@@ -2454,10 +2531,19 @@ class Relay:
         room.drop(m, why)
         if getattr(room, "tourn", None) and not getattr(room, "club", False):
             self.tourn_table(room, m, False)
+            # LEFT ON PURPOSE: the match is lost at once, not after the pause (7.6.9)
+            if getattr(m, "leaving", False) and self.tourn is not None and hasattr(self.tourn, "table_left"):
+                tag = room.tourn
+                try:
+                    self.tourn.table_left(tag[0], tag[1], m.uid)
+                except Exception as e:
+                    log(f"tournaments: a leave could not be taken ({type(e).__name__}: {e})")
+                self.tourn_flush()
         if m.k in getattr(room, "away", {}):
             return                              # held: forfeited only if not back in time (away_settle)
         try:
             self.forfeit_leave(room, m)
+            self.match_leave(room, m)
         except Exception as e:
             log(f"nroom {room.gid}/{room.code}: a forfeit could not be held ({type(e).__name__}: {e})")
 

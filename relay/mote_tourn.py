@@ -948,6 +948,19 @@ class Organiser:
         if m.state == "playing":
             self.record({"e": "paused", "tid": tid, "mi": t.matches.index(m), "uid": uid})
 
+    def table_left(self, tid, mid, uid):
+        """LEFT A CALLED MATCH ON PURPOSE (7.6.9; Mark: "in a tournament though not
+        coming back or leaving on purpose should forfeit the game of course"):
+        the other goes through at once, as a walkover"""
+        t = self.t.get(tid)
+        m = next((x for x in t.matches if x.mid == mid), None) if t else None
+        if m is None or m.state == "done" or m.a is None or m.b is None:
+            return
+        n = t.num_of(uid)
+        if n not in (m.a, m.b):
+            return
+        self.record({"e": "won", "tid": tid, "mi": t.matches.index(m), "winner": m.b if n == m.a else m.a, "why": "walkover"})
+
     # ---- RESULTS, AS BOTH GAMES AGREED THEM --------------------------------
     def frame_agreed(self, tid, mid, winner_uid):
         t = self.t.get(tid)

@@ -121,6 +121,24 @@ def seeding():
     check(len(orders) > 1, "players with equal ratings are drawn in a random order")
 
 
+def left_on_purpose():
+    """a player who LEAVEs a called match on purpose loses it at once (7.6.9)"""
+    org, clock, tid, uids, store = night(4, size=4)
+    t = org.t[tid]
+    clock.t = START - T.OPEN_BEFORE + 1; org.tick()
+    for u in uids:
+        org.room_in(tid, u)
+    clock.t = START; org.tick()
+    m = next(x for x in t.matches if x.state in ("called", "playing") and x.a is not None and x.b is not None)
+    ua, ub = t.draw[m.a], t.draw[m.b]
+    org.table_in(tid, m.mid, ua); org.table_in(tid, m.mid, ub)
+    org.table_out(tid, m.mid, ua)
+    org.table_left(tid, m.mid, ua)
+    check(m.state == "done" and m.winner == m.b and m.why == "walkover",
+          f"left a called match on purpose: the other through at once, a walkover ({m.state}, {m.winner}, {m.why})")
+    shutil.rmtree(store, ignore_errors=True)
+
+
 def listall():
     """LISTALL: a finished tournament stays on the admin's list after LIST
     has dropped it (2026-10-19)"""
@@ -140,6 +158,7 @@ def main():
     seeding()
     edits()
     listall()
+    left_on_purpose()
     # ---- A WHOLE NIGHT OF EIGHT ------------------------------------------
     org, clock, tid, uids, store = night(8)
     t = org.t[tid]
