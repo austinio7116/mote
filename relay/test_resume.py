@@ -179,6 +179,20 @@ def main():
         check(not [l for l in lines if l.get("room") == "RJG"], "...and nobody's frame was forfeited: they were not at the table")
         h.cut(); g.cut(); time.sleep(0.3)
 
+        # ...and BETWEEN FRAMES (no frame under way): held too, in a room of three
+        h = P(port, f"MOTE2 ROOMN {GID} HOST RJH PRIV 3 TEST", "711")
+        g = P(port, f"MOTE2 ROOMN {GID} JOIN RJH", "722")
+        q = P(port, f"MOTE2 ROOMN {GID} JOIN RJH", "733")
+        for x in (h, g, q): x.say("RESUME")
+        h.say("START"); time.sleep(0.2)
+        h.say("PROOF 711 desk711"); g.say("PROOF 722 desk722"); q.say("PROOF 733 desk733"); time.sleep(0.3)
+        g.cut(); time.sleep(0.4)
+        check(any(l.startswith("AWAY 1 ") for l in h.ctrl) and not any(l.startswith("LEFT") for l in h.ctrl),
+              f"three in a started room, between frames: held, AWAY 1: {h.ctrl[-2:]}")
+        g2 = P(port, f"MOTE2 ROOMN {GID} REJOIN RJH 722 desk722", "722"); time.sleep(0.3)
+        check(g2.seat == "SEAT 1 3 BACK", f"...and back: {g2.seat}")
+        h.cut(); g2.cut(); q.cut(); time.sleep(0.3)
+
         # ---- a game from before 7.5 (no RESUME): LEFT, as it always was
         h, g = room(port, "RJE", resume=False)
         g.cut(); time.sleep(0.4)

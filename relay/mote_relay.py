@@ -434,14 +434,20 @@ class RoomN:
         """the frame's side this member plays, when a frame both have started
         is under way and the member is proved -- a place worth holding"""
         st = getattr(self, "start", None)
-        if not st or len(st.get("sides", {})) < 2 or not m.uid or m.k >= self.WATCH_BASE:
+        if not m.uid or m.k >= self.WATCH_BASE:
+            return None
+        # BETWEEN FRAMES TOO, in a room of more than two (7.6.9): winner stays on
+        # pauses between every frame, and a link that fails in the pause is the
+        # same player coming back. No frame, nothing to forfeit: QUEUE. (A
+        # winner-stays-on room says PLAYING, not START: it stays open to JOIN.)
+        if (not st or len(st.get("sides", {})) < 2) and not (self.maxn > 2 and (self.started or self.playing)):
             return None
         # ONLY WHERE EVERY PLAYER'S GAME KNOWS IT: a game from before 7.5 hears
         # no AWAY and would wait on a frame nobody can finish -- it gets LEFT,
         # as it always did (it says RESUME when it comes in)
         if not m.resume or any(not o.resume for o in self.players().values()):
             return None
-        sd = next((sd for sd, v in st["sides"].items() if v["k"] == m.k and v.get("uid") == m.uid), None)
+        sd = next((sd for sd, v in st["sides"].items() if v["k"] == m.k and v.get("uid") == m.uid), None) if st else None
         if sd is not None:
             return sd
         # ...AND IN A ROOM OF MORE THAN TWO, EVERY PLAYER (7.6.9; Mark: "Keep it
