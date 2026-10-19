@@ -596,6 +596,18 @@ class Model:
                     except (TypeError, ValueError):
                         kind = -1
                     own = {0: 8, 1: 8, 3: 8}.get(kind)
+                    # before 7.7.0, a clearance in a later visit (the relay's
+                    # clear_claimed, 2026-10-19: Mark's 6NFQ)
+                    if own and not sh.get("runouts") and not sh.get("bnr"):
+                        for who in ("a", "b"):
+                            rr = (line.get(who) or {}).get("r") if isinstance(line.get(who), dict) else None
+                            if isinstance(rr, dict) and rr.get("me") == i and rr.get("winner") == i and rr.get("clear") == 1:
+                                try:
+                                    vk = tuple(int(x) for x in str(rr.get("ver", "")).split("."))
+                                except ValueError:
+                                    vk = ()
+                                if vk and vk < (7, 7, 0):
+                                    sh["runouts"] = 1
                     if own and int(sd.get("potted") or 0) < own:
                         sh.pop("bnr", None); sh.pop("runouts", None)
                     need = {2: 9, 13: 10}.get(kind)

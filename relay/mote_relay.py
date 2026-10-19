@@ -911,7 +911,7 @@ class ResultsDB:
     the offset, its first line changed, an older schema -- the index is thrown
     away and built again from the file: it can always be rebuilt, nothing in it
     is only there. Safe from any thread: one lock, a connection per call."""
-    SCHEMA_VERSION = "4"          # 2: a golden break's bnr left out (2026-10-11); 3: 9/10-ball runs need every ball down; 4: 8-ball runs need 8 of the runner's own (2026-10-12)
+    SCHEMA_VERSION = "5"          # 2: a golden break's bnr left out (2026-10-11); 3: 9/10-ball runs need every ball down; 4: 8-ball runs need 8 of the runner's own (2026-10-12); 5: before 7.7.0 an 8-ball clearance in a later visit, from the winner's `clear` (2026-10-19)
 
     def __init__(self, store, hon_kind, forfeits_from=WALKOUTS_COUNT_FROM):
         self.forfeits_from = forfeits_from
@@ -990,7 +990,7 @@ class ResultsDB:
             if not uid or side >= len(names) or side >= len(sides):
                 continue
             sd = sides[side] if isinstance(sides[side], dict) else {}
-            sh = Relay.honours_shot(sides, side, kind)   # no golden break, no early money ball
+            sh = Relay.honours_shot(sides, side, kind, d)   # no golden break, no early money ball
             name = "".join(ch if 32 < ord(ch) < 127 else "?" for ch in str(names[side]))[:23] or "?"
             c.execute("INSERT INTO hside(result_id, month, uid, name, won, best, board, bnr, clr) VALUES(?,?,?,?,?,?,?,?,?)",
                       (rid, month, uid, name, 1 if r.get("winner") == side else 0, int(sd.get("best") or 0),
@@ -1292,7 +1292,7 @@ class Relay:
     RUN_OWN_MIN = {0: 8, 1: 8, 3: 8}
 
     @classmethod
-    def honours_shot(cls, sides, side, kind):
+    def honours_shot(cls, sides, side, kind, line=None):
         """side's shot figures as the honours count them: a golden break is no
         break-and-run, and at 9- and 10-ball neither is a frame won early on
         the money ball -- before 7.4.5 the game counted one (Mark, 2026-10-12:
@@ -1300,6 +1300,18 @@ class Relay:
         the 1 - it counted as a break and run")"""
         sd = sides[side] if isinstance(sides[side], dict) else {}
         sh = sd.get("shot") if isinstance(sd.get("shot"), dict) else {}
+        # A CLEARANCE IN A LATER VISIT, before 7.7.0 (Mark, 2026-10-19, 6NFQ: "Why
+        # isn't my clearance Vs orms counting on the honours board!!!"; "of course
+        # that is a clearance just not a break and run"). Up to 7.6.9 the game's
+        # run-out was a frame won in the winner's FIRST visit, a foul break
+        # counted as one; its own Records already counted any visit that began
+        # with all the winner's balls on and won the frame -- sent as `clear` by
+        # the winner's game. For those versions, at 8-ball, that stands for the
+        # run-out (eight of the runner's own still checked below). 7.7.0's
+        # run-out counts it itself, from the balls potted, at both ends.
+        if (line is not None and cls.RUN_OWN_MIN.get(kind) and not sh.get("runouts") and not sh.get("bnr")
+                and cls.clear_claimed(line, side)):
+            sh = dict(sh, runouts=1)
         if cls.golden_side(sides, side):
             sh = {k: v for k, v in sh.items() if k != "bnr"}
         own = cls.RUN_OWN_MIN.get(kind)
@@ -1319,6 +1331,18 @@ class Relay:
             if down < need:
                 sh = {k: v for k, v in sh.items() if k not in ("bnr", "runouts")}
         return sh
+
+    @classmethod
+    def clear_claimed(cls, line, side):
+        """the winner's own game, before 7.7.0, said `clear` for side's frame"""
+        for who in ("a", "b"):
+            x = line.get(who) if isinstance(line, dict) else None
+            rr = x.get("r") if isinstance(x, dict) and isinstance(x.get("r"), dict) else None
+            if rr and rr.get("me") == side and rr.get("winner") == side and rr.get("clear") == 1:
+                v = cls.ver_key(rr)
+                if v and v < (7, 7, 0):
+                    return True
+        return False
 
     @staticmethod
     def golden_side(sides, i):
@@ -1412,7 +1436,7 @@ class Relay:
                             continue
                         name_of[uid] = "".join(c if 32 < ord(c) < 127 else "?" for c in str(names[side]))[:23] or "?"
                         sd = sides[side] or {}
-                        sh = self.honours_shot(sides, side, int(r.get("kind", -1)))   # no golden break, no early money ball
+                        sh = self.honours_shot(sides, side, int(r.get("kind", -1)), d)   # no golden break, no early money ball
                         args = (uid, r.get("winner") == side, sh, int(r.get("kind", -1)), int(sd.get("best") or 0))
                         tally(allp, *args)
                         if month and month < month_now:
