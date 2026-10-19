@@ -420,9 +420,16 @@ class Model:
         # frames were given to the one who stayed -- or, with the sides
         # reported the wrong way round, to the one who went. Such a frame stays
         # in the list, with no winner: no wins, form, head-to-head or rating.
+        voided = False
         if t < self.forfeits_from and (line.get("forfeit") or r.get("forfeit") or "left" in line):
             r = dict(r, winner=None, match_winner=None)
             line = dict(line, result=r)
+            # ...AND NO LOSS EITHER (2026-10-19; Mark: "Why are my online results
+            # head to head Vs orms different to his vs mine?"). Counted as played
+            # with nobody winning, it was a frame lost on BOTH pages -- lolly11luce
+            # 3-13 against Orms16 on one, Orms16 11-5 on the other, the two
+            # walk-outs of 10-17 the difference. Not played, then, by either.
+            voided = True
         names = ([_clean(x, 30) for x in (r.get("names") or [])] + ["?", "?"])[:2]
         # ONE FRAME, ONCE: a doubles frame is reported by both pairs of seats and
         # kept twice, the same frame, result and time -- counted the once
@@ -506,6 +513,9 @@ class Model:
             pend.append(fr)
             del pend[:-64]                               # a room that never sends its match line cannot grow without end
             for i in (0, 1):
+                if voided:
+                    self._acc(ids[i], names[i], t)
+                    continue
                 acc = self._acc(ids[i], names[i], t)
                 sd = side(i)
                 won = r.get("winner") == i
@@ -625,6 +635,9 @@ class Model:
             if isinstance(m["room_secs"], (int, float)):
                 self.room_secs.append(m["room_secs"])
             for i in (0, 1):
+                if voided:                                   # see above: not played by either
+                    self._acc(ids[i], names[i], t)
+                    continue
                 acc = self._acc(ids[i], names[i], t)
                 won = mw == i
                 acc["matches"] += 1; acc["mwon"] += 1 if won else 0
