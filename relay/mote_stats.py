@@ -271,9 +271,39 @@ def relay_ask(line, body=None, until=b"\n"):
     return buf.decode("utf-8", "replace")
 
 
+def tourn_list_all(tok):
+    """EVERY TOURNAMENT, finished ones too (Mark, 2026-10-19: "I need to see
+    all historical tournaments in the admin app too"): the organiser's ADMIN
+    LISTALL, in the shape tourn_list makes; None when the organiser does not
+    know it (one from before 2026-10-19), and LIST is used instead"""
+    try:
+        ans = relay_ask(f"MOTE2 TOURN {A.tourn_gid} ADMIN {tok} LISTALL", json.dumps({"gid": A.tourn_gid})).strip()
+    except OSError:
+        return None
+    if not ans.startswith("ADMIN OK "):
+        return None
+    try:
+        rows = json.loads(ans[len("ADMIN OK "):])
+    except ValueError:
+        return None
+    out = []
+    for v in rows:
+        out.append({"tid": int(v["tid"]), "status": v["status"], "start": int(v["start"]), "close": int(v["close"]),
+                    "kind": int(v["kind"]), "rules": int(v["rules"]), "size": int(v["size"]), "best_of": int(v["best_of"]),
+                    "final_best_of": int(v["final_best_of"]), "nent": len(v["entrants"]), "title": v["title"],
+                    "entrants": list(v["entrants"]), "style": v.get("style") or {}, "table": int(v.get("table", -1)),
+                    "champion_name": v.get("champion_name", "")})
+    return out
+
+
 def tourn_list():
-    out, by = [], {}
-    for l in relay_ask(f"MOTE2 TOURN {A.tourn_gid} LIST", until=b"END\n").splitlines():
+    tok = tourn_token()
+    allt = tourn_list_all(tok) if tok else None
+    if allt is not None:
+        out, by = allt, {t["tid"]: t for t in allt}
+    else:
+        out, by = [], {}
+    for l in ("" if allt is not None else relay_ask(f"MOTE2 TOURN {A.tourn_gid} LIST", until=b"END\n")).splitlines():
         p = l.split(" ")
         if p[0] == "TL" and len(p) >= 12:
             t = {"tid": int(p[1]), "status": p[2], "start": int(float(p[3])), "close": int(float(p[4])), "kind": int(p[5]),
@@ -290,7 +320,7 @@ def tourn_list():
     # (Mark, 2026-10-16: "my attempts in the app to save the 6ft table are not
     # working - it keeps reverting to tournament" -- it was saved; the page
     # could not see it)
-    if out:
+    if out and allt is None:
         tables = {}
         try:
             with open(os.path.join(A.store, "tournaments.jsonl")) as f:
@@ -308,7 +338,6 @@ def tourn_list():
             t["table"] = tables.get(t["tid"], -1)
     # SIGN-UPS TURNED AWAY, and why (2026-10-13: a night's refusals went
     # unseen) -- the relay's count since it started; it needs the admin token
-    tok = tourn_token()
     if tok and out:
         try:
             for l in relay_ask(f"MOTE2 TOURN {A.tourn_gid} REFUSED {tok}", until=b"END\n").splitlines():

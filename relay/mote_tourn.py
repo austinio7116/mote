@@ -491,6 +491,23 @@ class Organiser:
             if t is None:
                 return "NONE"
             return "OK " + json.dumps(t.view(), separators=(",", ":"))
+        if verb == "LISTALL":
+            # EVERY TOURNAMENT, for the stats page (Mark, 2026-10-19: "I need
+            # to see all historical tournaments in the admin app too"): LIST
+            # drops a finished one a day after it starts, which is right for
+            # the boards and left the admin with nothing to look back on. One
+            # line of JSON, oldest first, without the matches (VIEW has those)
+            gid = spec.get("gid") if isinstance(spec, dict) else None
+            rows = []
+            for t in sorted(self.t.values(), key=lambda t: t.start):
+                if gid and not same_game(t.gid, gid):
+                    continue
+                v = t.view()
+                v.pop("matches", None)
+                v["champion_name"] = v["draw"].get(str(t.champion), "") if t.champion else ""
+                v.pop("draw", None)
+                rows.append(v)
+            return "OK " + json.dumps(rows, separators=(",", ":"))
         if verb == "PRESENT":
             # WHO IS IN A TOURNAMENT'S ROOM NOW, for the stats page's graph
             # (Mark, 2026-10-17: "show tournament room players too in blue"):

@@ -167,6 +167,7 @@ function vTourn(){
       <div class="small dim">${new Date(t.start * 1000).toLocaleString([], {weekday:'short', day:'numeric', month:'short', hour:'2-digit', minute:'2-digit'})}
         &middot; ${e(game(t.kind))}, ${e(ruleName(t.kind, t.rules))} &middot; ${e(tableName(t.kind, t.table))} table${t.style && t.style.body >= 0 ? ', ' + e(bodyName(t.style.body)) + ' body' : ''} &middot; ${t.size} players &middot; race to ${(t.best_of+1)/2}, final to ${(t.final_best_of+1)/2}</div>
       <div class=small>${t.nent} entered${t.entrants.length ? ': ' + t.entrants.map(e).join(', ') : ''}</div>
+      ${t.champion_name ? `<div class=small>Champion: <b class=acc>${e(t.champion_name)}</b></div>` : ''}
       ${t.status != 'open' ? `<div style="margin-top:6px"><button onclick="tview(${t.tid})">${TOPEN == t.tid ? 'Hide the draw' : 'Draw'}</button></div>${TOPEN == t.tid ? tbracket(TV[t.tid]) : ''}` : ''}
       ${t.refused && Object.keys(t.refused).length ? `<div class="small bad">Sign-ups turned away: ${Object.entries(t.refused).map(([w, n]) => `${n} ${e(REFUSED_WHY[w] || w)}`).join(', ')}</div>` : ''}
       ${t.status == 'open' && TN.can_create ? `<div class="row tedit" style="gap:12px;flex-wrap:wrap;margin-top:8px;justify-content:flex-start;align-items:flex-end">
@@ -216,7 +217,7 @@ function vTourn(){
       <div><button id=tf-go type=submit>Make it</button> <span id=tf-msg class=small>${e(TMSG)}</span></div>
     </form>`;
   }
-  h += '<h2>Finished</h2>' + (past.length ? past.slice(-10).reverse().map(card).join('') : empty('None yet.'));
+  h += '<h2>Finished</h2>' + (past.length ? past.slice().reverse().map(card).join('') : empty('None yet.'));
   return h;
 }
 async function tpost(path, body){

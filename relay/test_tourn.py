@@ -121,9 +121,25 @@ def seeding():
     check(len(orders) > 1, "players with equal ratings are drawn in a random order")
 
 
+def listall():
+    """LISTALL: a finished tournament stays on the admin's list after LIST
+    has dropped it (2026-10-19)"""
+    org, clock, tid, uids, store = night(4, size=4)
+    org.t[tid].status = "done"
+    clock.t = START + 3 * 86400
+    check(all(v["tid"] != tid for v in org.listing("4355")), "LIST: a tournament finished days ago is off the boards")
+    ans = org.admin("LISTALL", {})
+    import json as _j
+    rows = _j.loads(ans[3:]) if ans.startswith("OK ") else []
+    check(any(r["tid"] == tid and r["status"] == "done" for r in rows), "LISTALL: it is still on the admin's list")
+    check(all("matches" not in r and "draw" not in r for r in rows), "LISTALL: one line, no matches or draw")
+    shutil.rmtree(store, ignore_errors=True)
+
+
 def main():
     seeding()
     edits()
+    listall()
     # ---- A WHOLE NIGHT OF EIGHT ------------------------------------------
     org, clock, tid, uids, store = night(8)
     t = org.t[tid]
