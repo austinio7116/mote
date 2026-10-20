@@ -14,6 +14,24 @@ static int s_ai_never_safe, s_ai_only_id = -1;
 #include <stdio.h>
 #include <stdlib.h>
 
+/* WHICH BALLS THE PLANNER MAY PLAY: the rules' ball on -- and in straight pool
+ * from hand behind the head string, not one behind the string itself (WPA
+ * 3.11; cue_rules.c's "BEHIND THE LINE"). The rules' own test cannot say so:
+ * the first ball struck is judged where it stood, and a cue ball sent off a
+ * cushion across the string first makes any ball fair. The planner played
+ * those balls straight back up the table and fouled (Mark, CueVR 7.7.1: "In
+ * straight pool, the AI plays ball in hand up table, fouling every time";
+ * test_strhand: 72-85% of strokes from hand, every persona). Only the
+ * planner's choice changes -- the rules and so the verdict at both ends of an
+ * online frame are as they were. */
+static int ai_ball_legal(const CueRules *r, const CueBall *b, int n, int id) {
+    if (!cue_rules_ball_legal(r, b, n, id)) return 0;
+    if (r->mode == CUE_GAME_STRAIGHT && r->str_hand)
+        for (int i = 0; i < n; i++)
+            if (b[i].on && b[i].id == id) return b[i].pos.x >= r->pyr_house_x - 0.001f;
+    return 1;
+}
+
 #ifndef M_PI
 #define M_PI 3.14159265358979323846
 #endif
@@ -881,7 +899,7 @@ static int ai_mz_left(const AiCtx *c, int grp, int skip) {
 static int ai_safe_legal(const AiCtx *c, int id) {
     if (c->r->mode == CUE_GAME_SINUCA)
         return id > 0 && ai_value(id) == ai_sn_on(c->b, c->n);
-    return cue_rules_ball_legal(c->r, c->b, c->n, id);
+    return ai_ball_legal(c->r, c->b, c->n, id);
 }
 
 /* POT ANYTHING, IN ANY ORDER — which is Paul, and nothing else that reaches the
@@ -1514,7 +1532,7 @@ static int open_targets(const AiCtx *c, const Vec3 *pos, const int *on) {
          * having a sight of. */
         int mine = (c->snooker && !ai_free_for_all(c))
                      ? (c->b[i].id < CUE_ID_YELLOW)
-                     : cue_rules_ball_legal(c->r, c->b, c->n, c->b[i].id);
+                     : ai_ball_legal(c->r, c->b, c->n, c->b[i].id);
         if (!mine) continue;
         if (ball_is_open(c, i, pos, on)) cnt++;
     }
@@ -2261,7 +2279,7 @@ static int last_red_snooker_valuable(const AiCtx *c) {
 static int opp_on_visible(const AiCtx *c, Vec3 cue_end) {
     for (int i = 1; i < c->n; i++) {
         if (!c->b[i].on) continue;
-        if (!cue_rules_ball_legal(c->r, c->b, c->n, c->b[i].id)) continue;
+        if (!ai_ball_legal(c->r, c->b, c->n, c->b[i].id)) continue;
         if (path_clear(c, cue_end, c->b[i].pos, i)) return 1;
     }
     return 0;
@@ -2289,7 +2307,7 @@ static int find_banks(const AiCtx *c, Cand *out, int cap) {
 
     for (int i = 1; i < c->n && nb < cap; i++) {
         if (!c->b[i].on) continue;
-        if (!cue_rules_ball_legal(c->r, c->b, c->n, c->b[i].id)) continue;
+        if (!ai_ball_legal(c->r, c->b, c->n, c->b[i].id)) continue;
         /* Normally banks are the answer to a ball you CANNOT simply shoot at,
          * so a ball in the open is skipped. At BANK POOL a direct pot scores
          * nothing at all — the ball goes back on the table and the visit is
@@ -2385,7 +2403,7 @@ static int find_kicks(const AiCtx *c, Cand *out, int cap) {
 
     for (int i = 1; i < c->n && nk < cap; i++) {
         if (!c->b[i].on) continue;
-        if (!cue_rules_ball_legal(c->r, c->b, c->n, c->b[i].id)) continue;
+        if (!ai_ball_legal(c->r, c->b, c->n, c->b[i].id)) continue;
         const Vec3 target = c->b[i].pos;
         for (int pk = 0; pk < c->w->npocket && nk < cap; pk++) {
             if (!pk_scores(c, pk)) continue;
@@ -2506,7 +2524,7 @@ static void opp_threat(const AiCtx *c, const Vec3 *pos, const int *on,
     Vec3 cue = pos[0];
     for (int i = 1; i < c->n; i++) {
         if (!on[i]) continue;
-        if (K_OPPFILT && !cue_rules_ball_legal(&ov, c->b, c->n, c->b[i].id)) continue;
+        if (K_OPPFILT && !ai_ball_legal(&ov, c->b, c->n, c->b[i].id)) continue;
         float dd = d2(cue, pos[i]);
         if (dd < *nearest) *nearest = dd;
         /* can they hit it at all? */
@@ -5437,7 +5455,7 @@ void cue_ai_plan_start(const CueWorld *w, const CueTable *t, const CueRules *r,
             c->b = s_free_b;
             for (int i = 1; i < n; i++) {
                 if (!s_free_b[i].on) continue;
-                if (!cue_rules_ball_legal(r, s_free_b, n, s_free_b[i].id)) continue;
+                if (!ai_ball_legal(r, s_free_b, n, s_free_b[i].id)) continue;
                 for (int pk = 0; pk < w->npocket; pk++) {
                     float bp, bs;
                     if (!eval_pot(c, i, pk, &bp, &bs)) continue;
@@ -5460,7 +5478,7 @@ void cue_ai_plan_start(const CueWorld *w, const CueTable *t, const CueRules *r,
         !cue_rules_is_snookered(r, balls, n, w)) {
         int bi = -1; float bd = 1e9f;
         for (int i = 1; i < n; i++) {
-            if (!balls[i].on || !cue_rules_ball_legal(r, balls, n, balls[i].id)) continue;
+            if (!balls[i].on || !ai_ball_legal(r, balls, n, balls[i].id)) continue;
             if (!path_clear(c, balls[0].pos, balls[i].pos, i)) continue;
             float dd = d2(balls[0].pos, balls[i].pos);
             if (dd < bd) { bd = dd; bi = i; }
@@ -5862,7 +5880,7 @@ void cue_ai_plan_start(const CueWorld *w, const CueTable *t, const CueRules *r,
     static int gti[MAXG], gpk[MAXG]; static float gpot[MAXG], gpos[MAXG]; int ng = 0;
     for (int i = 1; i < n && ng < MAXG; i++) {
         if (!balls[i].on) continue;
-        if (!cue_rules_ball_legal(r, balls, n, balls[i].id)) continue;
+        if (!ai_ball_legal(r, balls, n, balls[i].id)) continue;
         if (bil_direct_banned(c, i)) continue;      /* Rule 6(f) */
         if (bank_game) break;
         if (r->mode == CUE_GAME_COWBOY && r->score[r->turn] >= 90) break;
@@ -6777,7 +6795,7 @@ int cue_ai_plan_tick(void) {
          * persona aim-error decide makes vs misses on execution. */
         v->no_contact = (sim.first_hit_idx < 0);
         v->bad_first = v->no_contact ||
-                       !cue_rules_ball_legal(c->r, c->b, c->n, c->b[sim.first_hit_idx].id);
+                       !ai_ball_legal(c->r, c->b, c->n, c->b[sim.first_hit_idx].id);
         /* Nothing potted and nothing off a rail is a foul wherever the rule
          * applies, and it is the safety player's foul: a soft roll-up that
          * stops short of a cushion. Treated exactly like a bad first contact so
@@ -7388,7 +7406,7 @@ CueAIShot cue_ai_pushout(const CueWorld *w, const CueTable *t, const CueRules *r
     /* the opponent's ball-on after the push = the lowest legal ball */
     int L = -1;
     for (int i = 1; i < n; i++)
-        if (balls[i].on && cue_rules_ball_legal(r, balls, n, balls[i].id)) { L = i; break; }
+        if (balls[i].on && ai_ball_legal(r, balls, n, balls[i].id)) { L = i; break; }
     /* default: roll gently away from the on-ball (or straight up-table) */
     Vec3 cue = balls[0].pos;
     out.aim = (L >= 0) ? atan2f(cue.z - balls[L].pos.z, cue.x - balls[L].pos.x) : 0.0f;
@@ -7589,7 +7607,7 @@ Vec3 cue_ai_place(const CueWorld *w, const CueTable *t, const CueRules *r,
     int legal[CUE_MAX_BALLS], nlegal = 0;
     for (int i = 1; i < n; i++) {
         if (!balls[i].on) continue;
-        if (!cue_rules_ball_legal(r, balls, n, balls[i].id)) continue;
+        if (!ai_ball_legal(r, balls, n, balls[i].id)) continue;
         legal[nlegal++] = i;
     }
 
@@ -7867,7 +7885,7 @@ int cue_ai_mz_take(const CueWorld *w, const CueTable *t, const CueRules *r,
     AiCtx c = mz_ctx(w, t, r, balls, n);
     int pick = -1; float worst = 1e9f;
     for (int i = 1; i < n; i++) {
-        if (!balls[i].on || !cue_rules_ball_legal(r, balls, n, balls[i].id)) continue;
+        if (!balls[i].on || !ai_ball_legal(r, balls, n, balls[i].id)) continue;
         const float v = mz_pottable(&c, i);
         if (v < worst) { worst = v; pick = i; }
     }
