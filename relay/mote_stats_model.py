@@ -43,6 +43,32 @@ def _clean(s, n=40):
     return "".join(c if 32 <= ord(c) < 127 else "?" for c in str(s if s is not None else ""))[:n]
 
 
+# ONE PLAYER, TWO META ACCOUNTS (2026-10-20, UKIRAMPAGE / UKIIIRAMPAGE): the
+# relay's <store>/accounts_merged.json, {"<old uid>": "<new uid>"} -- the old
+# account counted as the new everywhere (players, ratings, ranking, honours,
+# head-to-head). Read when the model starts: after a change, restart mote-stats.
+MERGED = {}
+
+
+def merged_load(store):
+    global MERGED
+    try:
+        with open(os.path.join(store, "accounts_merged.json")) as f:
+            d = json.load(f)
+        MERGED = {str(k): str(v) for k, v in d.items() if str(k).isdigit() and str(v).isdigit() and str(k) != str(v)} \
+            if isinstance(d, dict) else {}
+    except (OSError, ValueError):
+        MERGED = {}
+    return MERGED
+
+
+def _canon(u):
+    u, seen = str(u), set()
+    while u in MERGED and u not in seen:
+        seen.add(u); u = MERGED[u]
+    return u
+
+
 def _ids(line, names):
     """each side's identity: its proved Meta account, else its name ("n:<name>");
     a doubles side ("A & B") is the team ("t:<names>"), never the account of
@@ -51,10 +77,10 @@ def _ids(line, names):
     for who in ("a", "b"):
         x = line.get(who)
         if isinstance(x, dict) and x.get("uid") and x.get("side") in (0, 1) and x["side"] not in ids:
-            ids[x["side"]] = str(x["uid"])
+            ids[x["side"]] = _canon(x["uid"])
     for i, u in enumerate(line.get("uids") or []):
         if u and i not in ids and i < 2:
-            ids[i] = str(u)
+            ids[i] = _canon(u)
     for i in (0, 1):
         if i not in ids:
             ids[i] = "n:" + _clean(names[i] if i < len(names) else "?", 30)
@@ -281,6 +307,7 @@ class Model:
         self.store, self.relay, self.gid, self.journal_file, self.backups = store, relay, gid, journal_file, backups
         # see _fold: a walk-out before this wins nothing (the relay's own cut-off unless given)
         self.forfeits_from = forfeits_from if forfeits_from is not None else WALKOUTS_COUNT_FROM
+        merged_load(store)
         self._key = None
         self._model = None
         self._hon = (0.0, None)

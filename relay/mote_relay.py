@@ -887,6 +887,47 @@ def parse_gid(v):
 WALKOUTS_COUNT_FROM = "2026-10-18 06:06:21"
 
 
+class Merged:
+    """ONE PLAYER, TWO META ACCOUNTS (2026-10-20; Mark: "can we check UKIRAMPAGE
+    and UKIIIRAMPAGE - seems to be the same player - can we confirm that is the
+    case and if so somehow merge them"). <store>/accounts_merged.json maps an
+    old account to the one it is now, {"<old uid>": "<new uid>"}; every tally by
+    account (the honours, their months, a proved account's own monthly wins)
+    counts the old as the new, shown under the latest name. Nothing in
+    results.jsonl changes; taking an entry out undoes it. Re-read whenever the
+    file changes -- no restart -- and the index rebuilt from the file then."""
+    def __init__(self, store):
+        self.path = os.path.join(store or "", "accounts_merged.json")
+        self.mt, self.map, self.tag = None, {}, ""
+
+    def load(self):
+        try:
+            mt = os.stat(self.path).st_mtime
+        except OSError:
+            mt = None
+        if mt != self.mt:
+            self.mt, m = mt, {}
+            if mt is not None:
+                try:
+                    with open(self.path) as f:
+                        d = json.load(f)
+                    m = {str(k): str(v) for k, v in d.items()
+                         if str(k).isdigit() and str(v).isdigit() and str(k) != str(v)} if isinstance(d, dict) else {}
+                except (OSError, ValueError) as e:
+                    log(f"accounts_merged.json: not read ({type(e).__name__}) -- no merges")
+            self.map = m
+            self.tag = hashlib.sha256(json.dumps(m, sort_keys=True).encode()).hexdigest()[:12] if m else ""
+            if m:
+                log(f"accounts merged: {len(m)}")
+        return self
+
+    def canon(self, uid):
+        u, seen = str(uid), set()
+        while u in self.map and u not in seen:      # a chain of renames, never a loop
+            seen.add(u); u = self.map[u]
+        return u
+
+
 def is_walkout(d):
     """A FRAME SOMEBODY LEFT (2026-10-18; Mark: "just remove wins for dropping
     from the history and resume only once these fixes are out"; "Noone is
@@ -919,6 +960,8 @@ class ResultsDB:
         self.SCHEMA_VERSION = ResultsDB.SCHEMA_VERSION + "-walkouts-from-" + forfeits_from
         self.jsonl = os.path.join(store, "results.jsonl")
         self.path = os.path.join(store, "results.db")
+        self.merged = Merged(store)
+        self.base_version = self.SCHEMA_VERSION
         self.hon_kind = hon_kind
         self.lock = threading.Lock()
 
@@ -983,6 +1026,7 @@ class ResultsDB:
         for sd_i, u in enumerate(d.get("uids") or []):
             if u and sd_i not in uids:
                 uids[sd_i] = str(u)
+        uids = {sd_i: self.merged.canon(u) for sd_i, u in uids.items()}
         month = str(d.get("time", ""))[:7]
         board = self.hon_kind.get(kind)
         for side in (0, 1):
@@ -1004,6 +1048,9 @@ class ResultsDB:
             try:
                 if not os.path.exists(self.jsonl):
                     return False
+                # ...and the merged accounts are part of it: a change rebuilds
+                self.merged.load()
+                self.SCHEMA_VERSION = self.base_version + (("-merged-" + self.merged.tag) if self.merged.tag else "")
                 size = os.path.getsize(self.jsonl)
                 head = self._head(self.jsonl)
                 c = self._conn()
@@ -1077,6 +1124,7 @@ class Relay:
         self.conns = 0
         self.store = Store(args.store, args.store_cap, args.puts_per_hour) if args.store else None
         self.results_db = ResultsDB(args.store, self.HON_KIND, getattr(args, "forfeits_from", WALKOUTS_COUNT_FROM)) if args.store else None
+        self.merged = self.results_db.merged if self.results_db else Merged(args.store)   # one player, two accounts (2026-10-20)
         # THE META KEY (7.3): the app's secret, read once from its file and
         # never logged; with it a player's proof of their account is checked
         # with Meta and their results are kept against that account
@@ -1365,6 +1413,13 @@ class Relay:
     HON_KIND = {7: 4, 4: 5, 5: 6, 6: 7, 10: 8, 23: 9}   # CueGameKind -> board (23 = 3-red, board 9: Mark, 2026-10-11)
     HON_MIN_FRAMES = 20
 
+    def merges(self):
+        """the merged accounts (Merged), made on first use however the relay was made"""
+        m = getattr(self, "merged", None)
+        if m is None:
+            m = self.merged = Merged(getattr(self.args, "store", "") or "")
+        return m
+
     def honours_tally(self):
         """the boards and every completed month's winners, BY META ACCOUNT
         (Mark, 2026-10-11: "this has to be robust and not by name") -- each
@@ -1378,6 +1433,7 @@ class Relay:
             return "", {}
         cache = getattr(self, "_hon_cache", None)
         month_now = time.strftime("%Y-%m", time.gmtime())
+        mt = (mt, self.merges().load().tag)        # a merge changes the boards too
         if cache and cache[0] == mt and cache[1] == month_now:
             return cache[2], cache[3]
         parts = None
@@ -1429,6 +1485,7 @@ class Relay:
                     for sd_i, u in enumerate(d.get("uids") or []):
                         if u and sd_i not in uids:
                             uids[sd_i] = str(u)
+                    uids = {sd_i: self.merges().canon(u) for sd_i, u in uids.items()}
                     month = str(d.get("time", ""))[:7]
                     for side in (0, 1):
                         uid = uids.get(side)
@@ -1495,9 +1552,9 @@ class Relay:
                 log(f"honours: a proof could not be checked ({type(e).__name__})")
                 ok = None
             if ok is not None:                # every check, for the stats page's proof counts
-                log(f"honours: proof {'good' if ok else 'BAD'}, {len(mine.get(a[0], []))} monthly wins {'sent' if ok else 'held'}")
+                log(f"honours: proof {'good' if ok else 'BAD'}, {len(mine.get(self.merges().canon(a[0]), []))} monthly wins {'sent' if ok else 'held'}")
             if ok:
-                text += "".join(f"MINE {b} {m} {v}\n" for b, m, v in mine.get(a[0], []))
+                text += "".join(f"MINE {b} {m} {v}\n" for b, m, v in mine.get(self.merges().canon(a[0]), []))
                 # ...and the TOURNAMENTS this account has won, for its cabinet
                 wl = getattr(self.tourn, "wins_lines", None) if self.tourn is not None else None
                 if wl is not None:
