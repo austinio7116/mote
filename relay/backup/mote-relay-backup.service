@@ -1,9 +1,0 @@
-# mote-relay-backup: the day's snapshot of the relay's data (see the script)
-[Unit]
-Description=mote-relay daily data snapshot
-
-[Service]
-Type=oneshot
-ExecStart=/usr/local/sbin/mote-relay-backup
-Nice=10
-IOSchedulingClass=idle
