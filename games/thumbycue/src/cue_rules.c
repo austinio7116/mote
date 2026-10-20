@@ -5870,6 +5870,11 @@ static void resolve_straight(CueRules *r, CueBall *b, int n, const CueWorld *w,
     }
 
     if (foul) {
+        /* A FOUL ENDS THE RUN, as a miss or a safety does: the table goes over
+         * (CueVR 7.7.2; outofthebluee: "I scored 1 in straight pool in the club
+         * and the ref called 6" -- the other player's run of 5 carried on past
+         * their foul into this player's first ball) */
+        r->brk = 0;
         r->score[r->turn] -= break_foul ? 2 : 1;
         r->last_foul_pts = break_foul ? 2 : 1;
         /* THE BREAKING FOUL (7.3(b), 7.10): two off, and the opponent chooses --

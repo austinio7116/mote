@@ -130,6 +130,26 @@ int main(void) {
     ok(r.ball_in_hand == 1,              "...with the white in hand after a scratch");
     ok(ball(b, n, 5)->on,                "...and anything potted on it comes back");
 
+    /* A FOUL ENDS THE RUN (CueVR 7.7.2; outofthebluee: "I scored 1 in straight
+     * pool in the club and the ref called 6"): the other player's run of 5,
+     * a foul, and this player's first ball is a run of 1 */
+    cue_rules_init(&r, &t, 0);
+    n = cue_table_rack(&t, b);
+    r.break_shot = 0; r.turn = 1; r.brk = 5;
+    cue_rules_resolve(&r, b, n, &w, -1, 0, 1, NULL, 0);
+    ok(r.turn == 0 && r.brk == 0,        "a foul ends the fouler's run");
+    cue_rules_call_shot(&r, 6, 2);
+    pot(b, n, 6, 2);
+    { int p[1] = { 6 };
+      cue_rules_resolve(&r, b, n, &w, 6, 0, 1, p, 1); }
+    ok(r.brk == 1,                       "...so the next player's first ball is a run of 1, not 6");
+    /* ...and the third foul in a row, whose rerack the offender breaks */
+    cue_rules_init(&r, &t, 0);
+    n = cue_table_rack(&t, b);
+    r.break_shot = 0; r.brk = 4; r.cfoul[0] = 2;
+    cue_rules_resolve(&r, b, n, &w, -1, 0, 1, NULL, 0);
+    ok(r.rerack == 2 && r.brk == 0,      "three fouls: the rerack, and no run carried into it");
+
     /* no rail and nothing potted */
     cue_rules_init(&r, &t, 0);
     n = cue_table_rack(&t, b);
