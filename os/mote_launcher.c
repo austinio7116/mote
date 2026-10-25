@@ -127,7 +127,17 @@ static void draw(const MoteCatalog *cat, int sel, int top) {
 
 int mote_launcher_run(MoteCatalogFn rebuild) {
     int sel = 0, top = 0;
-    MoteCatalog cat;   /* on the stack (SCRATCH), not BSS — OS BSS budget is ~full */
+    /* MUST be static. sizeof(MoteCatalog) is 5124 B on ARM (128 entries x 40 B
+     * + count) and core0's stack is 4096 B — the whole of SCRATCH_Y. On the
+     * stack this declaration alone overruns by ~1 KB, straight down past
+     * 0x20081000, which is the TOP OF CORE1'S STACK (SCRATCH_X,
+     * 0x20080000-0x20081000; see os/device/os_memmap.ld), shredding core1's
+     * saved registers and return addresses.
+     *
+     * The existing comment gave the OS BSS budget as the reason for keeping it
+     * on the stack. Corrupting the other core's stack is the worse trade; the
+     * 5 KB comes out of the arena instead (see MOTE_ARENA_SIZE in mote_os.c). */
+    static MoteCatalog cat;
     MoteInput in;
     memset(&in, 0, sizeof in);
     /* Returning from a game, the MENU/A used to exit it may still be held — arm the
