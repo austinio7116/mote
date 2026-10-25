@@ -694,7 +694,7 @@
     </div>
     <ol class="annot-key">
       <li data-n="1"><b>STROKE</b> &mdash; Real cue only: how much of your hand's shake is smoothed out of your aim. Your power is never changed.</li>
-      <li data-n="2"><b>CONTROLLER STROKE</b> &mdash; Controllers only. <b>LOCKED</b> keeps the cue on the line you aimed once you pull the trigger. <b>FREE</b> lets your back hand steer it during the stroke, as a real cue does, and tells you afterwards how straight you were. FREE suits Pro controllers.</li>
+      <li data-n="2"><b>CONTROLLER STROKE</b> &mdash; Controllers only. <b>LOCKED</b> keeps the cue on the line you aimed once you pull the trigger. <b>FREE</b> lets your back hand steer it during the stroke, as a real cue does, and tells you afterwards how straight you were. On the rest, FREE turns the cue about the rest's head. FREE suits Pro controllers.</li>
       <li data-n="3"><b>CUE TURNS WITH YOUR WRIST</b> &mdash; Real cue only: the drawn cue rolls when you twist your real one, so its markings stay facing the same way.</li>
       <li data-n="4"><b>CUE ROTATION</b> &mdash; Real cue only: turns the drawn cue round so its markings face the same way as your real cue's.</li>
       <li data-n="5"><b>CUE DEFLECTION</b> &mdash; How far the cue ball is pushed off your line when you hit it with side. 0.5&deg; is a low-deflection carbon shaft, 2.0&deg; an ash snooker cue. NONE turns it off.</li>
@@ -898,18 +898,24 @@
       keeps sliding until you untwist.</td></tr>
     <tr><td>Push the head further away, or pull it in</td><td>Hold the <b>side trigger</b> on your
       bridge hand and move that hand. Let go and it holds.</td></tr>
-    <tr><td>Use a higher or lower notch</td><td>Press <b>Y</b> again. There are nine, from 40 to
-      96&nbsp;mm high.</td></tr>
+    <tr><td>Use a higher or lower notch</td><td>Press <b>Y</b> again. There are three heads and
+      eleven places for the cue, from 40 to 87&nbsp;mm high: the <b>cross</b>; the <b>spider</b>'s
+      middle, left and right notches; the <b>high spider</b>'s, which stands over a ball; then
+      the spider's two windows and the high spider's.</td></tr>
     <tr><td>Put the rest away</td><td>Hold <b>Y</b>. It also goes back by itself after each shot,
       and the next time you pick it up it is on the notch you used last.</td></tr>
   </table>
   <p>The rest is 1.30&nbsp;m long and stays that length. If you need more reach, an extension
   screws onto the end. Holding the trigger locks the cue to the rest's line, as it does for a
-  normal shot.</p>
+  normal shot. With CONTROLLER STROKE set to FREE, your back hand can still steer the cue: it
+  turns about the rest's head.</p>
   <div class="note">
     <b>With a real cue:</b> press the rest button and lay your cue on your real table where you
     want the rest's head. The tip says where the head goes and the cue says which way it points.
-    Press again to change notch, and hold to put it away. Your free hand then plays the shot.
+    Press again to change notch, and hold to put it away. Your free hand then plays the shot:
+    the cue turns about the rest's head as you steer it, and that controller is the one that
+    buzzes. Both controllers stay controllers while the rest is out, even with BARE BRIDGE HAND
+    on and a controller held in your other hand.
   </div>
 
   <h3>The lag: who breaks</h3>
@@ -1234,7 +1240,7 @@
       <div class="spec">9FT TABLE · 15 BALLS · 50 UP</div>
       <p>14.1 continuous, the old scoring game. There is no ball you must hit, no group and no
       order: every ball on the table is worth one point, whichever ball it is. You pick one, say it
-      is going down, and if it does you score and carry on. <b>First to 50</b> wins the frame — the
+      is going down, and if it does you score and carry on. <b>First to 50</b> (or 25: choose under <b>POINTS</b> on the rules page) wins the frame — the
       real game is played to hundreds, this one is cut to a frame that fits a session.</p>
       <p><b>Calling a ball.</b> The ball you are aiming at is the ball you have called; there is no
       menu for it and nothing to press. Whatever your cue is pointing at when you strike is what
@@ -1716,6 +1722,9 @@
           point is a cannon on <b>both reds</b>, and your opponent's cue ball is the ball you must
           not touch. First to 15.</td></tr>
       </table>
+      <p>Each of the five can also be played to <b>10, 15 or 20</b>: choose under <b>POINTS</b> on
+      the rules page, and each game keeps its own choice. Five-pin is always played to 50. Online,
+      both players play to the host's choice; tournaments and careers keep the usual targets.</p>
     </div>
     <figure><img src="img/cuevr/game-carom.png" alt="A carom table, with no pockets at all"></figure>
   </div>
@@ -5251,13 +5260,6 @@
 </section>
 
 <footer><div class="wrap">
-  <b>The rest head</b> is modelled from <i>Billiards pool moose head</i> by
-  Thingiverse user <b>dcaldred</b>, used under
-  <a href="https://creativecommons.org/licenses/by/4.0/">CC&nbsp;BY&nbsp;4.0</a>.
-  The shape was changed for the game: its outline was traced and re-cut as a
-  single extruded plate, rescaled from inches, and re-origined so that the point
-  it stands on sits on the cloth.
-  <br><br>
   <a href="cuevr-privacy.html">Privacy policy</a>
 </div></footer>
 
