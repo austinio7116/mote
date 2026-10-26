@@ -1501,7 +1501,11 @@ static void script_apply(int *down) {
         if (panel) want_panel = 1;
         else       down[s_script[i].btn] = 1;
     }
-    if (has_panel) s_settings_open = want_panel;   /* held open, not toggled */
+    /* Opened at the window's start and shut at its end, not forced every
+     * frame, so a row that closes the panel itself (Back to games) can. */
+    static int prev_want;
+    if (has_panel && want_panel != prev_want) s_settings_open = want_panel;
+    prev_want = want_panel;
 }
 
 /* ====================================================================== *
@@ -1759,7 +1763,22 @@ int main(int argc, char *argv[]) {
         keys_read(s_down);
 #endif
         script_apply(s_down);
-        /* The settings panel eats the game's input while it's up. */
+        /* The settings panel eats the game's input while it's up -- and the
+         * press that shut it, too: A on "Back to games" is still held when the
+         * launcher comes back, which read as A on the highlighted game and
+         * launched it. After the panel closes, nothing reaches the game until
+         * every button has been let go. */
+        {
+            static int was_open, swallow;
+            if (was_open && !s_settings_open) swallow = 1;
+            was_open = s_settings_open;
+            if (swallow) {
+                int any = 0;
+                for (int i = 0; i < EB_N; i++) any |= s_down[i];
+                if (any) memset(s_down, 0, sizeof s_down);
+                else swallow = 0;
+            }
+        }
         MoteButtons btn;
         memset(&btn, 0, sizeof btn);
         if (!s_settings_open) {
