@@ -137,6 +137,12 @@ if(MOTE_TARGET STREQUAL "host")
     target_compile_options(mote_shell PRIVATE -O2 -ffast-math -Wall -Wextra
         -Wno-unused-parameter -Wno-format-truncation)
     target_link_libraries(mote_shell PRIVATE mote_engine ${CMAKE_DL_LIBS})
+    # Export the engine's symbols to the modules it dlopen()s. A game is meant to
+    # reach the engine only through the ABI table, but thumbycue's pocket and
+    # skittle physics (shared with CueVR, which links the engine) call
+    # mote_phys_world_defaults/mote_phys_step by name -- without this its module
+    # fails to load with an undefined symbol.
+    set_target_properties(mote_shell PROPERTIES ENABLE_EXPORTS ON)
     if(TARGET SDL2::SDL2)
         target_link_libraries(mote_shell PRIVATE SDL2::SDL2)
     else()

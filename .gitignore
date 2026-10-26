@@ -43,3 +43,4 @@ studio/assets/uifont.cfg
 # games/grandthumbauto3/gta3_shots.sh output — regenerate, don't commit
 /gta3_shots/
 /games/grandthumbauto3/gta3_shots/
+dist-trimui/

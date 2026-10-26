@@ -79,7 +79,7 @@ def mote_meta(path):
 # Android x86 client (emulator, ChromeOS's Android runtime) a module it cannot
 # load, and it would fail at dlopen rather than showing as unavailable.
 ANDROID_ABIS = ("arm64-v8a", "armeabi-v7a", "x86_64")
-LINUX_ABIS = ("x86_64",)
+LINUX_ABIS = ("x86_64", "aarch64")   # aarch64 = TrimUI Brick (scripts/build-trimui.sh)
 
 
 def native_modules(gid, plat, abis):

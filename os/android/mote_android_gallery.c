@@ -52,7 +52,11 @@
 #define MOTE_GALLERY_PLAT "linux"
 #endif
 
-#if defined(__aarch64__)
+/* The linux block's keys are uname -m names: arm64 glibc (the TrimUI Brick) is
+ * "aarch64", never Android's "arm64-v8a". */
+#if defined(__aarch64__) && !defined(__ANDROID__)
+#define MOTE_ANDROID_ABI "aarch64"
+#elif defined(__aarch64__)
 #define MOTE_ANDROID_ABI "arm64-v8a"
 #elif defined(__arm__)
 #define MOTE_ANDROID_ABI "armeabi-v7a"

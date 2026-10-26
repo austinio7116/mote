@@ -5,6 +5,9 @@
 # this script is for the two things that sit outside that:
 #
 #   --abi host                for the desktop build of the shell (`mote_shell`)
+#   --abi linux-aarch64       glibc arm64 Linux handhelds (TrimUI Brick); run it
+#                             inside the scripts/trimui toolchain image, which
+#                             sets CC/STRIP -- see scripts/build-trimui.sh
 #   --abi arm64-v8a|...       a side-loadable module to drop into
 #                             Android/data/us.thumby.mote/files/games/
 #   --publish                 stage stripped modules into docs/games/android/<abi>
@@ -44,6 +47,8 @@ if [ "$PUBLISH" = 1 ]; then
         # runtime) downloading a glibc .so would fail to load it. Separate
         # platform, separate directory, separate manifest block.
         [ -n "$OUT" ] || OUT="$ROOT/docs/games/linux/$(uname -m)"
+    elif [ "$ABI" = linux-aarch64 ]; then
+        [ -n "$OUT" ] || OUT="$ROOT/docs/games/linux/aarch64"
     else
         [ -n "$OUT" ] || OUT="$ROOT/docs/games/android/$ABI"
     fi
@@ -56,6 +61,13 @@ mkdir -p "$OUT"
 if [ "$ABI" = host ]; then
     CC=${CC:-gcc}
     STRIP=${STRIP:-strip}
+    PIC=-fPIC
+elif [ "$ABI" = linux-aarch64 ]; then
+    # glibc, not Bionic: the cross gcc comes from the environment (the trimui
+    # image), never the NDK.
+    case "${CC:-}" in *aarch64*linux-gnu-gcc) ;; *)
+        echo "build_modules: linux-aarch64 needs CC set to an aarch64 glibc gcc" >&2; exit 1;; esac
+    STRIP=${STRIP:-${CC%gcc}strip}
     PIC=-fPIC
 else
     NDK="${ANDROID_NDK_HOME:-${ANDROID_NDK:-}}"

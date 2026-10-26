@@ -914,7 +914,53 @@ static Touch *touch_alloc(void) {
     for (int i = 0; i < MAX_TOUCH; i++) if (!s_touch[i].active) return &s_touch[i];
     return NULL;
 }
+/* MOTE_SHELL_JOYMAP — read the first joystick by raw button number instead of
+ * as an SDL_GameController. For handhelds whose built-in controls SDL either
+ * doesn't recognise or maps by position (the TrimUI Brick's A is on the right,
+ * where a GameController expects B); the Brick launcher sets it. Comma-separated
+ * name=N for a button, name=aN for an axis pushed past half way. Names are the
+ * nine handheld buttons plus "panel", which opens the settings sheet. The d-pad
+ * is always hat 0 and the left stick (axes 0/1). */
+#define JM_PANEL EB_N
+typedef struct { int target, idx, axis; } JoyBind;
+static JoyBind       s_jm[24];
+static int           s_jm_n;
+static SDL_Joystick *s_joy;
+static int           s_joy_panel;           /* panel button held this frame */
+
+static void joymap_parse(const char *m) {
+    static const char *const names[] = { "a", "b", "up", "down", "left", "right",
+                                         "lb", "rb", "menu", "panel" };
+    char buf[256];
+    snprintf(buf, sizeof buf, "%s", m);
+    for (char *tok = strtok(buf, ", "); tok && s_jm_n < 24; tok = strtok(NULL, ", ")) {
+        char *eq = strchr(tok, '=');
+        if (!eq) continue;
+        *eq++ = 0;
+        for (int t = 0; t < (int)(sizeof names / sizeof names[0]); t++) {
+            if (strcmp(tok, names[t])) continue;
+            JoyBind *j = &s_jm[s_jm_n++];
+            j->target = t;
+            j->axis = (*eq == 'a');
+            j->idx = atoi(eq + j->axis);
+            break;
+        }
+    }
+}
+
+static int joymap_has_panel(void) {
+    for (int i = 0; i < s_jm_n; i++) if (s_jm[i].target == JM_PANEL) return 1;
+    return 0;
+}
+
 static void pads_scan(void) {
+    if (s_jm_n) {
+        if (!s_joy && SDL_NumJoysticks() > 0) {
+            s_joy = SDL_JoystickOpen(0);
+            if (s_joy) SDL_Log("[mote] joystick (raw map): %s", SDL_JoystickName(s_joy));
+        }
+        return;
+    }
     if (s_pad) return;
     for (int i = 0; i < SDL_NumJoysticks(); i++)
         if (SDL_IsGameController(i)) {
@@ -927,6 +973,25 @@ static void pads_scan(void) {
  * pad with a mushy hat still works; L1/R1 are the shoulders, Start is MENU. */
 static void pad_read(void) {
     memset(s_pad_down, 0, sizeof s_pad_down);
+    s_joy_panel = 0;
+    if (s_joy) {
+        Uint8 hat = SDL_JoystickNumHats(s_joy) > 0 ? SDL_JoystickGetHat(s_joy, 0) : 0;
+        int lx = SDL_JoystickNumAxes(s_joy) > 1 ? SDL_JoystickGetAxis(s_joy, 0) : 0;
+        int ly = SDL_JoystickNumAxes(s_joy) > 1 ? SDL_JoystickGetAxis(s_joy, 1) : 0;
+        s_pad_down[EB_UP]    = (hat & SDL_HAT_UP)    || ly < -16000;
+        s_pad_down[EB_DOWN]  = (hat & SDL_HAT_DOWN)  || ly >  16000;
+        s_pad_down[EB_LEFT]  = (hat & SDL_HAT_LEFT)  || lx < -16000;
+        s_pad_down[EB_RIGHT] = (hat & SDL_HAT_RIGHT) || lx >  16000;
+        for (int i = 0; i < s_jm_n; i++) {
+            const JoyBind *j = &s_jm[i];
+            int on = j->axis ? SDL_JoystickGetAxis(s_joy, j->idx) > 16000
+                             : SDL_JoystickGetButton(s_joy, j->idx);
+            if (!on) continue;
+            if (j->target == JM_PANEL) s_joy_panel = 1;
+            else s_pad_down[j->target] = 1;
+        }
+        return;
+    }
     if (!s_pad) return;
     const float DZ = 0.45f;
     float lx = SDL_GameControllerGetAxis(s_pad, SDL_CONTROLLER_AXIS_LEFTX) / 32767.0f;
@@ -993,9 +1058,12 @@ static void keys_read(int *out) {
 static const char *const PERF_LEVEL[4] = { "OFF", "FPS", "MINI", "FULL" };
 
 enum { ROW_LAYOUT = 0, ROW_SHOULDER, ROW_HAPTIC, ROW_FPS, ROW_RELAY,
-       ROW_BACK, ROW_CLOSE, ROW_MAX };
+       ROW_BACK, ROW_QUIT, ROW_CLOSE, ROW_MAX };
 
 static int  s_settings_open, s_sel;
+/* MOTE_SHELL_QUIT=1 — a "Quit Mote" row, for a handheld front end that launched
+ * us and has no other way back (no Esc key, no window to close). */
+static int  s_quit_row, s_quit_req;
 static int  s_editing_relay;
 static char s_edit[80];
 static int  s_scroll, s_scroll_max, s_drag_active, s_drag_y0, s_drag_s0, s_dragged;
@@ -1085,11 +1153,16 @@ static void fps_sample(void) {
 static int settings_ids(int *ids) {
     int n = 0;
     ids[n++] = ROW_LAYOUT;
-    ids[n++] = ROW_SHOULDER;
-    ids[n++] = ROW_HAPTIC;
+    /* On a raw-mapped handheld the shoulders are real buttons and there is no
+     * motor the shell can reach, so these two rows would do nothing. */
+    if (!joymap_has_panel()) {
+        ids[n++] = ROW_SHOULDER;
+        ids[n++] = ROW_HAPTIC;
+    }
     ids[n++] = ROW_FPS;
     ids[n++] = ROW_RELAY;
     if (mote_shell_in_game()) ids[n++] = ROW_BACK;
+    if (s_quit_row) ids[n++] = ROW_QUIT;
     ids[n++] = ROW_CLOSE;
     return n;
 }
@@ -1138,6 +1211,10 @@ static void row_text(int id, char *name, char *val, char *hint, int cap) {
         snprintf(name, cap, "Back to games");
         snprintf(hint, cap, "Leave this game and return to the list");
         break;
+    case ROW_QUIT:
+        snprintf(name, cap, "Quit Mote");
+        snprintf(hint, cap, "Close Mote and go back to the system menu");
+        break;
     default:
         snprintf(name, cap, "Close");
         snprintf(hint, cap, "Or tap anywhere outside this panel");
@@ -1176,6 +1253,9 @@ static void settings_activate(int id) {
     case ROW_BACK:
         mote_shell_request_exit_game();
         s_settings_open = 0;
+        return;
+    case ROW_QUIT:
+        s_quit_req = 1;
         return;
     default:           s_settings_open = 0; break;
     }
@@ -1263,7 +1343,7 @@ static void settings_draw(void) {
 
         int sel = (i == s_sel);
         if (sel) box(cx + pad / 2, ry + 2, cw - pad, row_h - 4, 38, 62, 104, 255);
-        if (ids[i] == ROW_BACK || ids[i] == ROW_CLOSE)
+        if (ids[i] == ROW_BACK || ids[i] == ROW_QUIT || ids[i] == ROW_CLOSE)
             box(cx + pad / 2, ry + 2, 4, row_h - 4, 120, 200, 255, 200);
 
         /* Sized for a phone held at arm's length, not for the 128px screen this
@@ -1518,6 +1598,8 @@ int main(int argc, char *argv[]) {
         }
     }
 
+    { const char *jm = SDL_getenv("MOTE_SHELL_JOYMAP"); if (jm) joymap_parse(jm); }
+    { const char *q = SDL_getenv("MOTE_SHELL_QUIT"); s_quit_row = q && *q && *q != '0'; }
     pads_scan();
     /* The dock idles until a handheld is on the cable, so starting it always is
      * free — and it means plugging one in Just Works with no mode to select. */
@@ -1554,7 +1636,8 @@ int main(int argc, char *argv[]) {
                 last_seq = (uint32_t)-1;
                 layout();
                 break;
-            case SDL_CONTROLLERDEVICEADDED: pads_scan(); break;
+            case SDL_CONTROLLERDEVICEADDED:
+            case SDL_JOYDEVICEADDED: pads_scan(); break;
             case SDL_CONTROLLERDEVICEREMOVED:
                 if (s_pad) { SDL_GameControllerClose(s_pad); s_pad = NULL; }
                 s_using_pad = 0;
@@ -1664,6 +1747,14 @@ int main(int argc, char *argv[]) {
             if (s_touch[i].active && s_touch[i].btn >= 0) s_down[s_touch[i].btn] = 1;
         pad_read();
         for (int i = 0; i < EB_N; i++) if (s_pad_down[i]) s_down[i] = 1;
+        {   /* the raw-map "panel" button toggles the settings sheet */
+            static int prev_panel;
+            if (s_joy_panel && !prev_panel) {
+                s_settings_open = !s_settings_open; s_sel = 0; s_scroll = 0;
+            }
+            prev_panel = s_joy_panel;
+        }
+        if (s_quit_req) running = 0;
 #ifdef MOTE_SHELL_DESKTOP
         keys_read(s_down);
 #endif
@@ -1737,11 +1828,16 @@ int main(int argc, char *argv[]) {
         {
             int s = s_oh / 16; if (s < 28) s = 28; if (s > 64) s = 64;
             s_gear_rect = (SDL_Rect){ (s_ow - s) / 2, s / 3, s, s };
+            /* A raw-mapped handheld has a button for the sheet and no touch
+             * screen, so the pip would only sit on top of the game's HUD. */
+            if (joymap_has_panel()) s_gear_rect.w = s_gear_rect.h = 0;
+            else {
             box(s_gear_rect.x, s_gear_rect.y, s, s, 20, 24, 38, 170);
             box_outline(s_gear_rect.x, s_gear_rect.y, s, s, 1, 96, 176, 255, 150);
             for (int i = 0; i < 3; i++)
                 box(s_gear_rect.x + s / 4, s_gear_rect.y + s / 4 + i * s / 5,
                     s / 2, s / 12 + 1, 200, 220, 240, 220);
+            }
         }
 
         /* Docked-handheld banner. The phone is busy being a dock as well as a
@@ -1790,6 +1886,7 @@ int main(int argc, char *argv[]) {
     mote_android_dock_stop();
     if (s_engine) SDL_WaitThread(s_engine, NULL);
     if (s_pad) SDL_GameControllerClose(s_pad);
+    if (s_joy) SDL_JoystickClose(s_joy);
     for (int i = 0; i < 2; i++) for (int j = 0; j < 2; j++)
         if (tex_sh[i][j]) SDL_DestroyTexture(tex_sh[i][j]);
     txt_free();
