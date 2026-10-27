@@ -69,6 +69,8 @@ int eventHandler(PlaydateAPI *api, PDSystemEvent event, uint32_t arg)
         mote_pd_start(api, os_main);
         api->system->addMenuItem("MENU button", menu_tap, NULL);
         api->system->addMenuItem("Mote menu", menu_hold, NULL);
+    } else if (event == kEventResume) {
+        mote_pd_resumed();
     }
     return 0;
 }

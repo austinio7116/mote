@@ -13,7 +13,12 @@
  *
  * PD_KEYS: name:from-to holds a button (up down left right a b) over a frame
  * range; crank+N / crank-N turns the crank N degrees a frame; menu0 / menu1
- * picks that system menu item on the first frame of the range.
+ * picks that system menu item on the first frame of the range. As on the
+ * device, the game is paused while the system menu is up: kEventPause, the
+ * item's callback, kEventResume, and the next frame's elapsed time includes
+ * PD_MENU_SECS (default 2.5) of menu.
+ * PD_PICK=n launches the launcher's nth game (presses Down n times, then A at
+ * frame 100); the device-flavoured build has no MOTE_PICK.
  * Saves go to ./pd_data (PD_DATA overrides).
  */
 #include "pd_api.h"
@@ -114,6 +119,16 @@ int main(int argc, char **argv)
     datadir = getenv("PD_DATA") ? getenv("PD_DATA") : "pd_data";
     mkdir(datadir, 0755);
     parse_keys(getenv("PD_KEYS"));
+    if (getenv("PD_PICK")) {
+        int n = atoi(getenv("PD_PICK"));
+        for (int i = 0; i < n && nkeys < 62; i++) {
+            Key *k = &keys[nkeys++]; strcpy(k->name, "down");
+            k->from = 20 + i * 2; k->to = k->from;
+        }
+        Key *k = &keys[nkeys++]; strcpy(k->name, "a"); k->from = 100; k->to = 103;
+    }
+    float menu_secs = getenv("PD_MENU_SECS") ? strtof(getenv("PD_MENU_SECS"), NULL) : 2.5f;
+
     int frames = getenv("PD_FRAMES") ? atoi(getenv("PD_FRAMES")) : 200;
     const char *shot = getenv("PD_SHOT");
     const char *shots = getenv("PD_SHOT_FRAMES") ? getenv("PD_SHOT_FRAMES") : "";
@@ -152,10 +167,15 @@ int main(int argc, char **argv)
             else if (!strcmp(k->name, "crank")) crank = k->deg;
             else if (!strncmp(k->name, "menu", 4) && f == k->from) {
                 int m = atoi(k->name + 4);
-                if (m < nmenu) menu_cb[m](menu_ud[m]);
+                if (m < nmenu) {
+                    ev(&api, kEventPause, 0);
+                    menu_cb[m](menu_ud[m]);
+                    elapsed += menu_secs;        /* the clock runs while the menu is up */
+                    ev(&api, kEventResume, 0);
+                }
             }
         }
-        elapsed = 0.02f;
+        elapsed += 0.02f;
         upd(upd_ud);
         if (audio) audio(audio_ud, l, r, 882);
         char tag[16]; snprintf(tag, sizeof tag, ",%d,", f);

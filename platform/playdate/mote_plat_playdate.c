@@ -248,12 +248,20 @@ static int update(void *ud)
 {
     (void)ud;
     float dt_ms = pd->system->getElapsedTime() * 1000.0f;
+    /* One frame never advances the clock more than 100 ms: a long stall (a
+     * slow file write, the system menu) must not arrive as one giant step. */
+    if (dt_ms > 100.0f) dt_ms = 100.0f;
     s_us += (uint64_t)(dt_ms * 1000.0f);
     pd->system->resetElapsedTime();
     sample_input(dt_ms);
     co_resume();                 /* runs the OS until its next present() */
     return 1;
 }
+
+/* The system menu pauses us. Restart the frame clock when it hands back, so the
+ * time it was up counts as nothing -- otherwise "Mote menu"'s 3.3 s MENU hold
+ * had run out in the menu itself and the engine menu never opened. */
+void mote_pd_resumed(void) { pd->system->resetElapsedTime(); }
 
 void mote_pd_start(PlaydateAPI *api, void (*os_main)(void))
 {

@@ -51,13 +51,17 @@ build_target() {
     if [ "$t" = dev ]; then
         CC=arm-none-eabi-gcc; OBJCOPY=arm-none-eabi-objcopy; LD=arm-none-eabi-ld
         CFLAGS=(-mthumb -mcpu=cortex-m7 -mfloat-abi=hard -mfpu=fpv5-sp-d16 -D__FPU_USED=1
-                -DTARGET_PLAYDATE=1 -DTARGET_EXTENSION=1 -DMOTE_DEVICE=1 -DNDEBUG
+                -DTARGET_PLAYDATE=1 -DTARGET_EXTENSION=1 -DMOTE_DEVICE=1 -DMOTE_PLAYDATE=1 -DNDEBUG -g
                 -O2 -ffast-math -falign-functions=16 -fomit-frame-pointer
                 -mword-relocations -fno-common -ffunction-sections -fdata-sections -std=gnu11)
     else
         CC=gcc; OBJCOPY=objcopy; LD=ld
+        # Compiled as the device is (MOTE_DEVICE: games skip stdio/getenv, and
+        # the OS sizes its arena and sound pools the same), so the Simulator
+        # shows what a Playdate will. Moria's fiber takes its thread backend
+        # here; its Cortex-M switch is device-only.
         CFLAGS=(-fPIC -g -O2 -ffast-math -DTARGET_SIMULATOR=1 -DTARGET_EXTENSION=1
-                -DMOTE_HOST=1 -DNDEBUG -fno-common -std=gnu11)
+                -DMOTE_DEVICE=1 -DMOTE_PLAYDATE=1 -DMOTE_FIBER_PTHREAD=1 -DNDEBUG -fno-common -std=gnu11)
     fi
     local o="$B/$t"
     rm -rf "$o"; mkdir -p "$o/core" "$o/games"
@@ -132,7 +136,7 @@ C
         arm-none-eabi-size "$o/pdex.elf"
     else
         "$CC" -shared -fPIC "${INCS[@]}" "$SDK/C_API/buildsupport/setup.c" \
-              -DTARGET_SIMULATOR=1 -DTARGET_EXTENSION=1 "${objs[@]}" -lm -o "$o/pdex.so"
+              -DTARGET_SIMULATOR=1 -DTARGET_EXTENSION=1 "${objs[@]}" -lm -lpthread -o "$o/pdex.so"
     fi
 }
 

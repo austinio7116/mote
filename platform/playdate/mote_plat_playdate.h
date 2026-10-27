@@ -9,6 +9,9 @@ extern PlaydateAPI *pd;
  * that yields at every present(). Called once from kEventInit. */
 void mote_pd_start(PlaydateAPI *api, void (*os_main)(void));
 
+/* kEventResume: the system menu was up; don't count the time it was. */
+void mote_pd_resumed(void);
+
 /* Hold the Thumby's MENU button for ms (the system menu's "Menu button"). */
 void mote_pd_press_menu(int ms);
 

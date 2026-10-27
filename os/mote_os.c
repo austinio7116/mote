@@ -32,7 +32,9 @@ static bool           s_exit_req;
  * the host is unconstrained) — gives ThumbyCraft the ~5 KB of arena spare its save
  * thumbnail capture needs on top of the 272 KB world+zbuf. The SRAM-tight standalone
  * OS keeps 272 KB. */
-#if defined(MOTE_DEVICE) && !defined(THUMBYONE_SLOT_MODE)
+/* The Playdate has 16 MB and runs every game as tuned for ThumbyOne's 277 KB
+ * (ThumbyCraft opened on OUT OF MEMORY at 272). */
+#if defined(MOTE_DEVICE) && !defined(THUMBYONE_SLOT_MODE) && !defined(MOTE_PLAYDATE)
 #define MOTE_ARENA_SIZE (272 * 1024)
 #else
 #define MOTE_ARENA_SIZE (277 * 1024)

@@ -154,7 +154,7 @@ static float sfx_frnd(float r){ s_sfxrng = s_sfxrng*1103515245u + 12345u; return
  * standalone device OS, whose SRAM is already maxed by ThumbyCraft's 134 KB module
  * (.ramtext) leaving <2 KB free. The slot RUNNER (no USB/store) and the host have
  * room for the faithful pool; the standalone takes a smaller one so it still links. */
-#if defined(MOTE_DEVICE) && !defined(THUMBYONE_SLOT_MODE)
+#if defined(MOTE_DEVICE) && !defined(THUMBYONE_SLOT_MODE) && !defined(MOTE_PLAYDATE)
 #  define SFX_PH 128
 #  define NSFX   2
 #else
