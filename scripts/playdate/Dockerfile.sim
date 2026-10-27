@@ -1,0 +1,6 @@
+# Panic's Playdate Simulator, headless under Xvfb, for smoke-testing Mote.pdx
+# through the real Playdate API. The SDK is mounted at /sdk.
+FROM mote-playdate
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      libgtk-3-0t64 libwebkit2gtk-4.1-0 libunwind8 xvfb x11-apps libasound2t64 netpbm \
+    && rm -rf /var/lib/apt/lists/*

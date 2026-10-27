@@ -1,0 +1,7 @@
+name=Mote
+author=austinio7116
+description=The Mote games console from the Thumby Color, with its whole game library.
+bundleID=us.thumby.mote
+version=0.21.1
+buildNumber=1
+imagePath=launcher
