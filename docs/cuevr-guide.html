@@ -292,6 +292,7 @@
   <a href="#chalk">Chalk</a>
   <a href="#pockets">Pockets</a>
   <a href="#physics">Physics</a>
+  <a href="#ranking-method">Rankings</a>
   </span>
 </div></nav>
 
@@ -2938,7 +2939,8 @@
   months. When two or more players finish a month level at the top, they are joint winners: all
   their names go on the plate, and each of them gets the month's trophy in their cabinet. Squeeze a
   grip near a trophy to pick it up and read it. <b>Records &rarr; Club Honours</b> has every
-  board's top ten for every month.</p>
+  board's top ten for every month. How the ratings are worked out: <a href="#ranking-method">How the
+  rankings work</a>.</p>
   <p>The <b>TOURNAMENT WINNERS</b> board, by the door across from the blackboard, lists every
   club tournament's champion, newest first. On the pedestal in front of it stands the latest
   tournament's trophy, engraved with the tournament, its day and its champion.</p>
@@ -5353,8 +5355,26 @@
   </details>
 </section>
 
+<section id="ranking-method">
+  <h2>How the rankings work</h2>
+  <p class="lede">The CueVR World Ranking and each game's ranking in the club come from one rating,
+  worked out from every verified online frame at once.</p>
+  <p>Each player has a skill. Every frame says who won and, where the game has one, by how much:
+  balls in 8-ball, 9-ball and 10-ball, points in snooker, the score in billiards and straight pool.
+  How much you won by never counts for more than the win itself, so beating a weaker player
+  heavily, which a stronger player is expected to do, adds little. Games where luck plays a bigger
+  part count for less per frame. The number on the boards is your rating less twice its
+  uncertainty, so a short run of wins against the same few players cannot top the list. See
+  <a href="#honours">The honours boards</a> for what it takes to be ranked.</p>
+  <p style="margin-top:1.6em;padding-top:1.2em;border-top:1px solid var(--line)">
+  <b>The full paper.</b> <a href="cuevr-ranking-method.pdf">A Bayesian rating with winning
+  margins</a> (PDF) describes the model with its equations, how it is fitted, the parameters fitted
+  for each kind of game, how well it predicts results against the ratings used before it, and its
+  limits.</p>
+</section>
+
 <footer><div class="wrap">
-  <a href="cuevr-privacy.html">Privacy policy</a>
+  <a href="cuevr-privacy.html">Privacy policy</a> &middot; <a href="cuevr-ranking-method.pdf">How the rankings work (PDF)</a>
 </div></footer>
 
 </div>
