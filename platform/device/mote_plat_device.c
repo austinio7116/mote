@@ -84,7 +84,15 @@ static void rumble_init(void);   /* defined below; called from mote_plat_init */
 
 static volatile MoteBandFn s_band_fn;
 static volatile uint16_t  *s_band_fb;
-static volatile int        s_core1_go, s_core1_done;
+/* Pass handshake. These MUST carry a sequence number, not be booleans: render2
+ * runs more than once per frame (the scene pass, then the splat pass), so with
+ * plain flags a `done` written by core1 for pass N can land after core0 has
+ * cleared it for pass N+1 — satisfying N+1's wait before core1 has started it.
+ * The cores then run one pass out of phase, and eventually core0 waits on a
+ * completion that will never come while core1 sits parked. Matching on the
+ * exact sequence makes a stale completion unable to satisfy a newer pass. */
+static volatile uint32_t   s_kick_seq;    /* core0: incremented to start a pass */
+static volatile uint32_t   s_done_seq;    /* core1: set to the seq it completed */
 static volatile uint32_t   s_core1_us;
 static volatile int        s_next_strip;
 static spin_lock_t        *s_strip_lock;
@@ -113,12 +121,13 @@ static void work_strips(uint16_t *fb, MoteBandFn band, int pump) {
 static void core1_entry(void) {
     multicore_lockout_victim_init();   /* let core0 park us during flash saves */
     for (;;) {
-        while (!s_core1_go) tight_loop_contents();
-        s_core1_go = 0;
+        uint32_t k;
+        while ((k = s_kick_seq) == s_done_seq) tight_loop_contents();
         uint64_t t0 = to_us_since_boot(get_absolute_time());
         work_strips((uint16_t *)s_band_fb, s_band_fn, 0);   /* core1: render only */
         s_core1_us = (uint32_t)(to_us_since_boot(get_absolute_time()) - t0);
-        s_core1_done = 1;
+        __asm__ volatile("dmb" ::: "memory");   /* strips + timing visible before the seq */
+        s_done_seq = k;
     }
 }
 
@@ -127,15 +136,15 @@ void mote_plat_render2(uint16_t *fb, MoteBandFn band,
     s_band_fb = fb;
     s_band_fn = band;
     s_next_strip = 0;
-    s_core1_done = 0;
-    __asm__ volatile("dsb" ::: "memory");
-    s_core1_go = 1;                                  /* core1 joins the pool */
+    const uint32_t k = s_kick_seq + 1u;
+    __asm__ volatile("dsb" ::: "memory");            /* pool state visible before the kick */
+    s_kick_seq = k;                                  /* core1 joins the pool */
 
     uint64_t t0 = to_us_since_boot(get_absolute_time());
     work_strips(fb, band, 1);                        /* core0 works the pool + feeds audio */
     *out_c0_us = (uint32_t)(to_us_since_boot(get_absolute_time()) - t0);
 
-    while (!s_core1_done) tight_loop_contents();
+    while (s_done_seq != k) tight_loop_contents();
     *out_c1_us = s_core1_us;
 }
 
