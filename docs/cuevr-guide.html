@@ -492,8 +492,8 @@
       MOVEMENT</b>. <b>ONE STICK, EITHER</b> puts the same control on both hands, which is what you
       want with a cue in your hands. See <a href="#onestick">One stick has to do
       everything</a>.</td></tr>
-    <tr><td><b>Cloth and timber</b></td><td><b>CLOTH</b> and <b>TIMBER</b> on the strip along the
-      foot of the main menu.</td></tr>
+    <tr><td><b>Cloth, body and timber</b></td><td><b>CLOTH</b> and <b>DESIGN</b> on the strip along the
+      foot of the main menu. DESIGN opens on the table bodies, then the woodwork.</td></tr>
     <tr><td><b>Lighting and surroundings</b></td><td><b>Environment</b> &rarr; <b>Lighting</b> or
       <b>Surroundings</b>. Your room, the dark hall, the arena, the pub, the snooker club, the
       dining room, the library and your venue are also chips on the <b>pause menu</b>, since that
@@ -532,10 +532,10 @@
       pause menu. On, they come back until the reds are gone and then stop, so you can play a
       clearance.</td></tr>
     <tr><td><b>Things other players have made</b></td><td><b>GALLERY</b>, beside the title in the
-      Workshop and on the cue, ball, challenge, cloth and timber pickers. See
+      Workshop and on the cue, ball, challenge, cloth and DESIGN pickers. See
       <a href="#gallery">Sharing and the gallery</a>.</td></tr>
     <tr><td><b>Keep the look of my table</b></td><td><b>STYLES</b>, beside the title on the cloth
-      and timber screens. See <a href="#styles">Table styles</a>.</td></tr>
+      and DESIGN screens. See <a href="#styles">Table styles</a>.</td></tr>
     <tr><td><b>Give a friend my cue, ball set, challenge or table style</b></td><td><b>SHARE</b>
       on its screen gives a six-letter code; they type it into <b>ENTER A CODE</b> (<b>FROM A
       CODE</b> for a challenge).</td></tr>
@@ -776,6 +776,13 @@
       <li data-n="10"><b>CLUB: SWITCH MOVEMENT</b> &mdash; In the club: TABLE movement while you are at a table, CAMERA while you walk about.</li>
     </ol>
   </figure>
+
+<div class="note" id="displayrate">
+  <b>A red line across the top of the menu</b> saying the display is held at 90 Hz means
+  something on your headset, such as Quest Games Optimizer, is running the display faster than
+  the 72 Hz CueVR asks for, and the game can only draw every other frame. Set CueVR to 72 Hz in
+  that app, or close it, and the line goes away.
+</div>
 
 <h3 id="hands">Your hands</h3>
   <p>Where the headset tracks your hands, CueVR draws them as hands instead of controllers.
@@ -1252,9 +1259,31 @@
       <b>CALL THE BLACK</b> asks for the last one only. <b>CALL SHOT (CBSA)</b> is the tournament
       reading, where ball and pocket are declared on every stroke. <b>KILLER</b> is the pub
       elimination game on the same table.</p>
+      <p>The table can be built as it is in China: the black and gold <a href="#bodies">HEYBALL</a>
+      body, and the <a href="#wire">wire ball return</a> under it.</p>
     </div>
     <figure><img src="img/cuevr/game-cn8.png" alt="A Chinese 8-ball table"></figure>
   </div>
+
+  <h4 id="wire">The wire ball return</h4>
+  <p>Chinese 8-ball tables carry their balls home on wire. Each pocket drops into a wire basket,
+  and wire runs from there under the rails to a triangle on a tray under the foot end, where the
+  balls roll in and rack themselves. Turn it on under <b>FITTINGS</b> on the DESIGN page's
+  <a href="#wood">wood page</a>: <b>WIRE RETURN</b> is <b>NONE</b>, <b>BLACK</b>, <b>GOLD</b> or
+  <b>STEEL</b>, and the rings round the pockets match it. It is offered only when the table is
+  set for Chinese 8-ball or its Killer, and CueVR remembers it. A Chinese 8-ball tournament can ask
+  for it; in the tournament's room the table has the return the tournament sets, and yours comes
+  back when you leave.</p>
+  <div class="grid g3">
+    <figure><img src="img/cuevr/wire-black.png" alt="The wire ball return in black"><figcaption><span class="cap-t">BLACK</span></figcaption></figure>
+    <figure><img src="img/cuevr/wire-gold.png" alt="The wire ball return in gold"><figcaption><span class="cap-t">GOLD</span></figcaption></figure>
+    <figure><img src="img/cuevr/wire-steel.png" alt="The wire ball return in steel"><figcaption><span class="cap-t">STEEL</span></figcaption></figure>
+  </div>
+  <figure>
+    <img src="img/cuevr/glass/picktimber-heyball.jpg" alt="The wood page on a Chinese 8-ball table, with WIRE RETURN under FITTINGS">
+    <figcaption>On a Chinese 8-ball table the wood page's <b>FITTINGS</b> carries
+    <b>WIRE RETURN</b>.</figcaption>
+  </figure>
 
   <div class="mode rev">
     <figure><img src="img/cuevr/game-straight.png" alt="A straight pool table"></figure>
@@ -3970,7 +3999,7 @@
   <figure>
     <img src="img/cuevr/glass/home.jpg" alt="The main menu, with the strip of table panels along the foot">
     <figcaption>How the table looks is the strip along the foot of the main menu:
-    <b>TABLE</b>, <b>CLOTH</b>, <b>TIMBER</b>, <b>BALLS</b>, <b>CUE</b>. Each opens its picker;
+    <b>TABLE</b>, <b>CLOTH</b>, <b>DESIGN</b>, <b>BALLS</b>, <b>CUE</b>. Each opens its picker;
     the change happens straight away on the table in front of you, so you can see it before you
     commit.</figcaption>
   </figure>
@@ -3982,13 +4011,15 @@
       built.</td></tr>
     <tr><td><b>CLOTH</b> (the strip)</td><td>The colour of the cloth. Twenty-four to choose
       from.</td></tr>
-    <tr><td><b>TIMBER</b> (the strip)</td><td>The timber of the frame and rails — varnished or plain, sixteen colours and your own, eleven woods —
-      and, on the chips along the top of the same card, the <b>BODY</b>: the build of the table
-      itself, legs, cabinet and proportions. Seven designs, or <b>Auto</b> to give each game the body it is usually played on.</td></tr>
+    <tr><td><b>DESIGN</b> (the strip)</td><td>First the <b>body</b>: the build of the table itself,
+      legs, cabinet and proportions, eight designs or <b>STANDARD</b> to give each game the body it is
+      usually played on. Then the woodwork of the frame and rails — varnished or plain, sixteen
+      colours and a custom colour, eleven woods — and the fittings: the pocket leather or corner
+      metal, the wire ball return on a Chinese 8-ball table, and grain on the body.</td></tr>
     <tr><td><b>BALLS</b> (the strip)</td><td>Which set of balls is racked. Twenty-six sets. The
       chips on the same card also set whether the cue ball carries <b>measle spots</b> — with them
       on you can see what the white is doing, how much it is spinning and which way.</td></tr>
-    <tr><td><b>CUE</b> (the strip)</td><td>Your cue, from a rack of twenty-three or your own.</td></tr>
+    <tr><td><b>CUE</b> (the strip)</td><td>Your cue, from a rack of thirty-two or your own.</td></tr>
     <tr><td><b>Environment &rarr; Lighting</b></td><td>The light rig over the table.</td></tr>
     <tr><td><b>Environment &rarr; Surroundings</b></td><td>Your own room, a dark hall, an arena, a
       pub, a snooker club, a dining room or a library. Also chips on the pause menu, since that is
@@ -4006,9 +4037,20 @@
   one in with <b>ENTER A CODE</b>. The ball workshop's <b>START FROM</b> lists your own sets after
   the built-in ones. Online, your opponent sees your cue as you built it.</p>
 
-  <h3>Table designs</h3>
-  <p>Seven bodies, on the <b>BODY</b> chips at the top of the timber card. Each one follows the
-  shape of the bed, so an L-shaped or many-sided table gets the same design.</p>
+  <h3 id="bodies">Table designs</h3>
+  <p>Nine bodies. <b>DESIGN</b> on the strip opens on a card for each body your table can take,
+  each a picture of a table in that body; the one on the table is underlined. Choose one and it
+  goes on the table, and the page moves on to the <a href="#wood">woodwork</a>. Each body
+  follows the shape of the bed, so an L-shaped or many-sided table gets the same design.</p>
+
+  <div class="grid g2">
+    <figure><img src="img/cuevr/glass/pickbody.jpg" alt="The DESIGN page's bodies on a pool table">
+      <figcaption>On a pool table: <b>STANDARD</b>, then the five bodies a table with drop
+      pockets can take, <b>PUB</b> among them.</figcaption></figure>
+    <figure><img src="img/cuevr/glass/pickbody-chinese.jpg" alt="The DESIGN page's bodies on the Chinese 8-ball table">
+      <figcaption>On the Chinese 8-ball table, which has string pockets: <b>STANDARD</b>, the
+      three snooker bodies and <b>HEYBALL</b>.</figcaption></figure>
+  </div>
 
   <div class="grid g2">
     <figure><img src="img/cuevr/body-outdoor.png" alt="The Outdoor table body">
@@ -4018,10 +4060,18 @@
       into a channel down each long side and lie in it a ball's width apart, behind a long
       round-ended slot in the apron where you can see them and reach them.</figcaption></figure>
     <figure><img src="img/cuevr/body-cabinet.png" alt="The Cabinet table body">
-      <figcaption><span class="cap-t">CABINET</span> — the pub table. A charcoal laminate box that
-      tapers in on every face, with a polished band under the rail, a pair of thin bright strips down
-      each rounded corner and a chromed bezel round the ball-return hatch, on short raked legs with
-      chromed shoes. Its body colour is fixed and does not follow your timber.</figcaption></figure>
+      <figcaption><span class="cap-t">CABINET</span> — shaped like a Supreme Winner pub table. A box
+      that tapers in on every face, on tapered legs standing in chrome cups, with a moulded aluminium
+      frame round the ball opening and a black plate with a button beside it.</figcaption></figure>
+    <figure><img src="img/cuevr/body-pub.png" alt="The Pub table body">
+      <figcaption><span class="cap-t">PUB</span> — the British coin-operated pub table. A deep
+      cabinet that leans out towards the top, on four short tapered legs, with a coin slot and a
+      slanted window in its side. The balls you pot run down a rail inside the table and line up
+      in the window. On UK 8-ball at every size, and on the American games' 7 ft and 9 ft
+      tables.</figcaption></figure>
+    <figure><img src="img/cuevr/body-pub-window.png" alt="The Pub table's coin slot and window">
+      <figcaption>The <b>PUB</b> body from its window side: the coin slot, and the window the
+      potted balls run into.</figcaption></figure>
     <figure><img src="img/cuevr/body-victorian.png" alt="The Victorian table body">
       <figcaption><span class="cap-t">VICTORIAN</span> — the one everybody pictures. The deepest apron of
       them all, with an ogee crown, and turned baluster legs — collar, astragal, vase, beads, an
@@ -4044,15 +4094,20 @@
       <figcaption><span class="cap-t">MATCH</span> — the tournament cabinet. A panelled apron
       with a scalloped skirt between the posts, and heavy turned legs with inlaid bands at the
       collar and the ankle. Snooker only.</figcaption></figure>
+    <figure><img src="img/cuevr/body-heyball.png" alt="The Heyball table body">
+      <figcaption><span class="cap-t">HEYBALL</span> — the Chinese 8-ball table. A black cabinet
+      with a gilt band round the top of the apron, black panels outlined in gold, and turned
+      black legs with gold collars. Like the three snooker bodies it is offered only on a table
+      with string pockets, and it fits every table size.</figcaption></figure>
   </div>
 
-  <p><b>AUTO</b> gives each table the body it would really have: the 7 ft pub table gets CABINET, the
+  <p><b>STANDARD</b> gives each table the body it would really have: the 7 ft pub table gets CABINET, the
   9 ft American beds and straight pool get PRO, the 12 ft match table, 10-red snooker, English
-  billiards and Paul get SNOOKER, and everything else — the Chinese table, pyramid, bar billiards,
+  billiards, Paul and the Chinese 8-ball table get SNOOKER, and everything else — pyramid, bar billiards,
   the rotation games and any many-sided or round bed — gets VICTORIAN.</p>
-  <p>A table dressed with <b>string pockets</b> is always built on one of the three snooker bodies
-  — <span class="cap-t">SNOOKER</span>, <span class="cap-t">ARCADE</span> or
-  <span class="cap-t">MATCH</span> — whichever else you pick. The bags and the collector rails
+  <p>A table dressed with <b>string pockets</b> is always built on one of the four bodies made for them
+  — <span class="cap-t">SNOOKER</span>, <span class="cap-t">ARCADE</span>,
+  <span class="cap-t">MATCH</span> or <span class="cap-t">HEYBALL</span> — whichever else you pick. The bags and the collector rails
   hang in the shelf their overhang leaves, and on any other design they would be buried in the
   cabinet or left floating under it.</p>
 
@@ -4063,7 +4118,7 @@
 
   <div class="note">
     <b>One timber setting covers the whole table.</b> There is no separate setting for the body. The
-    <b>TIMBER</b> panel picks the finish, colour and wood for the rails, and the body is made of the same timber:
+    <a href="#wood">woodwork</a> page picks the finish, colour and wood for the rails, and the body is made of the same timber:
     apron, skirt, legs and the square blocks under a Victorian leg all take the colour
     you chose, with the lit mouldings a little paler and the shadowed courses darker.
     <br><br>
@@ -4189,40 +4244,57 @@
   </div>
   
 <h3 id="wood">Woodwork</h3>
-  <p>The <b>TIMBER</b> panel sets the rails and the body together, in three choices made one after
-  another: the <b>finish</b>, the <b>colour</b>, and &mdash; for a varnished finish &mdash; the
-  <b>wood</b>. The wood does not choose the colour, so varnished oak can be navy. Every tile on
-  the card is a picture of the rail in what that tile offers, so it looks like the timber you will
-  get.</p>
+  <p><b>DESIGN</b> on the strip opens on the table <a href="#bodies">bodies</a>. Choose one, or
+  the one already on the table, and the next page sets the woodwork: the rails and the body
+  together, in three choices made one after another &mdash; the <b>finish</b>, the
+  <b>colour</b>, and, for a varnished finish, the <b>wood</b>. The wood does not choose the
+  colour, so varnished oak can be navy. The table in front of you changes as you choose.
+  <b>BACK</b> on this page goes back to the bodies.</p>
 
   <figure>
-    <img src="img/cuevr/glass/picktimber.jpg" alt="The timber card, on its COLOUR tab">
-    <figcaption>The timber card on its <b>COLOUR</b> tab. <b>FINISH</b> along the top is
-    <b>VARNISHED</b> or <b>PLAIN</b>; the <b>BODY</b> chips choose the table the timber is built
-    into. The one on the table is outlined; pull the trigger on any other and it is fitted
-    straight away.</figcaption>
+    <img src="img/cuevr/glass/picktimber.jpg" alt="The DESIGN wood page, on its COLOUR tab">
+    <figcaption>The wood page on its <b>COLOUR</b> tab. <b>FINISH</b> along the top is
+    <b>VARNISHED</b> or <b>PLAIN</b>. The sixteen colours fill the right; the one on the table is
+    outlined. <b>FITTINGS</b> down the left side holds the pocket leather or corner metal,
+    <b>GRAIN ON THE BODY</b> and <b>CUSTOM COLOUR</b>.</figcaption>
+  </figure>
+
+  <figure>
+    <img src="img/cuevr/glass/picktimber-wood.jpg" alt="The DESIGN wood page, on its WOOD tab">
+    <figcaption>The <b>WOOD</b> tab, for a varnished finish: the eleven woods, with
+    <b>SHINE</b> and <b>SHARPNESS</b> above them.</figcaption>
   </figure>
 
   <table>
     <tr><th>Choice</th><th>What it does</th></tr>
     <tr><td><b>FINISH</b></td><td><b>VARNISHED</b> is a real wood's grain under a clear lacquer
       that reflects the lamps. <b>PLAIN</b> is the colour alone, with no grain.</td></tr>
-    <tr><td><b>COLOUR</b></td><td>Sixteen colours, and <b>YOUR OWN</b>, which opens a mixer for any
-      colour at all.</td></tr>
+    <tr><td><b>COLOUR</b></td><td>Sixteen colours. <b>CUSTOM COLOUR</b>, under the fittings,
+      opens a mixer for any colour at all.</td></tr>
     <tr><td><b>WOOD</b></td><td>Varnished only. Rosewood, birdseye, curly maple, ribbon, ebony,
       wenge, mahogany, oak, walnut, cherry and maple, each drawn from photographs of the real
       timber.</td></tr>
     <tr><td><b>SHINE</b></td><td>On the WOOD tab. <b>OFF</b>, no clear coat at all;
-      <b>SMOOTH</b> (the default); or <b>WITH THE GRAIN</b>. <b>SHARPNESS</b> beside it sets how
-      the lamp sits in the coat: low is a broad soft glow, high a small bright point. It starts
-      at 18.</td></tr>
-    <tr><td><b>LEATHER</b> / <b>METAL</b></td><td>Beside the finish: on a table with string pockets,
-      the colour of the leather over each pocket; on a table with corner castings, the colour of
-      the metal. <b>DEFAULT</b> in the mixer puts the table's original colour back.</td></tr>
+      <b>SMOOTH</b> (the default), a mirror-flat coat over the grain; or <b>WITH GRAIN</b>, where
+      the grain shows in the reflection too. <b>SHARPNESS</b> beside it sets how the lamp sits in
+      the coat: low is a broad soft glow, high a small bright point. It starts at 18.</td></tr>
+    <tr><td><b>POCKET LEATHER</b> / <b>CORNER METAL</b></td><td>Under <b>FITTINGS</b>: on a
+      table with string pockets, the colour of the leather over each pocket; on a table with
+      corner castings, the colour of the metal. <b>DEFAULT</b> in the mixer puts the table's
+      original colour back.</td></tr>
+    <tr><td><b>WIRE RETURN</b></td><td>Under <b>FITTINGS</b>, on a Chinese 8-ball table only:
+      <b>NONE</b>, or the <a href="#wire">wire ball return</a> in <b>BLACK</b>, <b>GOLD</b> or
+      <b>STEEL</b>.</td></tr>
+    <tr><td><b>GRAIN ON THE BODY</b></td><td>Under <b>FITTINGS</b>. Draws the wood's grain on
+      the body and legs as well, without the varnish, for a little more work on the
+      headset.</td></tr>
   </table>
   <p>A fresh install starts on smooth varnished mahogany in <b>TOURNAMENT</b>. The body is drawn
-  in the timber's colour; <b>Settings &rarr; Graphics &rarr; BODY GRAIN</b> draws the wood's grain
-  on the body and legs as well, without the varnish, for a little more work on the headset.</p>
+  in the timber's colour. The pictures on the tiles are always the same: each colour in varnished
+  mahogany, and each wood in the mahogany colour; your table shows the real result.</p>
+
+  <p>In a tournament that sets the look of its table, both DESIGN pages are greyed out and say
+  so: <i>The tournament sets the look of this table.</i></p>
 
   <p>The sixteen colours, each in smooth varnished mahogany:</p>
   <div class="grid g4">
@@ -4287,8 +4359,9 @@
 
 <h3 id="styles">Table styles</h3>
   <p>A <b>table style</b> is the whole look of your table kept under one name: the cloth (a
-  colour you mixed included), the timber and its finish, the body, and the pocket leather or
-  corner metal. <b>STYLES</b>, beside the title on the cloth and timber screens, opens them.</p>
+  colour you mixed included), the timber and its finish, the body, the pocket leather or
+  corner metal, and the wire ball return and its metal. A style saved before 9.1.3 leaves the wire
+  as it is. <b>STYLES</b>, beside the title on the cloth and DESIGN screens, opens them.</p>
   <figure>
     <img src="img/cuevr/glass/styles-saved.jpg" alt="The table styles panel with two styles">
     <figcaption>Two styles. Each card is a photograph of your table wearing it: a corner pocket
@@ -4304,10 +4377,13 @@
     <tr><td><b>ENTER A CODE</b></td><td>Puts somebody else's style on your table and keeps it
       with yours.</td></tr>
     <tr><td><b>DELETE</b></td><td>Throws the picked style away.</td></tr>
-    <tr><td><b>DONE</b></td><td>Back to the cloth or timber screen.</td></tr>
+    <tr><td><b>DONE</b></td><td>Back to the cloth or DESIGN screen.</td></tr>
   </table>
   <p>A style only changes how the table looks. The table you play on, its size and its pockets,
   stay as they are.</p>
+  <p>The table style gallery has 21 Supreme Winner finishes, from <b>BLACK PEARL</b> to
+  <b>AMBERWOOD</b>. They use the <a href="#bodies">CABINET</a> body; on a table that can't take
+  it, the rest of the style still applies.</p>
 
   <h3 id="lighting">Lighting</h3>
   <div class="grid g2">
@@ -4377,8 +4453,8 @@
   <figure class="glass"><a href="img/cuevr/glass/settings-graphics.jpg"><img src="img/cuevr/glass/settings-graphics.jpg" alt="Settings, Graphics" loading="lazy"></a>
     <figcaption><b>Graphics</b>: <b>RESOLUTION</b> per eye, <b>ANTI-ALIASING</b>, <b>BALL
     REFLECTIONS</b>, <b>CHROME REFLECTS</b>, <b>CLUB TABLES</b> (how the other tables in the club
-    are drawn), and on the right <b>FAR GLINT BLUR</b>, <b>BLUR BALLS</b>, <b>BODY GRAIN</b>,
-    <b>SMOKE</b> and <b>TAR</b>. <b>RESET TO DEFAULTS</b> puts them back. Under it, in the
+    are drawn), and on the right <b>FAR GLINT BLUR</b>, <b>BLUR BALLS</b>,
+    <b>SMOKE</b> and <b>TAR</b> (grain on the table body is now on the DESIGN page). <b>RESET TO DEFAULTS</b> puts them back. Under it, in the
     headset, the size it is drawing at and what each frame is taking.</figcaption></figure>
 
 <h3 id="venue">Your venue</h3>
@@ -4718,8 +4794,9 @@
 
 <section id="cues">
   <h2>Cues</h2>
-  <p class="lede">Thirty cues, each made the way a real one is. Your choice is saved, and in an
-  online match your opponent sees the cue in your hands exactly as you built it.</p>
+  <p class="lede">Thirty-two cues, each made the way a real one is. Your choice is saved, and in an
+  online match your opponent sees the cue in your hands exactly as you built it, all of it. Replays
+  keep the cue that played each shot, yours or your opponent's.</p>
 
   <div class="rack">
     <div class="row"><div class="nm">CLASSIC</div><img src="img/cuevr/cue0.jpg" alt="Classic cue"></div>
@@ -4752,6 +4829,8 @@
     <div class="row"><div class="nm">COBALT</div><img src="img/cuevr/cue27.jpg" alt="Cobalt cue"></div>
     <div class="row"><div class="nm">OBSIDIAN</div><img src="img/cuevr/cue28.jpg" alt="Obsidian cue"></div>
     <div class="row"><div class="nm">ONE PIECE</div><img src="img/cuevr/cue29.jpg" alt="One Piece cue"></div>
+    <div class="row"><div class="nm">FLAME</div><img src="img/cuevr/cue30.jpg" alt="Flame cue"></div>
+    <div class="row"><div class="nm">MOSAIC</div><img src="img/cuevr/cue31.jpg" alt="Mosaic cue"></div>
   </div>
 
     <figure class="glass"><a href="img/cuevr/glass/pickcue.jpg"><img src="img/cuevr/glass/pickcue.jpg" alt="The cue picker" loading="lazy"></a>
@@ -4792,6 +4871,8 @@
     <figure><img src="img/cuevr/cue27-butt.jpg" alt="The butt of the Cobalt cue"><figcaption>COBALT</figcaption></figure>
     <figure><img src="img/cuevr/cue28-butt.jpg" alt="The butt of the Obsidian cue"><figcaption>OBSIDIAN</figcaption></figure>
     <figure><img src="img/cuevr/cue29-butt.jpg" alt="The butt of the One Piece cue"><figcaption>ONE PIECE</figcaption></figure>
+    <figure><img src="img/cuevr/cue30-butt.jpg" alt="The butt of the Flame cue"><figcaption>FLAME</figcaption></figure>
+    <figure><img src="img/cuevr/cue31-butt.jpg" alt="The butt of the Mosaic cue"><figcaption>MOSAIC</figcaption></figure>
   </div>
 
   <h3>Building your own</h3>
@@ -4822,17 +4903,33 @@
       own.</td></tr>
     <tr><td><b>Shaft</b></td><td>The timber (ash, maple, carbon or graphite), its colour and lightness, the ring
       spacing, contrast and arrows of the grain, whether an ash shaft's grain lines are dark or
-      brown, the ferrule (silver, brass, ivory, black, red-brown fibre or a short white one), the tip, the varnish and
+      brown, the ferrule (silver, brass, ivory, black, red-brown fibre, a short white one, or <b>NONE</b>, the tip straight on the shaft), the tip, the varnish and
       the cue's length. <b>GRAIN ROTATION</b> turns an ash or maple shaft's grain round the cue, so
       its arrows come up where you want them; the points and the butt stay where they are.</td></tr>
     <tr><td><b>Splice</b></td><td>How many points (none, 4, 6 or 8), by hand or by machine, how long
       they are, where the splice sits, how round the tips are and how long the veneers' crescents
-      run.</td></tr>
+      run. <b>POINTS RUN</b> turns them to run from the butt toward the tip. <b>STYLE</b>
+      <b>CRESCENTS</b>, for a flame splice, puts sets of crescents either side of the joint instead
+      of points: which sides and how many sets round the cue; how many crescents each side, how far
+      they run and how far apart; how far round the horns reach, how thick they are and how they
+      curve; whether they end at one point or each at a separate point; and whether two sets that cross lie
+      one over the other or weave. Their colours and thicknesses come from the Veneers page. A
+      splice on the shaft side of the joint carries the butt's grain, so the wood runs on across
+      the joint.</td></tr>
     <tr><td><b>Veneers</b></td><td>Up to eight veneers under the points and round the panel, each with
-      its colour and thickness. The points and the panel are set separately.</td></tr>
-    <tr><td><b>Butt</b></td><td>The butt timber, its figure and lightness, and the collar: brass,
-      silver, black, ivory, ivory with a brass ring each side, or ivory striped black; its width and
-      where it sits. <b>NONE</b> makes a one-piece cue, with no joint and so no collar.</td></tr>
+      its colour and thickness, up to 12 mm. The points and the panel are set separately.
+      <b>VENEER GRAIN</b> gives the veneers a wood's grain in the veneer colours instead of a flat
+      colour: <b>FINE</b> is a quiet straight grain, and <b>MIXED</b> gives each veneer a different
+      one. Beside each veneer on the points, a wood button chooses that veneer's grain;
+      <b>SAME</b> follows VENEER GRAIN.</td></tr>
+    <tr><td><b>Butt</b></td><td>The butt timber, its figure (<b>GRAIN</b>, a drop-down list) and
+      lightness, and <b>FOREARM</b>, the wood below the joint, which can be any wood or the same as
+      the shaft. Five woods arrived in 9.1.3 for every wooden part of a cue: <b>COCOBOLO</b>,
+      <b>KINGWOOD</b>, <b>OLIVE</b>, <b>ZEBRANO</b> and <b>BURL</b>; choosing one sets its natural
+      colour. <b>NEW BOARD</b> cuts the wood from another board, so two cues in the same wood do not
+      share a figure. Then the collar: brass, silver, black, ivory, ivory with a brass ring each
+      side, or ivory striped black; its width and where it sits. <b>NONE</b> makes a one-piece cue,
+      with no joint and so no collar.</td></tr>
     <tr><td><b>Panel</b></td><td>No panel, one on the front, or four round the butt; whether they sit
       <b>INSIDE</b> the points, a spear in each (the usual way), or <b>BETWEEN</b> them; how long and
       wide they are, how they spread into the butt, an inner panel set back inside, and a cross band
@@ -4845,10 +4942,18 @@
       brass, silver, black and gold, or boxwood), the screws or pins, a border, the emblem (a lion
       among them) and the lettering, in serif, the game's lettering, sans or gothic. Lettering can be all
       capitals, or fill the plate's width.</td></tr>
-    <tr><td><b>Extras</b></td><td>For a pool cue: a linen wrap, a butt sleeve, rings and
-      inlays.</td></tr>
+    <tr><td><b>Extras</b></td><td>A wrap, a butt sleeve, rings and inlays. <b>WRAP</b> is linen,
+      or a grip pattern laser-etched into the wood itself &mdash; <b>SNAKESKIN</b>,
+      <b>DIAMOND</b>, <b>FISH SCALE</b>, <b>LIZARD</b> or <b>CROCODILE</b> &mdash; where the wood
+      and its grain show through and the etched lines only stop the shine. <b>WRAP AT</b> moves the
+      wrap to the butt end, running up from the cap as on a snooker cue, with its own
+      length.</td></tr>
     <tr><td><b>End cap</b></td><td>A capped butt with rings, and on its end a country's flag, a
-      pattern (a cross, a saltire, bands and so on) or a plain disc.</td></tr>
+      pattern (a cross, a saltire, bands and so on) or a plain disc. <b>BUMPER</b> puts nothing, a
+      small ball or a rubber pad, with its screw showing in the hole, on the very end.</td></tr>
+    <tr><td><b>Decoration</b></td><td>Up to six bands or inlays, each with a pattern. A band's
+      pattern can be <b>NAME</b>, the cue's name embossed round it. A round dot inlay can carry an
+      embossed <b>MARK</b>: any letter, or a star, heart, diamond, club, spade or cross.</td></tr>
   </table>
 
   
@@ -4958,7 +5063,7 @@
 
   <h3>The gallery</h3>
   <p><b>GALLERY</b>, beside the title in the <b>Workshop</b>, opens it. The same button is on the
-  cue, ball set, challenge, cloth and timber pickers, and opens on the tab for what you were
+  cue, ball set, challenge, cloth and DESIGN pickers, and opens on the tab for what you were
   choosing.</p>
   <div class="shots">
     <figure class="shot"><a href="img/cuevr/glass/gallery-cues.jpg"><img src="img/cuevr/glass/gallery-cues.jpg" alt="The gallery, on its cues tab" loading="lazy"></a><span class="lab">CUES</span><figcaption>The gallery. Tabs for <b>CUES</b>, <b>BALLS</b>, <b>CHALLENGES</b> and <b>TABLE
