@@ -1195,6 +1195,22 @@ uint32_t mote_phys_step(MoteWorld *w, MoteBody *bodies, int n, float dt) {
     __atomic_clear(&s_step_lock, __ATOMIC_RELEASE);
     return ev;
 }
+size_t mote_phys_keep_bytes(void) {
+    return (size_t)s_cache_n * sizeof(Imp) + (size_t)s_max_bodies * sizeof(Vec3);
+}
+uint32_t mote_phys_step_keep(MoteWorld *w, MoteBody *bodies, int n, float dt, void *keep) {
+    if (!keep || !s_ct || n > s_max_bodies) return mote_phys_step(w, bodies, n, dt);
+    Imp *kc = (Imp *)keep; Vec3 *kj = (Vec3 *)(kc + s_cache_n);
+    while (__atomic_test_and_set(&s_step_lock, __ATOMIC_ACQUIRE)) { }
+    memcpy(s_cache_prev, kc, (size_t)s_cache_n * sizeof(Imp));      /* this world's impulses in */
+    for (int i = 0; i < n; i++) { const Vec3 t = s_javg[i]; s_javg[i] = kj[i]; kj[i] = t; }
+    const uint32_t ev = phys_step(w, bodies, n, dt);
+    memcpy(kc, s_cache_prev, (size_t)s_cache_n * sizeof(Imp));      /* ...and out again */
+    for (int i = 0; i < n; i++) { const Vec3 t = s_javg[i]; s_javg[i] = kj[i]; kj[i] = t; }
+    s_cache_owner = NULL;                     /* what is left is nobody's: the next plain step starts cold */
+    __atomic_clear(&s_step_lock, __ATOMIC_RELEASE);
+    return ev;
+}
 MOTE_HOT
 static uint32_t phys_step(MoteWorld *w, MoteBody *bodies, int n, float dt) {
     if (!s_ct || n > s_max_bodies) return 0;   /* physics not configured (or under-declared) for this game */

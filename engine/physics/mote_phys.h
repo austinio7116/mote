@@ -33,6 +33,7 @@
 #ifndef MOTE_PHYS_H
 #define MOTE_PHYS_H
 
+#include <stddef.h>
 #include <stdint.h>
 #include "mote_vec.h"
 
@@ -168,6 +169,16 @@ void mote_phys_world_defaults(MoteWorld *w);
 /* Advance the simulation by dt seconds. Returns an event bitmask (MOTE_PHYS_*)
  * for sound/feedback. */
 uint32_t mote_phys_step(MoteWorld *w, MoteBody *bodies, int n, float dt);
+/* A WORLD WITH ITS OWN SOLVER MEMORY. mote_phys_step keeps one set of
+ * warm-start impulses and one sleep average for every world, so a game that
+ * steps several worlds (or steps them from several threads) gets results that
+ * depend on which world stepped last. mote_phys_step_keep is the same step with
+ * that memory held in `keep` instead: a buffer of mote_phys_keep_bytes(),
+ * zeroed to start cold, belonging to this world alone. The same bodies, the
+ * same keep and the same dt give the same result whatever else has stepped.
+ * Not in the game ABI: for hosts that link the engine directly. */
+size_t   mote_phys_keep_bytes(void);
+uint32_t mote_phys_step_keep(MoteWorld *w, MoteBody *bodies, int n, float dt, void *keep);
 
 /* --- queries (no simulation; for aiming / ground checks / picking / AI) --- */
 
