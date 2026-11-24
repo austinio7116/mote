@@ -36,32 +36,31 @@
 
   nav.toc{position:sticky;top:0;z-index:20;background:rgba(10,12,10,.96);
     backdrop-filter:blur(6px);border-bottom:1px solid var(--line)}
-  nav.toc .wrap{display:flex;gap:4px;flex-wrap:wrap;padding:8px 20px}
-  nav.toc a{color:var(--dim);font-size:.84rem;padding:5px 10px;border-radius:6px}
-  nav.toc a:hover{color:var(--ink);background:var(--panel);text-decoration:none}
-  nav.toc input#q{flex:1 1 240px;min-width:200px;background:var(--panel);color:var(--ink);
+  /* THE CONTENTS IS A DROP-DOWN MENU, at every width (Mark, 9.3.6: "make this into a proper dropdown menu - a 3
+   * line set of links is not a good UX"). Twenty-seven links wrapped across three lines of a bar that is STICKY, so
+   * they sat over the page whatever the reader scrolled to. The bar is now the search box and one CONTENTS button;
+   * the links open under it as a panel, in columns, and close on a choice, on Escape and on a click elsewhere. */
+  nav.toc .wrap{display:flex;gap:8px;flex-wrap:nowrap;align-items:center;padding:8px 20px;position:relative}
+  nav.toc a{display:block;color:var(--dim);font-size:.88rem;padding:7px 10px;border-radius:6px}
+  nav.toc a:hover{color:var(--ink);background:rgba(255,255,255,.06);text-decoration:none}
+  nav.toc input#q{flex:1 1 auto;min-width:0;background:var(--panel);color:var(--ink);
     border:1px solid var(--line);border-radius:6px;padding:6px 10px;font:inherit;font-size:.86rem}
   nav.toc input#q::placeholder{color:var(--dim)}
-  nav.toc #toclinks{display:contents}
-  nav.toc #navtoggle{display:none;background:var(--panel);color:var(--ink);
-    border:1px solid var(--line);border-radius:6px;padding:6px 12px;font:inherit;
+  nav.toc #navtoggle{display:block;flex:0 0 auto;white-space:nowrap;background:var(--panel);color:var(--ink);
+    border:1px solid var(--line);border-radius:6px;padding:6px 14px;font:inherit;
     font-size:.86rem;cursor:pointer}
+  nav.toc #navtoggle::after{content:"  \25BE"}
+  nav.toc.open #navtoggle::after{content:"  \25B4"}
   nav.toc #navtoggle:hover{border-color:var(--dim)}
-  /* ON A PHONE THE CONTENTS IS A MENU, not a wall.
-   *
-   * Sixteen links wrapping across a narrow screen filled two thirds of it, and
-   * the nav is STICKY — so that two thirds never went away, whatever the reader
-   * scrolled to. The search box is the one thing worth that space always, so it
-   * keeps the bar to itself and the links fold behind a button. */
+  nav.toc #toclinks{display:none}
+  nav.toc.open #toclinks{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:2px 10px;
+    position:absolute;right:20px;top:calc(100% + 6px);width:min(660px,calc(100vw - 40px));
+    max-height:72vh;overflow:auto;padding:10px;background:var(--panel);border:1px solid var(--line);
+    border-radius:10px;box-shadow:0 14px 34px rgba(0,0,0,.65)}
   @media(max-width:760px){
-    nav.toc .wrap{padding:8px 12px;gap:6px;flex-wrap:nowrap}
-    nav.toc input#q{flex:1 1 auto;min-width:0}
-    nav.toc #navtoggle{display:block;flex:0 0 auto;white-space:nowrap}
-    nav.toc #toclinks{display:none}
-    nav.toc.open #toclinks{display:flex;flex-wrap:wrap;gap:4px;width:100%;
-      max-height:60vh;overflow:auto;padding-top:6px;border-top:1px solid var(--line)}
-    nav.toc.open .wrap{flex-wrap:wrap}
-    nav.toc a{font-size:.9rem;padding:8px 12px}
+    nav.toc .wrap{padding:8px 12px;gap:6px}
+    nav.toc.open #toclinks{grid-template-columns:repeat(2,minmax(0,1fr));right:12px;width:calc(100vw - 24px)}
+    nav.toc a{font-size:.9rem;padding:9px 12px}
     #results{margin:6px 12px}
   }
   /* THE RESULTS HANG UNDER THE BAR, wherever the page is scrolled to: they are inside the sticky
@@ -143,6 +142,11 @@
   details.lookup[open] summary{margin-bottom:10px}
   /* A NARROW PANEL (the table set-up glass) stands beside its text, at its own size */
   figure.panel{float:right;width:300px;margin:4px 0 16px 24px}
+  /* A FLOATED PICTURE STAYS IN ITS OWN PART OF THE PAGE: the next heading, table, row of pictures
+   * or note starts below it, and so does the end of its section. Without this a tall panel beside
+   * a short paragraph hung down over whatever came next. */
+  h2,h3,table,.grid,.shots,.note,.cards,.showcase,.mode,figure:not(.panel){clear:both}
+  section::after{content:"";display:block;clear:both}
   figure.panel img{width:100%;height:auto}
   @media(max-width:760px){figure.panel{float:none;width:auto;max-width:340px;margin:16px 0}}
   section::after{content:"";display:block;clear:both}
@@ -177,6 +181,8 @@
      so a section read as two bordered panels with loose pictures between them.
      Same panel, same border, one column. */
   .mode.solo{grid-template-columns:1fr}
+  /* a game's screens (its RULES page, its questions, its scorecard), in a block after that game */
+  .mode.screens{margin-top:-8px}
   .mode.solo figure{margin:0}
   .mode.solo>table{margin:0}
   .mode.solo figcaption{font-size:.9rem;color:var(--dim);margin-top:8px}
@@ -316,17 +322,18 @@
   football, air hockey, shuffleboard and carrom. Build cues down to the inlays and name plate,
   ball sets, and tables of any size and pocket, and play with controllers, your bare hands or
   your real cue.</p>
+  <!-- THE HERO COLLECTION IS KEPT AS IT WAS AT 9.1.9 (Mark, 9.3.6: "just keep the guide's hero images unchanged"): its pictures are the old ones, in img/cuevr/hero/, and its captions the old ones. The same file names outside that folder are the current pictures, used further down. -->
   <div class="showcase">
-    <figure class="big"><img width="960" height="540" src="img/cuevr/venue_theatre.jpg" alt="A tour final in a theatre, a full house watching"><figcaption>Play a tour final in front of a full house</figcaption></figure>
-    <figure><img width="960" height="540" src="img/cuevr/venue_ginpalace.jpg" alt="A pool table in a gin palace"><figcaption>A Victorian gin palace</figcaption></figure>
-    <figure><img width="880" height="606" src="img/cuevr/surround5.jpg" alt="The dining room"><figcaption>A stately home's dining room</figcaption></figure>
-    <figure><img width="880" height="606" src="img/cuevr/surround6.jpg" alt="The library"><figcaption>The library</figcaption></figure>
-    <figure><img width="880" height="606" src="img/cuevr/trophy_held.png" alt="A trophy held up over the table"><figcaption>Win a title, lift the trophy</figcaption></figure>
-    <figure><img width="880" height="586" src="img/cuevr/club_room.jpg" alt="The snooker club"><figcaption>Down the club, with other players</figcaption></figure>
-    <figure><img width="960" height="540" src="img/cuevr/venue_poolhall.jpg" alt="A pool hall"><figcaption>A pool hall</figcaption></figure>
-    <figure><img width="880" height="606" src="img/cuevr/tile-tables.jpg" alt="An L-shaped table"><figcaption>Nine table bodies, and beds of every shape</figcaption></figure>
-    <figure><img width="602" height="414" src="img/cuevr/tile-balls.jpg" alt="Four ball sets"><figcaption>37 ball sets</figcaption></figure>
-    <figure class="wide"><img width="820" height="492" src="img/cuevr/tile-cues.jpg" alt="Cue butts"><figcaption>32 cues, and a workshop to build more</figcaption></figure>
+    <figure class="big"><img src="img/cuevr/hero/venue_theatre.jpg" alt="A tour final in a theatre, a full house watching"><figcaption>Play a tour final in front of a full house</figcaption></figure>
+    <figure><img src="img/cuevr/hero/venue_ginpalace.jpg" alt="A pool table in a gin palace"><figcaption>A Victorian gin palace</figcaption></figure>
+    <figure><img src="img/cuevr/hero/surround5.jpg" alt="The dining room"><figcaption>A stately home's dining room</figcaption></figure>
+    <figure><img src="img/cuevr/hero/surround6.jpg" alt="The library"><figcaption>The library</figcaption></figure>
+    <figure><img src="img/cuevr/hero/trophy_held.png" alt="A trophy held up over the table"><figcaption>Win a title, lift the trophy</figcaption></figure>
+    <figure><img src="img/cuevr/hero/club_room.jpg" alt="The snooker club"><figcaption>Down the club, with other players</figcaption></figure>
+    <figure><img src="img/cuevr/hero/venue_poolhall.jpg" alt="A pool hall"><figcaption>A pool hall</figcaption></figure>
+    <figure><img src="img/cuevr/hero/tile-tables.jpg" alt="An L-shaped table"><figcaption>Seven table bodies, and beds of every shape</figcaption></figure>
+    <figure><img src="img/cuevr/hero/tile-balls.jpg" alt="Four ball sets"><figcaption>27 ball sets</figcaption></figure>
+    <figure class="wide"><img src="img/cuevr/hero/tile-cues.jpg" alt="Cue butts"><figcaption>30 cues, and a workshop to build more</figcaption></figure>
   </div>
 
 
@@ -1040,14 +1047,18 @@
     <figure><img width="880" height="606" src="img/cuevr/game-snk15.png" alt="A 12ft snooker table"></figure>
   </div>
 
+  <div class="mode solo screens">
+  <div class="grid g2">
+    <figure class="glass"><a href="img/cuevr/glass/pickrules-snooker.jpg"><img width="1280" height="720" src="img/cuevr/glass/pickrules-snooker.jpg" alt="The rules page, snooker" loading="lazy"></a>
+    <figcaption><b>Snooker</b>: how strictly the miss is called (the miss levels), the Snooker
+    Shoot Out and The 900.</figcaption></figure>
+  </div>
+  </div>
+
   <div class="mode rev">
     <figure><img width="880" height="606" src="img/cuevr/game-snk10.png" alt="A 10-red snooker table"></figure>
     <div>
-        <figure class="glass"><a href="img/cuevr/glass/pickrules-snooker.jpg"><img width="1280" height="720" src="img/cuevr/glass/pickrules-snooker.jpg" alt="The rules page, snooker" loading="lazy"></a>
-    <figcaption><b>Snooker</b>: how strictly the miss is called (the miss levels), the Snooker
-    Shoot Out and The 900.</figcaption></figure>
-
-<h3>10-red snooker</h3>
+      <h3>10-red snooker</h3>
       <div class="spec">10FT TABLE · 10 REDS · 6 COLOURS</div>
       <p>Exactly the rules above — reds and colours, the same values, the same fouls, free balls,
       misses and respotted black — with ten reds instead of fifteen, on a ten-foot table.</p>
@@ -1176,13 +1187,17 @@
     again. Last player with a life wins.
   </div>
 
-  <div class="mode">
-    <div>
-        <figure class="glass"><a href="img/cuevr/glass/pickrules-uk8.jpg"><img width="1280" height="720" src="img/cuevr/glass/pickrules-uk8.jpg" alt="The rules page, UK 8-ball" loading="lazy"></a>
+  <div class="mode solo screens">
+  <div class="grid g2">
+    <figure class="glass"><a href="img/cuevr/glass/pickrules-uk8.jpg"><img width="1280" height="720" src="img/cuevr/glass/pickrules-uk8.jpg" alt="The rules page, UK 8-ball" loading="lazy"></a>
     <figcaption><b>UK 8-ball</b>: PUB (2 SHOTS), INTERNATIONAL, ULTIMATE POOL, BLACKBALL (WPA)
     and KILLER.</figcaption></figure>
+  </div>
+  </div>
 
-<h3>US 8-ball</h3>
+  <div class="mode">
+    <div>
+      <h3>US 8-ball</h3>
       <div class="spec">9FT TABLE · SOLIDS AND STRIPES · 8 BALL</div>
       <p>WPA rules. The table is open after the break — whatever you pot first decides whether you
       are solids or stripes — and once your group is clear you are on the 8.</p>
@@ -1231,18 +1246,20 @@
     </div>
   </div>
 
-  <div class="mode rev">
-    <figure><img width="880" height="606" src="img/cuevr/game-us10.png" alt="A 10-ball table"></figure>
-    <div>
-        <div class="shots">
+  <div class="mode solo screens">
+  <div class="shots">
     <figure class="shot"><a href="img/cuevr/glass/pickrules-9ball.jpg"><img width="1280" height="720" src="img/cuevr/glass/pickrules-9ball.jpg" alt="The rules page, 9-ball" loading="lazy"></a><span class="lab">9-ball</span><figcaption><b>9-ball</b>: WPA 9-BALL, SHOT CLOCK and WINNER BREAKS. See
     <a href="#rules-clock">Playing against the clock</a>.</figcaption></figure>
     <figure class="shot"><a href="img/cuevr/glass/decide-pushout.jpg"><img width="1064" height="624" src="img/cuevr/glass/decide-pushout.jpg" alt="Push out" loading="lazy"></a><span class="lab">PUSH OUT</span><figcaption>9-ball, after the break: <b>PUSH OUT</b> (a free shot) or <b>PLAY ON</b>.</figcaption></figure>
     <figure class="shot"><a href="img/cuevr/glass/decide-pushresp.jpg"><img width="1064" height="624" src="img/cuevr/glass/decide-pushresp.jpg" alt="Opponent pushed out" loading="lazy"></a><span class="lab">PLAY ON</span><figcaption>...and after your opponent's push-out: <b>PLAY ON</b> from there, or <b>HAND IT
     BACK</b>.</figcaption></figure>
   </div>
-  
-<h3>10-ball</h3>
+  </div>
+
+  <div class="mode rev">
+    <figure><img width="880" height="606" src="img/cuevr/game-us10.png" alt="A 10-ball table"></figure>
+    <div>
+      <h3>10-ball</h3>
       <div class="spec">9FT TABLE · 10 BALLS · TRIANGLE RACK</div>
       <p>The same bed and the same rotation game as 9-ball: lowest ball first, any ball may then go
       in, three fouls in a row loses the frame, and the money ball ends it. The rack is what
@@ -1370,15 +1387,17 @@
     </div>
   </div>
 
-  <div class="mode">
-    <div>
-        <div class="grid g2">
+  <div class="mode solo screens">
+  <div class="grid g2">
   <figure><a href="img/cuevr/glass/decide-straight.jpg"><img width="1064" height="624" src="img/cuevr/glass/decide-straight.jpg" alt="Straight pool breaking foul" loading="lazy"></a>
     <figcaption>Straight pool, after a breaking foul: <b>TAKE THE TABLE</b>, or <b>MAKE OPPONENT
     BREAK AGAIN</b> from a new rack.</figcaption></figure>
   </div>
+  </div>
 
-<h3>Russian pyramid</h3>
+  <div class="mode">
+    <div>
+      <h3>Russian pyramid</h3>
       <div class="spec">12FT TABLE · 68 MM BALLS · 15 IVORIES · 8 WINS</div>
       <p>Any of the fifteen is on, in any order, and each one you pot scores one.
       <b>Eight wins</b>: more than half, so it cannot be caught.</p>
@@ -1457,16 +1476,18 @@
     <figure><img width="880" height="606" src="img/cuevr/game-pyramid12.png" alt="A 12ft Russian pyramid table"></figure>
   </div>
 
-  <div class="mode rev">
-    <figure><img width="880" height="606" src="img/cuevr/game-pyramid7.png" alt="A 7ft Russian pyramid table"></figure>
-    <div>
-        <div class="grid g2">
+  <div class="mode solo screens">
+  <div class="grid g2">
   <figure><a href="img/cuevr/glass/decide-pyramid.jpg"><img width="1064" height="624" src="img/cuevr/glass/decide-pyramid.jpg" alt="Pyramid illegal break" loading="lazy"></a>
     <figcaption>Pyramid, after an illegal break: play on, make them play, or re-rack with either
     of you breaking.</figcaption></figure>
   </div>
+  </div>
 
-<h3>Pyramid, 7 ft</h3>
+  <div class="mode rev">
+    <figure><img width="880" height="606" src="img/cuevr/game-pyramid7.png" alt="A 7ft Russian pyramid table"></figure>
+    <div>
+      <h3>Pyramid, 7 ft</h3>
       <div class="spec">7FT TABLE · 57.15 MM BALLS · 15 IVORIES · 8 WINS</div>
       <p>The same game with the same rules on a smaller table: 1.98 × 0.99 m with
       57.15 mm balls, the smallest size the federation lists. It does not have a separate card:
@@ -1527,14 +1548,18 @@
     <figure><img width="880" height="606" src="img/cuevr/game-billiards.png" alt="An English billiards table"></figure>
   </div>
 
+  <div class="mode solo screens">
+  <div class="grid g2">
+    <figure class="glass"><a href="img/cuevr/glass/pickrules-billiards.jpg"><img width="1280" height="720" src="img/cuevr/glass/pickrules-billiards.jpg" alt="The rules page, English billiards" loading="lazy"></a>
+    <figcaption><b>English billiards</b>: first to 50, 75, 100, 150 or 200 points, or the most
+    points in 5, 10, 15 or 30 minutes.</figcaption></figure>
+  </div>
+  </div>
+
   <div class="mode rev">
     <figure><img width="880" height="606" src="img/cuevr/game-barbilliards.png" alt="A bar billiards table"></figure>
     <div>
-        <figure class="glass"><a href="img/cuevr/glass/pickrules-billiards.jpg"><img width="1280" height="720" src="img/cuevr/glass/pickrules-billiards.jpg" alt="The rules page, English billiards" loading="lazy"></a>
-    <figcaption><b>English billiards</b>: first to 50, 75, 100, 150 or 200 points, or the most
-    points in 5, 10, 15 or 30 minutes.</figcaption></figure>
-
-<h3>Bar billiards</h3>
+      <h3>Bar billiards</h3>
       <div class="spec">142 × 79 CM · NINE HOLES IN THE BED · NO RAIL POCKETS · A RED AND SEVEN WHITES</div>
       <p>The odd one out in every way. Four unbroken cushions and <b>no pockets on the rails at
       all</b> — instead there are nine holes bored through the bed, worth 10 to 200, and three
@@ -1719,15 +1744,17 @@
     </div>
   </div>
 
-  <div class="mode rev">
-    <figure><img width="880" height="606" src="img/cuevr/game-golf.png" alt="A billiards golf table"></figure>
-    <div>
-        <div class="grid g2">
+  <div class="mode solo screens">
+  <div class="grid g2">
   <figure><a href="img/cuevr/glass/decide-mesinha.jpg"><img width="1064" height="624" src="img/cuevr/glass/decide-mesinha.jpg" alt="Choose your group" loading="lazy"></a>
     <figcaption>Mesinha's par e impar: choose <b>ODD</b> or <b>EVEN</b>.</figcaption></figure>
   </div>
+  </div>
 
-<h3>Billiards golf</h3>
+  <div class="mode rev">
+    <figure><img width="880" height="606" src="img/cuevr/game-golf.png" alt="A billiards golf table"></figure>
+    <div>
+      <h3>Billiards golf</h3>
       <div class="spec">7FT TABLE · 18 HOLES · PAR 73</div>
       <p>Eighteen holes on the pub table, off the old Billiard &amp; Golf scoreboard. Each hole is a
       fixed arrangement of two, three or four reds inside the rack triangle, with a par of one more
@@ -1761,16 +1788,16 @@
     </div>
   </div>
 
-  <div class="mode solo">
+
+  <div class="mode solo screens">
+  <div class="grid g2">
+  <figure><a href="img/cuevr/glass/board-golf.jpg"><img width="1024" height="672" src="img/cuevr/glass/board-golf.jpg" alt="Golf scorecard" loading="lazy"></a><figcaption>Billiards golf's <b>SCORECARD</b>, from the pause menu: a column for each hole with par above, the nines and the round added up. Your plus or minus is against the par of the holes you have played so far.</figcaption></figure>
+  </div>
   </div>
 
   <div class="mode">
     <div>
-        <div class="grid g2">
-  <figure><a href="img/cuevr/glass/board-golf.jpg"><img width="1024" height="672" src="img/cuevr/glass/board-golf.jpg" alt="Golf scorecard" loading="lazy"></a><figcaption>Billiards golf's <b>SCORECARD</b>, from the pause menu: a column for each hole with par above, the nines and the round added up. Your plus or minus is against the par of the holes you have played so far.</figcaption></figure>
-  </div>
-
-<h3>Paul</h3>
+      <h3>Paul</h3>
       <div class="spec">6FT HOME TABLE · 42 MM BALLS · SCATTERED AT RANDOM · 54 MM POCKETS</div>
       <p><b>There is no rack.</b> The whole snooker set (fifteen reds, six colours and the white)
       is put on the cloth <b>at random, differently every game</b>. The white starts wherever it
@@ -1981,7 +2008,7 @@
     <figure><img width="880" height="606" src="img/cuevr/game-honolulu.png" alt="A Honolulu table"></figure>
   </div>
 
-  <div class="row">
+  <div class="mode">
     <div>
       <h3>Bowlliards</h3>
       <div class="spec">9FT TABLE · 10 BALLS · BOWLING CARD</div>
@@ -2013,13 +2040,15 @@
     <figure><img width="880" height="606" src="img/cuevr/game-bowlliards.png" alt="A bowlliards rack and card"></figure>
   </div>
 
-  <div class="row">
-    <div>
-        <div class="grid g2">
+  <div class="mode solo screens">
+  <div class="grid g2">
   <figure><a href="img/cuevr/glass/board-bowlliards.jpg"><img width="1024" height="672" src="img/cuevr/glass/board-bowlliards.jpg" alt="Bowlliards scorecard" loading="lazy"></a><figcaption>Bowlliards' <b>SCORECARD</b>.</figcaption></figure>
   </div>
+  </div>
 
-<h3>Cribbage pool</h3>
+  <div class="mode">
+    <div>
+      <h3>Cribbage pool</h3>
       <div class="spec">9FT TABLE · 15 BALLS · US 8-BALL'S RULES ROW</div>
       <p>The numbers on the balls are worth nothing by themselves. What scores is a
       <b>cribbage</b> — two balls totalling fifteen, potted one after the other inside a single
